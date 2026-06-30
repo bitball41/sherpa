@@ -76,7 +76,9 @@ export class SherpaServiceWorker extends EventTarget {
 			}
 
 			if (data.sherpa$type === "registerServiceWorker") {
-				this.serviceWorkers.push(new FakeServiceWorker(data.port, data.origin));
+				this.serviceWorkers.push(
+					new FakeServiceWorker(data.port, data.origin, data.scope)
+				);
 
 				return;
 			}
@@ -182,6 +184,7 @@ type RegisterServiceWorkerMessage = {
 	sherpa$type: "registerServiceWorker";
 	port: MessagePort;
 	origin: string;
+	scope: string;
 };
 
 /**

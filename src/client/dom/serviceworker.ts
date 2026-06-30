@@ -23,6 +23,7 @@ export default function (client: SherpaClient, _self: Self) {
 		ServiceWorkerRegistration,
 		FakeRegistrationState
 	> = new WeakMap();
+	let registration: ServiceWorkerRegistration | undefined;
 	client.Proxy("EventTarget.prototype.addEventListener", {
 		apply(ctx) {
 			if (registrationmap.get(ctx.this)) {
@@ -73,7 +74,19 @@ export default function (client: SherpaClient, _self: Self) {
 				self.ServiceWorkerRegistration.prototype
 			);
 			fakeRegistration.constructor = ctx.fn;
-			let url = rewriteUrl(ctx.args[0], client.meta) + "?dest=serviceworker";
+
+			// Per spec: an explicit `options.scope` wins; otherwise the scope
+			// defaults to the directory containing the script URL.
+			const scriptURL = new URL(ctx.args[0], client.url.href);
+			const explicitScope = ctx.args[1]?.scope as string | undefined;
+			const scope = explicitScope
+				? new URL(explicitScope, client.url.href).pathname
+				: new URL(".", scriptURL).pathname;
+
+			let url =
+				rewriteUrl(ctx.args[0], client.meta) +
+				"?dest=serviceworker&scope=" +
+				encodeURIComponent(scope);
 			if (ctx.args[1] && ctx.args[1].type === "module") {
 				url += "&type=module";
 			}
@@ -81,7 +94,7 @@ export default function (client: SherpaClient, _self: Self) {
 			const worker = client.natives.construct("SharedWorker", url);
 			const handle = worker.port;
 			const state: FakeRegistrationState = {
-				scope: ctx.args[0],
+				scope,
 				active: handle as ServiceWorker,
 			};
 			const controller = client.descriptors.get(
@@ -96,11 +109,13 @@ export default function (client: SherpaClient, _self: Self) {
 					sherpa$type: "registerServiceWorker",
 					port: handle,
 					origin: client.url.origin,
+					scope,
 				} as MessageC2W,
 				[handle]
 			);
 
 			registrationmap.set(fakeRegistration, state);
+			registration = fakeRegistration;
 			ctx.return(new Promise((resolve) => resolve(fakeRegistration)));
 		},
 	});
