@@ -1,12 +1,12 @@
 {
-	"name": "@mercuryworkshop/scramjet",
+	"name": "sherpa",
 	"version": "1.1.0",
-	"description": "An experimental web proxy that aims to be the successor to Ultraviolet",
+	"description": "Sherpa is a fork of Mercury Workshop's Scramjet, an experimental web proxy that aims to be the successor to Ultraviolet.",
 	"type": "module",
 	"types": "./dist/types/index.d.ts",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/MercuryWorkshop/scramjet.git"
+		"url": "git+https://github.com/bitball41/sherpa.git"
 	},
 	"scripts": {
 		"build": "rspack build --mode production",
@@ -42,7 +42,7 @@
 		},
 		"./bundled": {
 			"types": "./dist/types/index.d.ts",
-			"default": "./dist/scramjet.bundle.js"
+			"default": "./dist/sherpa.bundle.js"
 		}
 	},
 	"files": [
@@ -51,7 +51,7 @@
 	],
 	"keywords": [],
 	"author": "",
-	"license": "MIT",
+	"license": "AGPL-3.0-only",
 	"ava": {
 		"files": [
 			"tests/ci/**/*.js"
