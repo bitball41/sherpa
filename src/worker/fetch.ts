@@ -23,6 +23,12 @@ import { rewriteHtml } from "@rewriters/html";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteWorkers } from "@rewriters/worker";
 import { SherpaDownload } from "@client/events";
+import {
+	createOriginHeader,
+	createRefererHeader,
+	createVirtualRequestContext,
+	shouldSendCookies,
+} from "@/worker/request";
 
 function isRedirect(response: BareResponseFetch) {
 	return response.status >= 300 && response.status < 400;
@@ -211,19 +217,19 @@ export async function handleFetch(
 			headers.set(key, value);
 		}
 
-		if (client && new URL(client.url).pathname.startsWith(config.prefix)) {
-			// TODO: i was against cors emulation but we might actually break stuff if we send full origin/referrer always
-			const clientURL = new URL(unrewriteUrl(client.url));
-			if (clientURL.toString().includes("youtube.com")) {
-				// console.log(headers);
-			} else {
-				// Force referrer to unsafe-url for all requests
-				headers.set("Referer", clientURL.href);
-				headers.set("Origin", clientURL.origin);
-			}
-		}
+		const requestContext = createVirtualRequestContext(request, client, url);
+		headers.delete("Referer");
+		headers.delete("Origin");
 
-		const cookies = this.cookieStore.getCookies(url, false);
+		const referer = createRefererHeader(requestContext);
+		if (referer) headers.set("Referer", referer);
+
+		const origin = createOriginHeader(requestContext);
+		if (origin) headers.set("Origin", origin);
+
+		const cookies = shouldSendCookies(requestContext)
+			? this.cookieStore.getCookies(url, false)
+			: "";
 
 		if (cookies.length) {
 			headers.set("Cookie", cookies);
@@ -291,28 +297,17 @@ export async function handleFetch(
 		}
 
 		let siteDirective = "none";
-		if (
-			request.referrer &&
-			request.referrer !== "" &&
-			request.referrer !== "no-referrer" &&
-			request.referrer !== location.origin + config.prefix + "no-referrer"
-		) {
-			if (request.referrer.includes(config.prefix)) {
-				const unrewrittenReferrer = unrewriteUrl(request.referrer);
-				if (unrewrittenReferrer) {
-					const referrerUrl = new URL(unrewrittenReferrer);
-					siteDirective = await getSiteDirective(
-						meta,
-						referrerUrl,
-						this.client
-					);
-				}
-			}
+		if (requestContext.referrerUrl) {
+			siteDirective = await getSiteDirective(
+				meta,
+				requestContext.referrerUrl,
+				this.client
+			);
 		}
 
 		await initializeTracker(
 			url.toString(),
-			request.referrer ? unrewriteUrl(request.referrer) : null,
+			requestContext.referrerUrl?.href || null,
 			siteDirective
 		);
 
@@ -337,6 +332,8 @@ export async function handleFetch(
 				method: ev.method,
 				body: ev.body,
 				headers: ev.requestHeaders,
+				// Never let the transport attach ambient proxy-origin credentials.
+				// Virtual credentials were resolved into the request headers above.
 				credentials: "omit",
 				mode: request.mode === "cors" ? request.mode : "same-origin",
 				cache: request.cache,
@@ -357,7 +354,7 @@ export async function handleFetch(
 			client,
 			this.client,
 			this,
-			request.referrer
+			requestContext.referrerUrl?.href || ""
 		);
 	} catch (err) {
 		const errorDetails = {
