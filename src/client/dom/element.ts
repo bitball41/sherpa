@@ -205,9 +205,43 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
-	// i actually need to do something with this
 	client.Proxy("Element.prototype.setAttributeNode", {
-		apply(_ctx) {},
+		apply(ctx) {
+			const attribute = ctx.args[0] as Attr;
+			const ownerElement = client.descriptors.get(
+				"Attr.prototype.ownerElement",
+				attribute
+			);
+
+			// Let the native implementation handle attributes that are already in
+			// use, including returning early or throwing InUseAttributeError.
+			if (ownerElement) return ctx.call();
+
+			const name = client.descriptors.get("Attr.prototype.name", attribute);
+			const value = client.descriptors.get("Attr.prototype.value", attribute);
+			const previousValue = self.Element.prototype.getAttribute.call(
+				ctx.this,
+				name
+			);
+			const previousAttribute = ctx.call() as Attr | null;
+
+			// setAttributeNode detaches and returns the replaced Attr. Once detached,
+			// its trapped value getter can no longer recover the original value from
+			// Sherpa's hidden attribute, so restore that value on the returned node.
+			if (previousAttribute && previousValue !== null) {
+				client.descriptors.set(
+					"Attr.prototype.value",
+					previousAttribute,
+					previousValue
+				);
+			}
+
+			// The native call preserves the supplied Attr node's identity. Updating
+			// it through the regular trap then applies URL/CSS/srcdoc rewriting and
+			// records the original value for the page-facing attribute APIs.
+			self.Element.prototype.setAttribute.call(ctx.this, name, value);
+			ctx.return(previousAttribute);
+		},
 	});
 
 	client.Proxy("Element.prototype.setAttributeNS", {
