@@ -163,10 +163,9 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 	// we have to use an IIFE to avoid duplicating side-effects in the getter
 	Object.defineProperty(self, config.globals.trysetfn, {
 		value: function (lhs: any, op: string, rhs: any) {
-			// TODO: not cross frame safe
-			if (lhs instanceof self.Location) {
-				// @ts-ignore
-				client.locationProxy.href = rhs;
+			const locationClient = client.box.locations.get(lhs);
+			if (locationClient) {
+				locationClient.locationProxy.href = rhs;
 
 				return true;
 			}
