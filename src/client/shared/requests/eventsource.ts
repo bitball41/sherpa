@@ -10,7 +10,7 @@ export default function (client: SherpaClient) {
 
 	client.Trap("EventSource.prototype.url", {
 		get(ctx) {
-			unrewriteUrl(ctx.get() as string);
+			return unrewriteUrl(ctx.get() as string);
 		},
 	});
 }
