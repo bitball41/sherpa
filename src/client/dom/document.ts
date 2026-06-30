@@ -1,7 +1,7 @@
 import { rewriteHtml } from "@rewriters/html";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, _self: Self) {
+export default function (client: SherpaClient, _self: Self) {
 	const tostring = String;
 	client.Proxy(
 		["Document.prototype.querySelector", "Document.prototype.querySelectorAll"],

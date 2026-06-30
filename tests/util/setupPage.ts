@@ -14,7 +14,7 @@ export async function setupPage(
 	const bar = page.locator(".bar");
 	const title = await page.locator(".version > b").textContent();
 	const frame = page.frameLocator("iframe");
-	expect(title).toBe("scramjet");
+	expect(title).toBe("sherpa");
 
 	expect(bar).not.toBeNull();
 

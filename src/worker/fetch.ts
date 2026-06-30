@@ -1,5 +1,5 @@
 import BareClient, { BareResponseFetch } from "@mercuryworkshop/bare-mux";
-import { MessageW2C, ScramjetServiceWorker } from "@/worker";
+import { MessageW2C, SherpaServiceWorker } from "@/worker";
 import { renderError } from "@/worker/error";
 import { FakeServiceWorker } from "@/worker/fakesw";
 import { CookieStore } from "@/shared/cookie";
@@ -16,13 +16,13 @@ import {
 
 import { unrewriteBlob, unrewriteUrl, type URLMeta } from "@rewriters/url";
 import { rewriteJs } from "@rewriters/js";
-import { ScramjetHeaders } from "@/shared/headers";
+import { SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
 import { rewriteHtml } from "@rewriters/html";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteWorkers } from "@rewriters/worker";
-import { ScramjetDownload } from "@client/events";
+import { SherpaDownload } from "@client/events";
 
 function isRedirect(response: BareResponseFetch) {
 	return response.status >= 300 && response.status < 400;
@@ -72,7 +72,7 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 }
 
 export async function handleFetch(
-	this: ScramjetServiceWorker,
+	this: SherpaServiceWorker,
 	request: Request,
 	client: Client | null
 ) {
@@ -198,7 +198,7 @@ export async function handleFetch(
 			);
 		}
 
-		const headers = new ScramjetHeaders();
+		const headers = new SherpaHeaders();
 		for (const [key, value] of request.headers.entries()) {
 			headers.set(key, value);
 		}
@@ -313,7 +313,7 @@ export async function handleFetch(
 			await getMostRestrictiveSite(url.toString(), siteDirective)
 		);
 
-		const ev = new ScramjetRequestEvent(
+		const ev = new SherpaRequestEvent(
 			url,
 			headers.headers,
 			request.body,
@@ -394,7 +394,7 @@ async function handleResponse(
 	cookieStore: CookieStore,
 	client: Client,
 	bareClient: BareClient,
-	swtarget: ScramjetServiceWorker,
+	swtarget: SherpaServiceWorker,
 	referrer: string
 ): Promise<Response> {
 	let responseBody: BodyType;
@@ -460,7 +460,7 @@ async function handleResponse(
 	for (const cookie in maybeHeaders) {
 		if (client) {
 			const promise = swtarget.dispatch(client, {
-				scramjet$type: "cookie",
+				sherpa$type: "cookie",
 				cookie,
 				url: url.href,
 			});
@@ -507,7 +507,7 @@ async function handleResponse(
 				);
 			}
 
-			const download: ScramjetDownload = {
+			const download: SherpaDownload = {
 				filename,
 				url: url.href,
 				type: responseHeaders["content-type"],
@@ -516,7 +516,7 @@ async function handleResponse(
 			};
 			clis[0].postMessage(
 				{
-					scramjet$type: "download",
+					sherpa$type: "download",
 					download,
 				} as MessageW2C,
 				[response.body]
@@ -559,7 +559,7 @@ async function handleResponse(
 		responseHeaders["content-type"] = "text/event-stream";
 	}
 
-	// scramjet runtime can use features that permissions-policy blocks
+	// sherpa runtime can use features that permissions-policy blocks
 	delete responseHeaders["permissions-policy"];
 
 	if (
@@ -577,7 +577,7 @@ async function handleResponse(
 		responseHeaders["Cross-Origin-Opener-Policy"] = "same-origin";
 	}
 
-	const ev = new ScramjetHandleResponseEvent(
+	const ev = new SherpaHandleResponseEvent(
 		responseBody,
 		responseHeaders,
 		response.status,
@@ -655,7 +655,7 @@ async function rewriteBody(
 
 type BodyType = string | ArrayBuffer | Blob | ReadableStream<any>;
 
-export class ScramjetHandleResponseEvent extends Event {
+export class SherpaHandleResponseEvent extends Event {
 	constructor(
 		public responseBody: BodyType,
 		public responseHeaders: Record<string, string>,
@@ -670,7 +670,7 @@ export class ScramjetHandleResponseEvent extends Event {
 	}
 }
 
-export class ScramjetRequestEvent extends Event {
+export class SherpaRequestEvent extends Event {
 	constructor(
 		public url: URL,
 		public requestHeaders: Record<string, string>,

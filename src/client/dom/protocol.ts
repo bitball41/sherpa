@@ -1,7 +1,7 @@
 import { rewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	client.Proxy("Navigator.prototype.registerProtocolHandler", {
 		apply(ctx) {
 			ctx.args[1] = rewriteUrl(ctx.args[1], client.meta);

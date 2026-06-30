@@ -1,4 +1,4 @@
-import { ScramjetConfig, ScramjetFlags } from "@/types";
+import { SherpaConfig, SherpaFlags } from "@/types";
 
 export * from "./cookie";
 export * from "./headers";
@@ -15,7 +15,7 @@ export function loadCodecs() {
 	codecDecode = nativeFunction(`return ${config.codec.decode}`)() as any;
 }
 
-export function flagEnabled(flag: keyof ScramjetFlags, url: URL): boolean {
+export function flagEnabled(flag: keyof SherpaFlags, url: URL): boolean {
 	const value = config.flags[flag];
 	for (const regex in config.siteFlags) {
 		const partialflags = config.siteFlags[regex];
@@ -27,8 +27,8 @@ export function flagEnabled(flag: keyof ScramjetFlags, url: URL): boolean {
 	return value;
 }
 
-export let config: ScramjetConfig;
-export function setConfig(newConfig: ScramjetConfig) {
+export let config: SherpaConfig;
+export function setConfig(newConfig: SherpaConfig) {
 	config = newConfig;
 	loadCodecs();
 }

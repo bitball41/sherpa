@@ -1,18 +1,18 @@
 import { iswindow } from "@client/entry";
-import { SCRAMJETCLIENT } from "@/symbols";
-import { ScramjetClient } from "@client/index";
+import { SHERPACLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 // import { argdbg } from "@client/shared/err";
 import { indirectEval } from "@client/shared/eval";
 
-export function createWrapFn(client: ScramjetClient, self: typeof globalThis) {
+export function createWrapFn(client: SherpaClient, self: typeof globalThis) {
 	return function (identifier: any, strict: boolean) {
 		if (identifier === self.location) return client.locationProxy;
 		if (identifier === self.eval) return indirectEval.bind(client, strict);
 
 		if (iswindow) {
 			if (identifier === self.parent) {
-				if (SCRAMJETCLIENT in self.parent) {
+				if (SHERPACLIENT in self.parent) {
 					// ... then we're in a subframe, and the parent frame is also in a proxy context, so we should return its proxy
 					return self.parent;
 				} else {
@@ -20,7 +20,7 @@ export function createWrapFn(client: ScramjetClient, self: typeof globalThis) {
 					return self;
 				}
 			} else if (identifier === self.top) {
-				// instead of returning top, we need to return the uppermost parent that's inside a scramjet context
+				// instead of returning top, we need to return the uppermost parent that's inside a sherpa context
 				let current = self;
 
 				for (;;) {
@@ -28,7 +28,7 @@ export function createWrapFn(client: ScramjetClient, self: typeof globalThis) {
 					if (test === current) break; // there is no parent, actual or emulated.
 
 					// ... then `test` represents a window outside of the proxy context, and therefore `current` is the topmost window in the proxy context
-					if (!(SCRAMJETCLIENT in test)) break;
+					if (!(SHERPACLIENT in test)) break;
 
 					// test is also insde a proxy, so we should continue up the chain
 					current = test;
@@ -43,7 +43,7 @@ export function createWrapFn(client: ScramjetClient, self: typeof globalThis) {
 }
 
 export const order = 4;
-export default function (client: ScramjetClient, self: typeof globalThis) {
+export default function (client: SherpaClient, self: typeof globalThis) {
 	Object.defineProperty(self, config.globals.wrapfn, {
 		value: client.wrapfn,
 		writable: false,
@@ -151,14 +151,14 @@ export default function (client: ScramjetClient, self: typeof globalThis) {
 			if (v === self.top) debugger;
 		}
 
-		if (typeof v === "string" && v.includes("scramjet")) debugger;
+		if (typeof v === "string" && v.includes("sherpa")) debugger;
 		if (typeof v === "string" && v.includes(location.origin)) debugger;
 
 		return v;
 	};
 
 	// location = "..." can't be rewritten as wrapfn(location) = ..., so instead it will actually be rewritten as
-	// ((t)=>$scramjet$tryset(location,"+=",t)||location+=t)(...);
+	// ((t)=>$sherpa$tryset(location,"+=",t)||location+=t)(...);
 	// it has to be a discrete function because there's always the possibility that "location" is a local variable
 	// we have to use an IIFE to avoid duplicating side-effects in the getter
 	Object.defineProperty(self, config.globals.trysetfn, {

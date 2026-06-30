@@ -1,6 +1,6 @@
 import { config, flagEnabled } from "@/shared";
-import { SCRAMJETCLIENT, SCRAMJETCLIENTNAME } from "@/symbols";
-import { ProxyCtx, ScramjetClient } from "@client/index";
+import { SHERPACLIENT, SHERPACLIENTNAME } from "@/symbols";
+import { ProxyCtx, SherpaClient } from "@client/index";
 
 enum RewriteType {
 	Insert = 0,
@@ -33,7 +33,7 @@ function getEnd(rewrite: Rewrite): number {
 }
 
 function registerRewrites(
-	client: ScramjetClient,
+	client: SherpaClient,
 	buf: Array<number>,
 	tag: string
 ) {
@@ -81,7 +81,7 @@ function extractTag(fn: string): [string, number, number] | null {
 	// function name()[possible whitespace]/*scramtag [index] [tag]*/[possible whitespace]{ ... }
 
 	let start = fn.indexOf(SCRAMTAG);
-	// no scramtag, probably native function or stolen from scramjet
+	// no scramtag, probably native function or stolen from sherpa
 	if (start === -1) return null;
 
 	const end = fn.indexOf("*/", start);
@@ -104,7 +104,7 @@ function extractTag(fn: string): [string, number, number] | null {
 	return [tag[2], start, +tag[1]];
 }
 
-function doUnrewrite(client: ScramjetClient, ctx: ProxyCtx) {
+function doUnrewrite(client: SherpaClient, ctx: ProxyCtx) {
 	const stringified: string = ctx.fn.call(ctx.this);
 
 	const extracted = extractTag(stringified);
@@ -157,10 +157,10 @@ function doUnrewrite(client: ScramjetClient, ctx: ProxyCtx) {
 	return ctx.return(newString);
 }
 
-export const enabled = (client: ScramjetClient) =>
+export const enabled = (client: SherpaClient) =>
 	flagEnabled("sourcemaps", client.url);
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	// every script will push a sourcemap
 	Object.defineProperty(self, config.globals.pushsourcemapfn, {
 		value: (buf: Array<number>, tag: string) => {

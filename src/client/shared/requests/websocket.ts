@@ -1,5 +1,5 @@
 import { type BareWebSocket } from "@mercuryworkshop/bare-mux";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
 type FakeWebSocketState = {
 	extensions: string;
@@ -24,7 +24,7 @@ type FakeWebSocketStreamState = {
 	readable: ReadableStream;
 	writable: WritableStream;
 };
-export default function (client: ScramjetClient, self: typeof globalThis) {
+export default function (client: SherpaClient, self: typeof globalThis) {
 	const socketmap: WeakMap<WebSocket, FakeWebSocketState> = new WeakMap();
 	const socketstreammap: WeakMap<object, FakeWebSocketStreamState> =
 		new WeakMap();

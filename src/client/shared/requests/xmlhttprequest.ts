@@ -1,8 +1,8 @@
 import { config, flagEnabled } from "@/shared";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	let worker;
 	if (self.Worker && flagEnabled("syncxhr", client.url)) {
 		worker = client.natives.construct("Worker", config.files.sync);

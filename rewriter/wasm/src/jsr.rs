@@ -42,8 +42,8 @@ extern "C" {
 	pub type JsRewriterOutput;
 }
 
-fn get_config(scramjet: &Object) -> Result<Config> {
-	let config = &get_obj(scramjet, "config")?;
+fn get_config(sherpa: &Object) -> Result<Config> {
+	let config = &get_obj(sherpa, "config")?;
 	let globals = &get_obj(config, "globals")?;
 
 	Ok(Config {
@@ -96,34 +96,34 @@ impl UrlRewriter for WasmUrlRewriter {
 	}
 }
 
-fn get_url_rewriter(scramjet: &Object) -> Result<WasmUrlRewriter> {
-	let codec = &get_obj(scramjet, "codec")?;
+fn get_url_rewriter(sherpa: &Object) -> Result<WasmUrlRewriter> {
+	let codec = &get_obj(sherpa, "codec")?;
 	Ok(WasmUrlRewriter(
 		get_obj(codec, "encode")?
 			.dyn_into()
-			.map_err(|_| RewriterError::not_fn("scramjet.codec.encode"))?,
+			.map_err(|_| RewriterError::not_fn("sherpa.codec.encode"))?,
 	))
 }
 
 pub type JsRewriter = Rewriter<WasmUrlRewriter>;
 
-pub fn create_js(scramjet: &Object) -> Result<JsRewriter> {
-	let cfg = get_config(scramjet)?;
-	let url_rewriter = get_url_rewriter(scramjet)?;
+pub fn create_js(sherpa: &Object) -> Result<JsRewriter> {
+	let cfg = get_config(sherpa)?;
+	let url_rewriter = get_url_rewriter(sherpa)?;
 
 	Ok(Rewriter::new(cfg, url_rewriter))
 }
 
-pub fn get_js_flags(scramjet: &Object, base: String, is_module: bool) -> Result<Flags> {
+pub fn get_js_flags(sherpa: &Object, base: String, is_module: bool) -> Result<Flags> {
 	Ok(Flags {
 		is_module,
 		sourcetag: scramtag(),
 
-		do_sourcemaps: get_flag(scramjet, &base, "sourcemaps")?,
-		capture_errors: get_flag(scramjet, &base, "captureErrors")?,
-		scramitize: get_flag(scramjet, &base, "scramitize")?,
-		strict_rewrites: get_flag(scramjet, &base, "strictRewrites")?,
-		destructure_rewrites: get_flag(scramjet, &base, "destructureRewrites")?,
+		do_sourcemaps: get_flag(sherpa, &base, "sourcemaps")?,
+		capture_errors: get_flag(sherpa, &base, "captureErrors")?,
+		scramitize: get_flag(sherpa, &base, "scramitize")?,
+		strict_rewrites: get_flag(sherpa, &base, "strictRewrites")?,
+		destructure_rewrites: get_flag(sherpa, &base, "destructureRewrites")?,
 
 		base,
 	})

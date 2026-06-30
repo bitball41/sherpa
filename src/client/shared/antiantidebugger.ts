@@ -1,6 +1,6 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("console.clear", {
 		apply(ctx) {
 			// fuck you

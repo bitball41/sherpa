@@ -1,8 +1,8 @@
 import { unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 
-export default function (client: ScramjetClient, _self: Self) {
+export default function (client: SherpaClient, _self: Self) {
 	client.Trap("PerformanceEntry.prototype.name", {
 		get(ctx) {
 			// name is going to be a url typically

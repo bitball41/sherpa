@@ -1,32 +1,32 @@
 /**
- * @fileoverview Contains the core Service Worker logic for Scramjet, which handles the initial request interception and handles client management for the Scramjet service.
+ * @fileoverview Contains the core Service Worker logic for Sherpa, which handles the initial request interception and handles client management for the Sherpa service.
  */
 
 import { FakeServiceWorker } from "@/worker/fakesw";
 import { handleFetch } from "@/worker/fetch";
 import BareClient from "@mercuryworkshop/bare-mux";
-import { ScramjetConfig, ScramjetDB } from "@/types";
+import { SherpaConfig, SherpaDB } from "@/types";
 import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
 import { openDB } from "idb";
 import { config, loadCodecs, setConfig } from "@/shared";
-import { ScramjetDownload } from "@client/events";
+import { SherpaDownload } from "@client/events";
 export * from "./error";
 export * from "./fetch";
 export * from "./fakesw";
 
 /**
- * Main `ScramjetServiceWorker` class created by the `$scramjetLoadWorker` factory, which handles routing the proxy and contains the core logic for request interception.
+ * Main `SherpaServiceWorker` class created by the `$sherpaLoadWorker` factory, which handles routing the proxy and contains the core logic for request interception.
  */
-export class ScramjetServiceWorker extends EventTarget {
+export class SherpaServiceWorker extends EventTarget {
 	/**
 	 * `BareClient` instance to fetch requests under a chosen proxy transport.
 	 */
 	client: BareClient;
 	/**
-	 * Current ScramjetConfig saved in memory.
+	 * Current SherpaConfig saved in memory.
 	 */
-	config: ScramjetConfig;
+	config: SherpaConfig;
 
 	/**
 	 * Recorded sync messages in the message queue.
@@ -38,7 +38,7 @@ export class ScramjetServiceWorker extends EventTarget {
 	synctoken = 0;
 
 	/**
-	 * Scramjet's cookie jar for cookie emulation through other storage means, connected to a client.
+	 * Sherpa's cookie jar for cookie emulation through other storage means, connected to a client.
 	 */
 	cookieStore = new CookieStore();
 
@@ -49,14 +49,14 @@ export class ScramjetServiceWorker extends EventTarget {
 	serviceWorkers: FakeServiceWorker[] = [];
 
 	/**
-	 * Initializes the `BareClient` Scramjet uses to fetch requests under a chosen proxy transport, the cookie jar store for proxifying cookies, and inits the listeners for emulation features and dynamic configs set through the Scramjet Controller.
+	 * Initializes the `BareClient` Sherpa uses to fetch requests under a chosen proxy transport, the cookie jar store for proxifying cookies, and inits the listeners for emulation features and dynamic configs set through the Sherpa Controller.
 	 */
 	constructor() {
 		super();
 		this.client = new BareClient();
 
 		(async () => {
-			const db = await openDB<ScramjetDB>("$scramjet", 1);
+			const db = await openDB<SherpaDB>("$sherpa", 1);
 			const cookies = await db.get("cookies", "cookies");
 			if (cookies) {
 				this.cookieStore.load(cookies);
@@ -64,30 +64,30 @@ export class ScramjetServiceWorker extends EventTarget {
 		})();
 
 		addEventListener("message", async ({ data }: { data: MessageC2W }) => {
-			if (!("scramjet$type" in data)) return;
+			if (!("sherpa$type" in data)) return;
 
-			if ("scramjet$token" in data) {
+			if ("sherpa$token" in data) {
 				// (ack message)
-				const cb = this.syncPool[data.scramjet$token];
-				delete this.syncPool[data.scramjet$token];
+				const cb = this.syncPool[data.sherpa$token];
+				delete this.syncPool[data.sherpa$token];
 				cb(data);
 
 				return;
 			}
 
-			if (data.scramjet$type === "registerServiceWorker") {
+			if (data.sherpa$type === "registerServiceWorker") {
 				this.serviceWorkers.push(new FakeServiceWorker(data.port, data.origin));
 
 				return;
 			}
 
-			if (data.scramjet$type === "cookie") {
+			if (data.sherpa$type === "cookie") {
 				this.cookieStore.setCookies([data.cookie], new URL(data.url));
-				const db = await openDB<ScramjetDB>("$scramjet", 1);
+				const db = await openDB<SherpaDB>("$sherpa", 1);
 				await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
 			}
 
-			if (data.scramjet$type === "loadConfig") {
+			if (data.sherpa$type === "loadConfig") {
 				this.config = data.config;
 			}
 		});
@@ -101,7 +101,7 @@ export class ScramjetServiceWorker extends EventTarget {
 		let cb: (val: MessageC2W) => void;
 		const promise: Promise<MessageC2W> = new Promise((r) => (cb = r));
 		this.syncPool[token] = cb;
-		data.scramjet$token = token;
+		data.sherpa$token = token;
 
 		client.postMessage(data);
 
@@ -109,12 +109,12 @@ export class ScramjetServiceWorker extends EventTarget {
 	}
 
 	/**
-	 * Persists the current Scramjet config into an IndexedDB store.
-	 * Remember, this is because the Scramjet config can be dynamically updated via the Scramjet Controller APIs.
+	 * Persists the current Sherpa config into an IndexedDB store.
+	 * Remember, this is because the Sherpa config can be dynamically updated via the Sherpa Controller APIs.
 	 *
 	 * @example
 	 * self.addEventListener("fetch", async (ev) => {
-	 *   await scramjet.loadConfig();
+	 *   await sherpa.loadConfig();
 	 *
 	 *   ...
 	 * });
@@ -122,7 +122,7 @@ export class ScramjetServiceWorker extends EventTarget {
 	async loadConfig() {
 		if (this.config) return;
 
-		const db = await openDB<ScramjetDB>("$scramjet", 1);
+		const db = await openDB<SherpaDB>("$sherpa", 1);
 		this.config = await db.get("config", "config");
 
 		if (this.config) {
@@ -132,13 +132,13 @@ export class ScramjetServiceWorker extends EventTarget {
 	}
 
 	/**
-	 * Whether to route a request from a `FetchEvent` in Scramjet.
+	 * Whether to route a request from a `FetchEvent` in Sherpa.
 	 *
 	 * @example
 	 * self.addEventListener("fetch", async (ev) => {
 	 *   ...
 	 *
-	 *   if (scramjet.route(ev)) {
+	 *   if (sherpa.route(ev)) {
 	 *     ...
 	 *   }
 	 * });
@@ -153,15 +153,15 @@ export class ScramjetServiceWorker extends EventTarget {
 	}
 
 	/**
-	 * Handles a `FetchEvent` to be routed in Scramjet.
-	 * This is the heart of adding Scramjet support to your web proxy.
+	 * Handles a `FetchEvent` to be routed in Sherpa.
+	 * This is the heart of adding Sherpa support to your web proxy.
 	 *
 	 * @example
 	 * self.addEventListener("fetch", async (ev) => {
 	 *   ...
 	 *
-	 *   if (scramjet.route(ev)) {
-	 *     ev.respondWith(scramjet.fetch(ev));
+	 *   if (sherpa.route(ev)) {
+	 *     ev.respondWith(sherpa.fetch(ev));
 	 *   }
 	 * });
 	 */
@@ -175,53 +175,53 @@ export class ScramjetServiceWorker extends EventTarget {
 }
 
 /**
- * Scramjet fake Service Worker event message.
- * Contains a `scramjet$type` for identifying the message.
+ * Sherpa fake Service Worker event message.
+ * Contains a `sherpa$type` for identifying the message.
  */
 type RegisterServiceWorkerMessage = {
-	scramjet$type: "registerServiceWorker";
+	sherpa$type: "registerServiceWorker";
 	port: MessagePort;
 	origin: string;
 };
 
 /**
- * Scramjet cookie jar event message.
- * Contains a `scramjet$type` for identifying the message.
+ * Sherpa cookie jar event message.
+ * Contains a `sherpa$type` for identifying the message.
  */
 type CookieMessage = {
-	scramjet$type: "cookie";
+	sherpa$type: "cookie";
 	cookie: string;
 	url: string;
 };
 
 /**
- * Scramjet config event message.
- * Contains a `scramjet$type` for identifying the message.
+ * Sherpa config event message.
+ * Contains a `sherpa$type` for identifying the message.
  */
 type ConfigMessage = {
-	scramjet$type: "loadConfig";
-	config: ScramjetConfig;
+	sherpa$type: "loadConfig";
+	config: SherpaConfig;
 };
 
 /**
- * Scramjet proxified download event message.
- * Contains a `scramjet$type` for identifying the message.
+ * Sherpa proxified download event message.
+ * Contains a `sherpa$type` for identifying the message.
  */
 type DownloadMessage = {
-	scramjet$type: "download";
-	download: ScramjetDownload;
+	sherpa$type: "download";
+	download: SherpaDownload;
 };
 /**
- * Default Scramjet message.
- * Contains a `scramjet$type` for identifying the message.
+ * Default Sherpa message.
+ * Contains a `sherpa$type` for identifying the message.
  */
 type MessageCommon = {
-	scramjet$token?: number;
+	sherpa$token?: number;
 };
 
 /**
  * Message types sent from the client to the Service Worker.
- * These are routed by their `scramjet$type` to identify the messages apart from each other.
+ * These are routed by their `sherpa$type` to identify the messages apart from each other.
  */
 type MessageTypeC2W =
 	| RegisterServiceWorkerMessage

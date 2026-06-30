@@ -5,44 +5,44 @@ import {
 	loadCodecs,
 	setConfig,
 } from "@/shared/index";
-import { ScramjetConfig, ScramjetInitConfig, ScramjetDB } from "@/types";
-import { ScramjetFrame } from "@/controller/frame";
+import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
+import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
 import { openDB, IDBPDatabase } from "idb";
 import {
-	ScramjetEvents,
-	ScramjetGlobalDownloadEvent,
-	ScramjetGlobalEvent,
-	ScramjetGlobalEvents,
+	SherpaEvents,
+	SherpaGlobalDownloadEvent,
+	SherpaGlobalEvent,
+	SherpaGlobalEvents,
 } from "@client/events";
 
-export class ScramjetController extends EventTarget {
-	private db: IDBPDatabase<ScramjetDB>;
+export class SherpaController extends EventTarget {
+	private db: IDBPDatabase<SherpaDB>;
 
-	constructor(config: Partial<ScramjetInitConfig>) {
+	constructor(config: Partial<SherpaInitConfig>) {
 		super();
 		// sane ish defaults
-		const defaultConfig: ScramjetInitConfig = {
+		const defaultConfig: SherpaInitConfig = {
 			// wisp: "/wisp/",
-			prefix: "/scramjet/",
+			prefix: "/sherpa/",
 			globals: {
-				wrapfn: "$scramjet$wrap",
-				wrappropertybase: "$scramjet__",
-				wrappropertyfn: "$scramjet$prop",
-				cleanrestfn: "$scramjet$clean",
-				importfn: "$scramjet$import",
-				rewritefn: "$scramjet$rewrite",
-				metafn: "$scramjet$meta",
-				setrealmfn: "$scramjet$setrealm",
-				pushsourcemapfn: "$scramjet$pushsourcemap",
-				trysetfn: "$scramjet$tryset",
-				templocid: "$scramjet$temploc",
-				tempunusedid: "$scramjet$tempunused",
+				wrapfn: "$sherpa$wrap",
+				wrappropertybase: "$sherpa__",
+				wrappropertyfn: "$sherpa$prop",
+				cleanrestfn: "$sherpa$clean",
+				importfn: "$sherpa$import",
+				rewritefn: "$sherpa$rewrite",
+				metafn: "$sherpa$meta",
+				setrealmfn: "$sherpa$setrealm",
+				pushsourcemapfn: "$sherpa$pushsourcemap",
+				trysetfn: "$sherpa$tryset",
+				templocid: "$sherpa$temploc",
+				tempunusedid: "$sherpa$tempunused",
 			},
 			files: {
-				wasm: "/scramjet.wasm.wasm",
-				all: "/scramjet.all.js",
-				sync: "/scramjet.sync.js",
+				wasm: "/sherpa.wasm.wasm",
+				all: "/sherpa.all.js",
+				sync: "/sherpa.sync.js",
 			},
 			flags: {
 				serviceworkers: false,
@@ -86,7 +86,7 @@ export class ScramjetController extends EventTarget {
 		const newConfig = deepMerge(defaultConfig, config);
 		newConfig.codec.encode = newConfig.codec.encode.toString();
 		newConfig.codec.decode = newConfig.codec.decode.toString();
-		setConfig(newConfig as ScramjetConfig);
+		setConfig(newConfig as SherpaConfig);
 	}
 
 	async init(): Promise<void> {
@@ -94,27 +94,27 @@ export class ScramjetController extends EventTarget {
 
 		await this.openIDB();
 		navigator.serviceWorker.controller?.postMessage({
-			scramjet$type: "loadConfig",
+			sherpa$type: "loadConfig",
 			config,
 		});
 		dbg.log("config loaded");
 
 		navigator.serviceWorker.addEventListener("message", (e) => {
-			if (!("scramjet$type" in e.data)) return;
+			if (!("sherpa$type" in e.data)) return;
 			const data: MessageW2C = e.data;
 
-			if (data.scramjet$type === "download") {
-				this.dispatchEvent(new ScramjetGlobalDownloadEvent(data.download));
+			if (data.sherpa$type === "download") {
+				this.dispatchEvent(new SherpaGlobalDownloadEvent(data.download));
 			}
 		});
 	}
 
-	createFrame(frame?: HTMLIFrameElement): ScramjetFrame {
+	createFrame(frame?: HTMLIFrameElement): SherpaFrame {
 		if (!frame) {
 			frame = document.createElement("iframe");
 		}
 
-		return new ScramjetFrame(this, frame);
+		return new SherpaFrame(this, frame);
 	}
 
 	encodeUrl(url: string | URL): string {
@@ -138,8 +138,8 @@ export class ScramjetController extends EventTarget {
 		return codecDecode(url.slice(prefixed.length));
 	}
 
-	async openIDB(): Promise<IDBPDatabase<ScramjetDB>> {
-		const db = await openDB<ScramjetDB>("$scramjet", 1, {
+	async openIDB(): Promise<IDBPDatabase<SherpaDB>> {
+		const db = await openDB<SherpaDB>("$sherpa", 1, {
 			upgrade(db) {
 				if (!db.objectStoreNames.contains("config")) {
 					db.createObjectStore("config");
@@ -173,20 +173,20 @@ export class ScramjetController extends EventTarget {
 		await this.db.put("config", config, "config");
 	}
 
-	async modifyConfig(newconfig: Partial<ScramjetInitConfig>) {
+	async modifyConfig(newconfig: Partial<SherpaInitConfig>) {
 		setConfig(Object.assign({}, config, newconfig));
 		loadCodecs();
 
 		await this.#saveConfig();
 		navigator.serviceWorker.controller?.postMessage({
-			scramjet$type: "loadConfig",
+			sherpa$type: "loadConfig",
 			config,
 		});
 	}
 
-	addEventListener<K extends keyof ScramjetGlobalEvents>(
+	addEventListener<K extends keyof SherpaGlobalEvents>(
 		type: K,
-		listener: (event: ScramjetGlobalEvents[K]) => void,
+		listener: (event: SherpaGlobalEvents[K]) => void,
 		options?: boolean | AddEventListenerOptions
 	): void {
 		super.addEventListener(type, listener as EventListener, options);

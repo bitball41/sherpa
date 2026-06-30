@@ -1,4 +1,4 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 import { type MessageC2W } from "@/worker";
 import { flagEnabled } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
@@ -6,10 +6,10 @@ import { rewriteUrl } from "@rewriters/url";
 // we need a late order because we're mangling with addEventListener at a higher level
 export const order = 2;
 
-export const enabled = (client: ScramjetClient) =>
+export const enabled = (client: SherpaClient) =>
 	flagEnabled("serviceworkers", client.url);
 
-export function disabled(_client: ScramjetClient, _self: Self) {
+export function disabled(_client: SherpaClient, _self: Self) {
 	Reflect.deleteProperty(Navigator.prototype, "serviceWorker");
 }
 
@@ -18,7 +18,7 @@ type FakeRegistrationState = {
 	active: ServiceWorker;
 };
 
-export default function (client: ScramjetClient, _self: Self) {
+export default function (client: SherpaClient, _self: Self) {
 	const registrationmap: WeakMap<
 		ServiceWorkerRegistration,
 		FakeRegistrationState
@@ -93,7 +93,7 @@ export default function (client: ScramjetClient, _self: Self) {
 				"ServiceWorker.prototype.postMessage",
 				controller,
 				{
-					scramjet$type: "registerServiceWorker",
+					sherpa$type: "registerServiceWorker",
 					port: handle,
 					origin: client.url.origin,
 				} as MessageC2W,

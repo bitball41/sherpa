@@ -1,7 +1,7 @@
 import { rewriteJs } from "@rewriters/js";
-import { ScramjetClient, ProxyCtx, Proxy } from "@client/index";
+import { SherpaClient, ProxyCtx, Proxy } from "@client/index";
 
-function rewriteFunction(ctx: ProxyCtx, client: ScramjetClient) {
+function rewriteFunction(ctx: ProxyCtx, client: SherpaClient) {
 	const stringifiedFunction = ctx.call().toString();
 
 	const content = rewriteJs(
@@ -12,7 +12,7 @@ function rewriteFunction(ctx: ProxyCtx, client: ScramjetClient) {
 	ctx.return(ctx.fn(content)());
 }
 
-export default function (client: ScramjetClient, _self: Self) {
+export default function (client: SherpaClient, _self: Self) {
 	const handler: Proxy = {
 		apply(ctx: ProxyCtx) {
 			rewriteFunction(ctx, client);

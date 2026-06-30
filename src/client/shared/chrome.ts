@@ -2,10 +2,10 @@
 // these are not worth emulating and typically cause issues
 
 import { isemulatedsw, iswindow } from "@client/entry";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
 // type self as any here, most of these are not defined in the types
-export default function (client: ScramjetClient, self: any) {
+export default function (client: SherpaClient, self: any) {
 	const del = (name: string) => {
 		const split = name.split(".");
 		const prop = split.pop();

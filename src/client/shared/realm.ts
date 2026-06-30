@@ -1,9 +1,9 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 
-export const POLLUTANT = Symbol.for("scramjet realm pollutant");
+export const POLLUTANT = Symbol.for("sherpa realm pollutant");
 
-export default function (client: ScramjetClient, self: typeof globalThis) {
+export default function (client: SherpaClient, self: typeof globalThis) {
 	// object.$setrealm({}).postMessage(...)
 	// the empty object is the "pollutant" which can reconstruct the real realm
 	// i explain more in postmessage.ts

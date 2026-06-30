@@ -1,6 +1,6 @@
 import { rewriteBlob, unrewriteBlob } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
-export default function (client: ScramjetClient) {
+import { SherpaClient } from "@client/index";
+export default function (client: SherpaClient) {
 	// hide the origin from object urls from the page
 	client.Proxy("URL.createObjectURL", {
 		apply(ctx) {

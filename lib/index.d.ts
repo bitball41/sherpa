@@ -1,8 +1,8 @@
 /**
  * @fileoverview
- * Scramjet path export for routing functionality
+ * Sherpa path export for routing functionality
  */
 
-declare const scramjetPath: string;
+declare const sherpaPath: string;
 
-export { scramjetPath };
+export { sherpaPath };

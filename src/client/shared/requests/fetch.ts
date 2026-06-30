@@ -1,8 +1,8 @@
 import { isemulatedsw } from "@client/entry";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("fetch", {
 		apply(ctx) {
 			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {

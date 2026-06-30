@@ -1,10 +1,10 @@
-const { ScramjetController } = $scramjetLoadController();
+const { SherpaController } = $sherpaLoadController();
 
-const scramjet = new ScramjetController({
+const sherpa = new SherpaController({
 	files: {
-		wasm: "/scram/scramjet.wasm.wasm",
-		all: "/scram/scramjet.all.js",
-		sync: "/scram/scramjet.sync.js",
+		wasm: "/scram/sherpa.wasm.wasm",
+		all: "/scram/sherpa.all.js",
+		sync: "/scram/sherpa.sync.js",
 	},
 	flags: {
 		rewriterLogs: false,
@@ -14,7 +14,7 @@ const scramjet = new ScramjetController({
 	},
 });
 
-scramjet.init();
+sherpa.init();
 navigator.serviceWorker.register("./sw.js");
 
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
@@ -193,11 +193,11 @@ function BrowserApp() {
   `;
 	this.url = store.url;
 
-	const frame = scramjet.createFrame();
+	const frame = sherpa.createFrame();
 
 	this.mount = () => {
 		let body = btoa(
-			`<body style="background: #000; color: #fff">Welcome to <i>Scramjet</i>! Type in a URL in the omnibox above and press enter to get started.</body>`
+			`<body style="background: #000; color: #fff">Welcome to <i>Sherpa</i>! Type in a URL in the omnibox above and press enter to get started.</body>`
 		);
 		frame.go(`data:text/html;base64,${body}`);
 	};
@@ -219,7 +219,7 @@ function BrowserApp() {
 
 	const cfg = h(Config);
 	document.body.appendChild(cfg);
-	this.githubURL = `https://github.com/MercuryWorkshop/scramjet/commit/${$scramjetVersion.build}`;
+	this.githubURL = `https://github.com/MercuryWorkshop/sherpa/commit/${$sherpaVersion.build}`;
 
 	return html`
       <div>
@@ -235,10 +235,10 @@ function BrowserApp() {
 					this.url = e.target.value;
 				}} on:keyup=${(e) => e.keyCode == 13 && (store.url = this.url) && handleSubmit()}></input>
 
-        <button on:click=${() => window.open(scramjet.encodeUrl(this.url))}>open</button>
+        <button on:click=${() => window.open(sherpa.encodeUrl(this.url))}>open</button>
 
         <p class="version">
-          <b>scramjet</b> ${$scramjetVersion.version} <a href=${use(this.githubURL)}>${$scramjetVersion.build}</a>
+          <b>sherpa</b> ${$sherpaVersion.version} <a href=${use(this.githubURL)}>${$sherpaVersion.build}</a>
         </p>
       </div>
       ${frame.frame}
@@ -263,7 +263,7 @@ window.addEventListener("load", async () => {
 
 		return btoa(binary);
 	}
-	const arraybuffer = await (await fetch("/assets/scramjet.png")).arrayBuffer();
+	const arraybuffer = await (await fetch("/assets/sherpa.png")).arrayBuffer();
 	console.log(
 		"%cb",
 		`

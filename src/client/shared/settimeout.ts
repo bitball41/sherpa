@@ -1,7 +1,7 @@
 import { rewriteJs } from "@rewriters/js";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	client.Proxy(["setTimeout", "setInterval"], {
 		apply(ctx) {
 			if (ctx.args.length > 0 && typeof ctx.args[0] === "string") {

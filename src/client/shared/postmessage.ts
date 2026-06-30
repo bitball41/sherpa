@@ -1,9 +1,9 @@
 import { iswindow } from "@client/entry";
-import { SCRAMJETCLIENT } from "@/symbols";
-import { ScramjetClient } from "@client/index";
+import { SHERPACLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
 import { POLLUTANT } from "@client/shared/realm";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	if (iswindow)
 		client.Proxy("window.postMessage", {
 			apply(ctx) {
@@ -35,19 +35,19 @@ export default function (client: ScramjetClient) {
 					constructor: { constructor: Function },
 				} = pollutant;
 
-				// invoking stolen function will give us the caller's globalThis, remember scramjet has already proxied it!!!
+				// invoking stolen function will give us the caller's globalThis, remember sherpa has already proxied it!!!
 				const callerGlobalThisProxied: Self = Function("return globalThis")();
-				const callerClient = callerGlobalThisProxied[SCRAMJETCLIENT];
+				const callerClient = callerGlobalThisProxied[SHERPACLIENT];
 
 				// this WOULD be enough but the source argument of MessageEvent has to return the caller's window
 				// and if we just call it normally it would be coming from here, which WILL NOT BE THE CALLER'S because the accessor is from the parent
-				// so with the stolen function we wrap postmessage so the source will truly be the caller's window (remember that function is scramjet's!!!)
+				// so with the stolen function we wrap postmessage so the source will truly be the caller's window (remember that function is sherpa's!!!)
 				const wrappedPostMessage = Function("...args", "this(...args)");
 
 				ctx.args[0] = {
-					$scramjet$messagetype: "window",
-					$scramjet$origin: callerClient.url.origin,
-					$scramjet$data: ctx.args[0],
+					$sherpa$messagetype: "window",
+					$sherpa$origin: callerClient.url.origin,
+					$sherpa$data: ctx.args[0],
 				};
 
 				// * origin because obviously
@@ -68,8 +68,8 @@ export default function (client: ScramjetClient) {
 			// origin/source doesn't need to be preserved - it's null in the message event
 
 			ctx.args[0] = {
-				$scramjet$messagetype: "worker",
-				$scramjet$data: ctx.args[0],
+				$sherpa$messagetype: "worker",
+				$sherpa$data: ctx.args[0],
 			};
 		},
 	});

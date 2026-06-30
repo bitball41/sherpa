@@ -9,15 +9,15 @@ import { glob } from "glob";
 import { existsSync } from "node:fs";
 
 /**
- * Expected distribution files for Scramjet's bundles.
+ * Expected distribution files for Sherpa's bundles.
  * All JS files listed must have corresponding source maps.
  * These aren't globs.
  */
 const EXPECTED_DIST_FILES = [
-	"dist/scramjet.all.js",
-	"dist/scramjet.bundle.js",
-	"dist/scramjet.sync.js",
-	"dist/scramjet.wasm.wasm",
+	"dist/sherpa.all.js",
+	"dist/sherpa.bundle.js",
+	"dist/sherpa.sync.js",
+	"dist/sherpa.wasm.wasm",
 ];
 
 /**

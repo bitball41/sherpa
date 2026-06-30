@@ -20,7 +20,7 @@ export function rewriteWorkers(
 
 	script("wasm");
 	script("all");
-	str += `$scramjetLoadClient().loadAndHook(${JSON.stringify(config)});`;
+	str += `$sherpaLoadClient().loadAndHook(${JSON.stringify(config)});`;
 
 	let rewritten = rewriteJs(js, url, meta, module);
 	if (rewritten instanceof Uint8Array) {

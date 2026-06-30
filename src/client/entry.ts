@@ -1,11 +1,11 @@
-// entrypoint for scramjet.client.js
+// entrypoint for sherpa.client.js
 
 import { loadCodecs, setConfig } from "@/shared/index";
-import { SCRAMJETCLIENT } from "@/symbols";
-import { ScramjetClient } from "@client/index";
-import { ScramjetContextEvent, UrlChangeEvent } from "@client/events";
-import { ScramjetServiceWorkerRuntime } from "@client/swruntime";
-import { ScramjetConfig } from "@/types";
+import { SHERPACLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
+import { SherpaContextEvent, UrlChangeEvent } from "@client/events";
+import { SherpaServiceWorkerRuntime } from "@client/swruntime";
+import { SherpaConfig } from "@/types";
 
 export const iswindow = "window" in globalThis && window instanceof Window;
 export const isworker = "WorkerGlobalScope" in globalThis;
@@ -24,14 +24,14 @@ function createFrameId() {
 		.join("")}`;
 }
 
-export function loadAndHook(config: ScramjetConfig) {
+export function loadAndHook(config: SherpaConfig) {
 	setConfig(config);
-	dbg.log("initializing scramjet client");
+	dbg.log("initializing sherpa client");
 	// if it already exists, that means the handlers have probably already been setup by the parent document
-	if (!(SCRAMJETCLIENT in <Partial<typeof self>>globalThis)) {
+	if (!(SHERPACLIENT in <Partial<typeof self>>globalThis)) {
 		loadCodecs();
 
-		const client = new ScramjetClient(globalThis);
+		const client = new SherpaClient(globalThis);
 		const frame: HTMLIFrameElement =
 			globalThis.frameElement as HTMLIFrameElement;
 		if (frame && !frame.name) {
@@ -44,11 +44,11 @@ export function loadAndHook(config: ScramjetConfig) {
 		client.hook();
 
 		if (isemulatedsw) {
-			const runtime = new ScramjetServiceWorkerRuntime(client);
+			const runtime = new SherpaServiceWorkerRuntime(client);
 			runtime.hook();
 		}
 
-		const contextev = new ScramjetContextEvent(client.global.window, client);
+		const contextev = new SherpaContextEvent(client.global.window, client);
 		client.frame?.dispatchEvent(contextev);
 		const urlchangeev = new UrlChangeEvent(client.url.href);
 		if (!client.isSubframe) client.frame?.dispatchEvent(urlchangeev);

@@ -20,7 +20,7 @@
 	"defaultCategory": "Window Context",
 	"lightHighlightTheme": "catppuccin-latte",
 	"darkHighlightTheme": "catppuccin-mocha",
-	"hostedBaseUrl": "https://scramjet.mercurywork.shop/typedoc",
+	"hostedBaseUrl": "https://sherpa.mercurywork.shop/typedoc",
 	"plugin": [
 		"@8hobbies/typedoc-plugin-plausible",
 		"@shipgirl/typedoc-plugin-versions",
@@ -37,6 +37,6 @@
 		"stable": "auto",
 		"dev": "auto"
 	},
-	"plausibleSiteDomain": "scramjet.mercurywork.shop",
+	"plausibleSiteDomain": "sherpa.mercurywork.shop",
 	"plausibleSiteOrigin": "https://analytics.proudparrot2.com/js/"
 }

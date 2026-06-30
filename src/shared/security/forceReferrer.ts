@@ -2,7 +2,7 @@ import {
 	type RedirectTracker,
 	type ReferrerPolicyData,
 	type SiteDirective,
-	ScramjetDB,
+	SherpaDB,
 } from "@/types";
 import { openDB, IDBPDatabase } from "idb";
 
@@ -20,8 +20,8 @@ const SITE_HIERARCHY: Record<SiteDirective, number> = {
  *
  * @returns Promise that resolves to the database connection
  */
-async function getDB(): Promise<IDBPDatabase<ScramjetDB>> {
-	return openDB<ScramjetDB>("$scramjet", 1);
+async function getDB(): Promise<IDBPDatabase<SherpaDB>> {
+	return openDB<SherpaDB>("$sherpa", 1);
 }
 
 /**

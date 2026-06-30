@@ -11,8 +11,8 @@ export class FakeServiceWorker {
 		public origin: string
 	) {
 		this.messageChannel.port1.addEventListener("message", (event) => {
-			if ("scramjet$type" in event.data) {
-				if (event.data.scramjet$type === "init") {
+			if ("sherpa$type" in event.data) {
+				if (event.data.sherpa$type === "init") {
 					this.connected = true;
 				} else {
 					this.handleMessage(event.data);
@@ -23,18 +23,18 @@ export class FakeServiceWorker {
 
 		this.handle.postMessage(
 			{
-				scramjet$type: "init",
-				scramjet$port: this.messageChannel.port2,
+				sherpa$type: "init",
+				sherpa$port: this.messageChannel.port2,
 			},
 			[this.messageChannel.port2]
 		);
 	}
 
 	handleMessage(data: MessageR2W) {
-		const cb = this.promises[data.scramjet$token];
+		const cb = this.promises[data.sherpa$token];
 		if (cb) {
 			cb(data);
-			delete this.promises[data.scramjet$token];
+			delete this.promises[data.sherpa$token];
 		}
 	}
 
@@ -42,9 +42,9 @@ export class FakeServiceWorker {
 		const token = this.syncToken++;
 
 		const message: MessageW2R = {
-			scramjet$type: "fetch",
-			scramjet$token: token,
-			scramjet$request: {
+			sherpa$type: "fetch",
+			sherpa$token: token,
+			sherpa$request: {
 				url: request.url,
 				body: request.body,
 				headers: Array.from(request.headers.entries()),
@@ -58,7 +58,7 @@ export class FakeServiceWorker {
 
 		this.handle.postMessage(message, transfer);
 
-		const { scramjet$response: r } = (await new Promise((resolve) => {
+		const { sherpa$response: r } = (await new Promise((resolve) => {
 			this.promises[token] = resolve;
 		})) as MessageR2W;
 

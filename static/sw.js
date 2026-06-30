@@ -8,14 +8,14 @@ if (navigator.userAgent.includes("Firefox")) {
 	});
 }
 
-importScripts("/scram/scramjet.all.js");
-const { ScramjetServiceWorker } = $scramjetLoadWorker();
-const scramjet = new ScramjetServiceWorker();
+importScripts("/scram/sherpa.all.js");
+const { SherpaServiceWorker } = $sherpaLoadWorker();
+const sherpa = new SherpaServiceWorker();
 
 async function handleRequest(event) {
-	await scramjet.loadConfig();
-	if (scramjet.route(event)) {
-		return scramjet.fetch(event);
+	await sherpa.loadConfig();
+	if (sherpa.route(event)) {
+		return sherpa.fetch(event);
 	}
 
 	return fetch(event.request);
@@ -32,7 +32,7 @@ self.addEventListener("message", ({ data }) => {
 	}
 });
 
-scramjet.addEventListener("request", (e) => {
+sherpa.addEventListener("request", (e) => {
 	if (playgroundData && e.url.href.startsWith(playgroundData.origin)) {
 		const headers = {};
 		const origin = playgroundData.origin;

@@ -1,7 +1,7 @@
 import { rewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, _self: Self) {
+export default function (client: SherpaClient, _self: Self) {
 	client.Proxy("CacheStorage.prototype.open", {
 		apply(ctx) {
 			ctx.args[0] = `${client.url.origin}@${ctx.args[0]}`;

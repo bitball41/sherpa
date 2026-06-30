@@ -1,9 +1,9 @@
 import { unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export class ScramjetServiceWorkerRuntime {
+export class SherpaServiceWorkerRuntime {
 	recvport: MessagePort;
-	constructor(public client: ScramjetClient) {
+	constructor(public client: SherpaClient) {
 		// @ts-ignore
 		self.onconnect = (cevent: MessageEvent) => {
 			const port = cevent.ports[0];
@@ -11,10 +11,10 @@ export class ScramjetServiceWorkerRuntime {
 
 			port.addEventListener("message", (event) => {
 				console.log("sw", event.data);
-				if ("scramjet$type" in event.data) {
-					if (event.data.scramjet$type === "init") {
-						this.recvport = event.data.scramjet$port;
-						this.recvport.postMessage({ scramjet$type: "init" });
+				if ("sherpa$type" in event.data) {
+					if (event.data.sherpa$type === "init") {
+						this.recvport = event.data.sherpa$port;
+						this.recvport.postMessage({ sherpa$type: "init" });
 					} else {
 						handleMessage.call(this, client, event.data);
 					}
@@ -57,13 +57,13 @@ export class ScramjetServiceWorkerRuntime {
 }
 
 function handleMessage(
-	this: ScramjetServiceWorkerRuntime,
-	client: ScramjetClient,
+	this: SherpaServiceWorkerRuntime,
+	client: SherpaClient,
 	data: MessageW2R
 ) {
 	const port = this.recvport;
-	const type = data.scramjet$type;
-	const token = data.scramjet$token;
+	const type = data.sherpa$type;
+	const token = data.sherpa$token;
 	const handlers = client.eventcallbacks.get(self);
 
 	if (type === "fetch") {
@@ -72,7 +72,7 @@ function handleMessage(
 		if (!fetchhandlers) return;
 
 		for (const handler of fetchhandlers) {
-			const request = data.scramjet$request;
+			const request = data.sherpa$request;
 
 			const Request = client.natives["Request"];
 			const fakeRequest = new Request(unrewriteUrl(request.url), {
@@ -95,9 +95,9 @@ function handleMessage(
 				(async () => {
 					response = await response;
 					const message: MessageR2W = {
-						scramjet$type: "fetch",
-						scramjet$token: token,
-						scramjet$response: {
+						sherpa$type: "fetch",
+						sherpa$token: token,
+						sherpa$response: {
 							body: response.body,
 							headers: Array.from(response.headers.entries()),
 							status: response.status,
@@ -115,9 +115,9 @@ function handleMessage(
 			if (!responded) {
 				console.log("sw", "no response");
 				port.postMessage({
-					scramjet$type: "fetch",
-					scramjet$token: token,
-					scramjet$response: false,
+					sherpa$type: "fetch",
+					sherpa$token: token,
+					sherpa$response: false,
 				});
 			}
 		}
@@ -151,13 +151,13 @@ export type TransferrableRequest = {
 };
 
 type FetchResponseMessage = {
-	scramjet$type: "fetch";
-	scramjet$response: TransferrableResponse;
+	sherpa$type: "fetch";
+	sherpa$response: TransferrableResponse;
 };
 
 type FetchRequestMessage = {
-	scramjet$type: "fetch";
-	scramjet$request: TransferrableRequest;
+	sherpa$type: "fetch";
+	sherpa$request: TransferrableRequest;
 };
 
 // r2w = runtime to (service) worker
@@ -166,10 +166,10 @@ type MessageTypeR2W = FetchResponseMessage;
 type MessageTypeW2R = FetchRequestMessage;
 
 type MessageCommon = {
-	scramjet$type: string;
-	scramjet$token: number;
+	sherpa$type: string;
+	sherpa$token: number;
 };
 
 export type MessageR2W = MessageCommon & MessageTypeR2W;
 export type MessageW2R = MessageCommon &
-	MessageTypeW2R & { scramjet$port?: MessagePort };
+	MessageTypeW2R & { sherpa$port?: MessagePort };

@@ -1,16 +1,16 @@
-import { ScramjetClient } from "@client/index";
-import { ScramjetFrame } from "@/controller/frame";
-import { SCRAMJETCLIENT, SCRAMJETFRAME } from "@/symbols";
+import { SherpaClient } from "@client/index";
+import { SherpaFrame } from "@/controller/frame";
+import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
 import * as controller from "@/controller/index";
 import * as client from "@/client/entry";
 import * as worker from "@/worker/index";
 import { DBSchema } from "idb";
 
 /**
- * Version information for the current Scramjet build.
+ * Version information for the current Sherpa build.
  * Contains both the semantic version string and the git commit hash for build identification.
  */
-export interface ScramjetVersionInfo {
+export interface SherpaVersionInfo {
 	/** The git commit hash that this build was created from */
 	build: string;
 	/** The semantic version */
@@ -18,9 +18,9 @@ export interface ScramjetVersionInfo {
 }
 
 /**
- * Scramjet Feature Flags, configured at build time
+ * Sherpa Feature Flags, configured at build time
  */
-export type ScramjetFlags = {
+export type SherpaFlags = {
 	serviceworkers: boolean;
 	syncxhr: boolean;
 	strictRewrites: boolean;
@@ -35,7 +35,7 @@ export type ScramjetFlags = {
 	allowFailedIntercepts: boolean;
 };
 
-export interface ScramjetConfig {
+export interface SherpaConfig {
 	prefix: string;
 	globals: {
 		wrapfn: string;
@@ -56,8 +56,8 @@ export interface ScramjetConfig {
 		all: string;
 		sync: string;
 	};
-	flags: ScramjetFlags;
-	siteFlags: Record<string, Partial<ScramjetFlags>>;
+	flags: SherpaFlags;
+	siteFlags: Record<string, Partial<SherpaFlags>>;
 	codec: {
 		encode: string;
 		decode: string;
@@ -65,44 +65,44 @@ export interface ScramjetConfig {
 }
 
 /**
- * The config for Scramjet initialization.
+ * The config for Sherpa initialization.
  */
-export interface ScramjetInitConfig
-	extends Omit<ScramjetConfig, "codec" | "flags"> {
-	flags: Partial<ScramjetFlags>;
+export interface SherpaInitConfig
+	extends Omit<SherpaConfig, "codec" | "flags"> {
+	flags: Partial<SherpaFlags>;
 	codec: {
 		encode: (url: string) => string;
 		decode: (url: string) => string;
 	};
 }
 declare global {
-	var $scramjetLoadController: () => typeof controller;
-	var $scramjetLoadClient: () => typeof client;
-	var $scramjetLoadWorker: () => typeof worker;
-	var $scramjetVersion: ScramjetVersionInfo;
+	var $sherpaLoadController: () => typeof controller;
+	var $sherpaLoadClient: () => typeof client;
+	var $sherpaLoadWorker: () => typeof worker;
+	var $sherpaVersion: SherpaVersionInfo;
 	interface Window {
 		COOKIE: string;
 		WASM: string;
 		REAL_WASM: Uint8Array;
 
 		/**
-		 * The scramjet client belonging to a window.
+		 * The sherpa client belonging to a window.
 		 */
-		[SCRAMJETCLIENT]: ScramjetClient;
+		[SHERPACLIENT]: SherpaClient;
 	}
 
 	interface HTMLDocument {
 		/**
 		 * Should be the same as window.
 		 */
-		[SCRAMJETCLIENT]: ScramjetClient;
+		[SHERPACLIENT]: SherpaClient;
 	}
 
 	interface HTMLIFrameElement {
 		/**
 		 * The event target belonging to an iframe element holding an encoded URL.
 		 */
-		[SCRAMJETFRAME]: ScramjetFrame;
+		[SHERPAFRAME]: SherpaFrame;
 	}
 }
 
@@ -120,10 +120,10 @@ export interface ReferrerPolicyData {
 	referrer: string;
 }
 
-export interface ScramjetDB extends DBSchema {
+export interface SherpaDB extends DBSchema {
 	config: {
 		key: string;
-		value: ScramjetConfig;
+		value: SherpaConfig;
 	};
 	cookies: {
 		key: string;

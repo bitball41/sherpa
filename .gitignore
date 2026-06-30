@@ -1,6 +1,6 @@
 node_modules
 dist
-static/scramjet*
+static/sherpa*
 static/bare-mux.js
 static/bare-client.js
 static/curl-client.js

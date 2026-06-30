@@ -2,10 +2,10 @@
  * @fileoverview Contains abstractions for using Scrmajet under an iframe.
  */
 
-import { ScramjetController } from "@/controller/index";
-import type { ScramjetClient } from "@client/index";
-import type { ScramjetEvent, ScramjetEvents } from "@client/events";
-import { SCRAMJETCLIENT, SCRAMJETFRAME } from "@/symbols";
+import { SherpaController } from "@/controller/index";
+import type { SherpaClient } from "@client/index";
+import type { SherpaEvent, SherpaEvents } from "@client/events";
+import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
 function createFrameId() {
 	return `${Array(8)
 		.fill(0)
@@ -14,15 +14,15 @@ function createFrameId() {
 }
 
 /**
- * An abstraction over proxy iframe creation, which lets you manage instances of Scramjet and not have to worry about the proxy internals, since everything you need is already proxified.
+ * An abstraction over proxy iframe creation, which lets you manage instances of Sherpa and not have to worry about the proxy internals, since everything you need is already proxified.
  *
  * @example
  * ```typescript
- * const { ScramjetController } = $scramjetLoadController();
- * const scramjet = new ScramjetController({ prefix: "/scramjet/" });
- * await scramjet.init();
+ * const { SherpaController } = $sherpaLoadController();
+ * const sherpa = new SherpaController({ prefix: "/sherpa/" });
+ * await sherpa.init();
  *
- * const frame = scramjet.createFrame();
+ * const frame = sherpa.createFrame();
  * document.body.appendChild(frame.frame);
  *
  * // Navigate to a URL
@@ -41,30 +41,30 @@ function createFrameId() {
  * frame.reload();
  * ```
  */
-export class ScramjetFrame extends EventTarget {
+export class SherpaFrame extends EventTarget {
 	/**
-	 * Create a ScramjetFrame instance. You likely won't need to interact the {@link ScramjetFrame.constructor | constructor} directly.
-	 * You can instead use {@link ScramjetController.createFrame} on your existing `ScramjetController`.
+	 * Create a SherpaFrame instance. You likely won't need to interact the {@link SherpaFrame.constructor | constructor} directly.
+	 * You can instead use {@link SherpaController.createFrame} on your existing `SherpaController`.
 	 *
-	 * @param controller The `ScramjetController` instance that manages this frame with.
-	 * @param frame The frame to be controlled for you under Scramjet.
+	 * @param controller The `SherpaController` instance that manages this frame with.
+	 * @param frame The frame to be controlled for you under Sherpa.
 	 */
 	constructor(
-		private controller: ScramjetController,
+		private controller: SherpaController,
 		public frame: HTMLIFrameElement
 	) {
 		super();
 		frame.name = createFrameId();
-		frame[SCRAMJETFRAME] = this;
+		frame[SHERPAFRAME] = this;
 	}
 
 	/**
-	 * Returns the {@link ScramjetClient} instance running inside the iframe's contentWindow.
+	 * Returns the {@link SherpaClient} instance running inside the iframe's contentWindow.
 	 *
-	 * @returns The `ScramjetClient` instance.
+	 * @returns The `SherpaClient` instance.
 	 */
-	get client(): ScramjetClient {
-		return this.frame.contentWindow.window[SCRAMJETCLIENT];
+	get client(): SherpaClient {
+		return this.frame.contentWindow.window[SHERPACLIENT];
 	}
 
 	/**
@@ -77,7 +77,7 @@ export class ScramjetFrame extends EventTarget {
 	}
 
 	/**
-	 * Navigates the iframe to a new URL under Scramjet.
+	 * Navigates the iframe to a new URL under Sherpa.
 	 *
 	 * @example
 	 * ```typescript
@@ -116,7 +116,7 @@ export class ScramjetFrame extends EventTarget {
 	}
 
 	/**
-	 * Binds event listeners to listen for proxified navigation events in Scramjet.
+	 * Binds event listeners to listen for proxified navigation events in Sherpa.
 	 *
 	 * @example
 	 * ```typescript
@@ -136,9 +136,9 @@ export class ScramjetFrame extends EventTarget {
 	 * @param listener Event listener to dispatch.
 	 * @param options Options for the event listener.
 	 */
-	addEventListener<K extends keyof ScramjetEvents>(
+	addEventListener<K extends keyof SherpaEvents>(
 		type: K,
-		listener: (event: ScramjetEvents[K]) => void,
+		listener: (event: SherpaEvents[K]) => void,
 		options?: boolean | AddEventListenerOptions
 	): void {
 		super.addEventListener(type, listener as EventListener, options);

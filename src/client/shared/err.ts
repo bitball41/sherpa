@@ -1,7 +1,7 @@
 import { flagEnabled } from "@/shared";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export const enabled = (client: ScramjetClient) =>
+export const enabled = (client: SherpaClient) =>
 	flagEnabled("captureErrors", client.url);
 export function argdbg(arg, recurse = []) {
 	switch (typeof arg) {
@@ -27,7 +27,7 @@ export function argdbg(arg, recurse = []) {
 	}
 }
 
-export default function (client: ScramjetClient, self: typeof globalThis) {
+export default function (client: SherpaClient, self: typeof globalThis) {
 	const warn = console.warn;
 	self.$scramerr = function scramerr(e) {
 		warn("CAUGHT ERROR", e);

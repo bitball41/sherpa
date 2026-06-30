@@ -1,7 +1,7 @@
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("EventSource", {
 		construct(ctx) {
 			ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);

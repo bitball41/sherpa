@@ -1,55 +1,55 @@
 /// <reference types="@rspack/core/module" />
 
-import type { ScramjetVersionInfo } from "./types";
+import type { SherpaVersionInfo } from "./types";
 
 /**
- * Hash of the current commit in `MercuryWorkshop/scramjet` Scramjet was built from.
+ * Hash of the current commit in `MercuryWorkshop/sherpa` Sherpa was built from.
  */
 declare const COMMITHASH: string;
 /**
- * Semantic version of the current Scramjet build.
+ * Semantic version of the current Sherpa build.
  */
 declare const VERSION: string;
 
 /**
  * @category Window Context
  */
-export type { ScramjetFlags } from "./types";
+export type { SherpaFlags } from "./types";
 
 /**
  * @category Window Context
  */
-export type { ScramjetInitConfig } from "./types";
+export type { SherpaInitConfig } from "./types";
 
 /**
  * @category Window Context
  */
-export type { ScramjetGlobalEvent } from "./client/events";
+export type { SherpaGlobalEvent } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetGlobalDownloadEvent } from "./client/events";
+export type { SherpaGlobalDownloadEvent } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetGlobalEvents } from "./client/events";
+export type { SherpaGlobalEvents } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetDownload } from "./client/events";
+export type { SherpaDownload } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetEvent } from "./client/events";
+export type { SherpaEvent } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetEvents } from "./client/events";
+export type { SherpaEvents } from "./client/events";
 
 /**
  * @category Window Context
@@ -64,96 +64,96 @@ export type { UrlChangeEvent } from "./client/events";
 /**
  * @category Window Context
  */
-export type { ScramjetContextEvent } from "./client/events";
+export type { SherpaContextEvent } from "./client/events";
 
 /**
  * @category Window Context
  */
-export type { ScramjetController } from "./controller";
+export type { SherpaController } from "./controller";
 
 /**
  * @category Window Context
  */
-export type { ScramjetFrame } from "./controller/frame";
+export type { SherpaFrame } from "./controller/frame";
 
 /**
  * @category Window Context
  */
-export type { ScramjetClient } from "./client";
+export type { SherpaClient } from "./client";
 
 /**
  * @category Service Worker Context
  */
-export type { ScramjetServiceWorker } from "./worker";
+export type { SherpaServiceWorker } from "./worker";
 
 /**
- * @fileoverview Scramjet Entry Point. This module contain global constants and factory functions to load the APIs in the bundle.
+ * @fileoverview Sherpa Entry Point. This module contain global constants and factory functions to load the APIs in the bundle.
  *
  * @categoryDescription Window Context
- * APIs for the main window context, which includes creating Scramjet Frames and the Controller for managing the Scramjet proxy behavior in the SW.
+ * APIs for the main window context, which includes creating Sherpa Frames and the Controller for managing the Sherpa proxy behavior in the SW.
  * @categoryDescription Service Worker Context
- * APIs designed for the service worker context, where the core logic resides. These are the essentials and include the the `ScramjetServiceWorker`.
+ * APIs designed for the service worker context, where the core logic resides. These are the essentials and include the the `SherpaServiceWorker`.
  */
 
 /**
- * Factory function that creates the `ScramjetController` class.
+ * Factory function that creates the `SherpaController` class.
  *
- * @returns The `ScramjetController` class.
+ * @returns The `SherpaController` class.
  *
  * @example
  * ```typescript
- * const { ScramjetController } = $scramjetLoadController();
+ * const { SherpaController } = $sherpaLoadController();
  *
- * const scramjet = new ScramjetController({
- *   prefix: "/scramjet/"
+ * const sherpa = new SherpaController({
+ *   prefix: "/sherpa/"
  * });
  *
- * await scramjet.init();
+ * await sherpa.init();
  *
- * const frame = scramjet.createFrame();
+ * const frame = sherpa.createFrame();
  * document.body.appendChild(frame.frame);
  * frame.navigate("https://example.com");
  * ```
  *
  * @category Window Context
  */
-export function $scramjetLoadController() {
+export function $sherpaLoadController() {
 	return require("./controller/index");
 }
 /**
- * Factory function that creates the `ScramjetClient` for controlling sandboxing.
+ * Factory function that creates the `SherpaClient` for controlling sandboxing.
  *
- * @returns The `ScramjetClient` class.
+ * @returns The `SherpaClient` class.
  *
  * @example
  * ```typescript
- * const ScramjetClient = $scramjetLoadClient();
+ * const SherpaClient = $sherpaLoadClient();
  *
- * const scramjetClient = new ScramjetClient.ScramjetClient();
+ * const sherpaClient = new SherpaClient.SherpaClient();
  * ```
  * @category Window Context
  */
-export function $scramjetLoadClient() {
+export function $sherpaLoadClient() {
 	return require("./client/entry");
 }
 /**
- * Factory function that creates the `ScramjetServiceWorker` class.
+ * Factory function that creates the `SherpaServiceWorker` class.
  *
- * @returns The `ScramjetServiceWorker` class.
+ * @returns The `SherpaServiceWorker` class.
  *
  * Plain SW example
  * @example
  * ```typescript
  * // In your Service Worker
- * const { ScramjetServiceWorker } = $scramjetLoadWorker();
+ * const { SherpaServiceWorker } = $sherpaLoadWorker();
  *
- * const scramjet = new ScramjetServiceWorker();
+ * const sherpa = new SherpaServiceWorker();
  *
  * self.addEventListener("fetch", async (ev) => {
- *   await scramjet.loadConfig();
+ *   await sherpa.loadConfig();
  *
- *   if (scramjet.route(ev)) {
- *     ev.respondWith(scramjet.fetch(ev));
+ *   if (sherpa.route(ev)) {
+ *     ev.respondWith(sherpa.fetch(ev));
  *   }
  * });
  * ```
@@ -165,46 +165,46 @@ export function $scramjetLoadClient() {
  * // This is more useful for a webOS or if you have Offline PWA support on your proxy site
  * import { registerRoute } from 'workbox-routing';
  *
- * const { ScramjetServiceWorker } = $scramjetLoadWorker();
+ * const { SherpaServiceWorker } = $sherpaLoadWorker();
  *
- * const scramjet = new ScramjetServiceWorker();
+ * const sherpa = new SherpaServiceWorker();
  *
  * registerRoute(
  *   ({ request }) => {
- *     return scramjet.route({ request });
+ *     return sherpa.route({ request });
  *   },
  *   async ({ event }) => {
- *     await scramjet.loadConfig();
+ *     await sherpa.loadConfig();
  *
- *     return scramjet.fetch(event);
+ *     return sherpa.fetch(event);
  *   }
  * );
  * ```
  *
  * @category Service Worker Context
  */
-export function $scramjetLoadWorker() {
+export function $sherpaLoadWorker() {
 	return require("./worker/index");
 }
 
-globalThis.$scramjetRequire = function (path: string) {
+globalThis.$sherpaRequire = function (path: string) {
 	return require(path);
 };
 
 /**
- * Version information for the current Scramjet build.
+ * Version information for the current Sherpa build.
  *
  * @category Window Context
  */
-export const $scramjetVersion: ScramjetVersionInfo = {
+export const $sherpaVersion: SherpaVersionInfo = {
 	build: COMMITHASH,
 	version: VERSION,
 };
 
-globalThis.$scramjetLoadController = $scramjetLoadController;
-globalThis.$scramjetLoadClient = $scramjetLoadClient;
-globalThis.$scramjetLoadWorker = $scramjetLoadWorker;
-globalThis.$scramjetVersion = $scramjetVersion;
+globalThis.$sherpaLoadController = $sherpaLoadController;
+globalThis.$sherpaLoadClient = $sherpaLoadClient;
+globalThis.$sherpaLoadWorker = $sherpaLoadWorker;
+globalThis.$sherpaVersion = $sherpaVersion;
 
 if ("document" in globalThis && document?.currentScript) {
 	document.currentScript.remove();

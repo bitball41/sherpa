@@ -1,7 +1,7 @@
 import { rewriteCss, unrewriteCss } from "@rewriters/css";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("CSSStyleDeclaration.prototype.setProperty", {
 		apply(ctx) {
 			if (!ctx.args[1]) return;

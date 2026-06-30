@@ -1,7 +1,7 @@
 import { rewriteUrl } from "../../shared/rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("importScripts", {
 		apply(ctx) {
 			for (const i in ctx.args) {

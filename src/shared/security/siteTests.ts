@@ -4,7 +4,7 @@ import type {
 	default as BareClient,
 	BareResponseFetch,
 } from "@mercuryworkshop/bare-mux";
-import { ScramjetDB } from "@/types";
+import { SherpaDB } from "@/types";
 import { openDB, IDBPDatabase } from "idb";
 
 // Cache every hour
@@ -16,8 +16,8 @@ const CACHE_KEY = "publicSuffixList";
  *
  * @returns Resolves to the database connection
  */
-async function getDB(): Promise<IDBPDatabase<ScramjetDB>> {
-	return openDB<ScramjetDB>("$scramjet", 1);
+async function getDB(): Promise<IDBPDatabase<SherpaDB>> {
+	return openDB<SherpaDB>("$sherpa", 1);
 }
 
 /**

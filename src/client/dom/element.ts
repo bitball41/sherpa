@@ -3,8 +3,8 @@ import { rewriteCss, unrewriteCss } from "@rewriters/css";
 import { rewriteHtml, unrewriteHtml } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
-import { SCRAMJETCLIENT } from "@/symbols";
-import { ScramjetClient } from "@client/index";
+import { SHERPACLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
 
 const encoder = new TextEncoder();
 function bytesToBase64(bytes: Uint8Array) {
@@ -14,7 +14,7 @@ function bytesToBase64(bytes: Uint8Array) {
 
 	return btoa(binString);
 }
-export default function (client: ScramjetClient, self: typeof window) {
+export default function (client: SherpaClient, self: typeof window) {
 	const attrObject = {
 		nonce: [self.HTMLElement],
 		integrity: [self.HTMLScriptElement, self.HTMLLinkElement],
@@ -132,7 +132,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 		apply(ctx) {
 			const [name] = ctx.args;
 
-			if (name.startsWith("scramjet-attr")) {
+			if (name.startsWith("sherpa-attr")) {
 				return ctx.return(null);
 			}
 
@@ -140,10 +140,10 @@ export default function (client: ScramjetClient, self: typeof window) {
 				client.natives.call(
 					"Element.prototype.hasAttribute",
 					ctx.this,
-					`scramjet-attr-${name}`
+					`sherpa-attr-${name}`
 				)
 			) {
-				const attrib = ctx.fn.call(ctx.this, `scramjet-attr-${name}`);
+				const attrib = ctx.fn.call(ctx.this, `sherpa-attr-${name}`);
 				if (attrib === null) return ctx.return("");
 
 				return ctx.return(attrib);
@@ -155,7 +155,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 		apply(ctx) {
 			const attrNames = ctx.call() as string[];
 			const cleaned = attrNames.filter(
-				(attr) => !attr.startsWith("scramjet-attr")
+				(attr) => !attr.startsWith("sherpa-attr")
 			);
 
 			ctx.return(cleaned);
@@ -164,13 +164,13 @@ export default function (client: ScramjetClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.getAttributeNode", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("scramjet-attr")) return ctx.return(null);
+			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(null);
 		},
 	});
 
 	client.Proxy("Element.prototype.hasAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("scramjet-attr")) return ctx.return(false);
+			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(false);
 		},
 	});
 
@@ -200,7 +200,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 					return;
 				}
 				ctx.args[1] = ret;
-				ctx.fn.call(ctx.this, `scramjet-attr-${ctx.args[0]}`, value);
+				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`, value);
 			}
 		},
 	});
@@ -228,7 +228,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 				client.natives.call(
 					"Element.prototype.setAttribute",
 					ctx.this,
-					`scramjet-attr-${ctx.args[1]}`,
+					`sherpa-attr-${ctx.args[1]}`,
 					value
 				);
 			}
@@ -259,7 +259,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.removeAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("scramjet-attr")) return ctx.return(undefined);
+			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(undefined);
 			if (
 				client.natives.call(
 					"Element.prototype.hasAttribute",
@@ -267,14 +267,14 @@ export default function (client: ScramjetClient, self: typeof window) {
 					ctx.args[0]
 				)
 			) {
-				ctx.fn.call(ctx.this, `scramjet-attr-${ctx.args[0]}`);
+				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`);
 			}
 		},
 	});
 
 	client.Proxy("Element.prototype.toggleAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("scramjet-attr")) return ctx.return(false);
+			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(false);
 			if (
 				client.natives.call(
 					"Element.prototype.hasAttribute",
@@ -282,7 +282,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 					ctx.args[0]
 				)
 			) {
-				ctx.fn.call(ctx.this, `scramjet-attr-${ctx.args[0]}`);
+				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`);
 			}
 		},
 	});
@@ -295,7 +295,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 				client.natives.call(
 					"Element.prototype.setAttribute",
 					ctx.this,
-					"scramjet-attr-script-source-src",
+					"sherpa-attr-script-source-src",
 					bytesToBase64(encoder.encode(newval))
 				);
 			} else if (ctx.this instanceof self.HTMLStyleElement) {
@@ -315,7 +315,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 				const scriptSource = client.natives.call(
 					"Element.prototype.getAttribute",
 					ctx.this,
-					"scramjet-attr-script-source-src"
+					"sherpa-attr-script-source-src"
 				);
 
 				if (scriptSource) {
@@ -344,7 +344,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 				client.natives.call(
 					"Element.prototype.setAttribute",
 					ctx.this,
-					"scramjet-attr-script-source-src",
+					"sherpa-attr-script-source-src",
 					bytesToBase64(encoder.encode(newval))
 				);
 
@@ -360,7 +360,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 				const scriptSource = client.natives.call(
 					"Element.prototype.getAttribute",
 					ctx.this,
-					"scramjet-attr-script-source-src"
+					"sherpa-attr-script-source-src"
 				);
 
 				if (scriptSource) {
@@ -476,9 +476,9 @@ export default function (client: ScramjetClient, self: typeof window) {
 				const realwin = ctx.get() as Window;
 				if (!realwin) return realwin;
 
-				if (!(SCRAMJETCLIENT in realwin)) {
+				if (!(SHERPACLIENT in realwin)) {
 					// hook the iframe before the client can start to steal globals out of it
-					const newclient = new ScramjetClient(realwin);
+					const newclient = new SherpaClient(realwin);
 					newclient.hook();
 				}
 
@@ -502,8 +502,8 @@ export default function (client: ScramjetClient, self: typeof window) {
 				);
 				if (!realwin) return realwin;
 
-				if (!(SCRAMJETCLIENT in realwin)) {
-					const newclient = new ScramjetClient(realwin);
+				if (!(SHERPACLIENT in realwin)) {
+					const newclient = new SherpaClient(realwin);
 					newclient.hook();
 				}
 
@@ -522,7 +522,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 			apply(ctx) {
 				const doc = ctx.call();
 				if (doc) {
-					// we trap the contentDocument, this is really the scramjet version
+					// we trap the contentDocument, this is really the sherpa version
 					return ctx.return(ctx.this.contentDocument);
 				}
 			},

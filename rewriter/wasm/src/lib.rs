@@ -35,33 +35,33 @@ fn set_obj(obj: &Object, k: &str, v: &JsValue) -> Result<()> {
 	}
 }
 
-fn get_flag(scramjet: &Object, url: &str, flag: &str) -> Result<bool> {
-	let fenabled = get_obj(scramjet, "flagEnabled")?
+fn get_flag(sherpa: &Object, url: &str, flag: &str) -> Result<bool> {
+	let fenabled = get_obj(sherpa, "flagEnabled")?
 		.dyn_into::<Function>()
-		.map_err(|_| RewriterError::not_fn("scramjet.flagEnabled"))?;
+		.map_err(|_| RewriterError::not_fn("sherpa.flagEnabled"))?;
 	let ret = fenabled.call2(&JsValue::NULL, &flag.into(), &Url::new(url)?.into())?;
 
 	ret.as_bool()
-		.ok_or_else(|| RewriterError::not_bool("scramjet.flagEnabled return value"))
+		.ok_or_else(|| RewriterError::not_bool("sherpa.flagEnabled return value"))
 }
 
 #[wasm_bindgen]
 pub struct Rewriter {
 	alloc: Allocator,
 
-	scramjet: Object,
+	sherpa: Object,
 	js: JsRewriter,
 }
 
 #[wasm_bindgen]
 impl Rewriter {
 	#[wasm_bindgen(constructor)]
-	pub fn new(scramjet: Object) -> Result<Self> {
+	pub fn new(sherpa: Object) -> Result<Self> {
 		Ok(Self {
 			alloc: Allocator::default(),
 
-			js: create_js(&scramjet)?,
-			scramjet,
+			js: create_js(&sherpa)?,
+			sherpa,
 		})
 	}
 
@@ -73,7 +73,7 @@ impl Rewriter {
 		url: String,
 		module: bool,
 	) -> Result<JsRewriterOutput> {
-		let flags = get_js_flags(&self.scramjet, base, module)?;
+		let flags = get_js_flags(&self.sherpa, base, module)?;
 
 		let out = match self.js.rewrite(&self.alloc, &js, flags) {
 			Ok(x) => x,

@@ -72,7 +72,7 @@ pub enum JsChangeType<'alloc: 'data, 'data> {
 	ImportFn,
 	/// replace span with `${cfg.metafn}("${cfg.base}")`
 	MetaFn,
-	/// replace span with `((t)=>$scramjet$tryset(${name},"${op}",t)||(${name}${op}t))(`
+	/// replace span with `((t)=>$sherpa$tryset(${name},"${op}",t)||(${name}${op}t))(`
 	AssignmentLeft {
 		name: Atom<'data>,
 		op: AssignmentOperator,

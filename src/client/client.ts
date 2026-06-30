@@ -1,5 +1,5 @@
-import { ScramjetFrame } from "@/controller/frame";
-import { SCRAMJETCLIENT, SCRAMJETFRAME } from "@/symbols";
+import { SherpaFrame } from "@/controller/frame";
+import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { createLocationProxy } from "@client/location";
 import { createWrapFn } from "@client/shared/wrap";
@@ -24,14 +24,14 @@ type DescriptorStore = {
 //eslint-disable-next-line
 export type AnyFunction = Function;
 
-export type ScramjetModule = {
-	enabled: (client: ScramjetClient) => boolean | undefined;
+export type SherpaModule = {
+	enabled: (client: SherpaClient) => boolean | undefined;
 	disabled: (
-		client: ScramjetClient,
+		client: SherpaClient,
 		self: typeof globalThis
 	) => void | undefined;
 	order: number | undefined;
-	default: (client: ScramjetClient, self: typeof globalThis) => void;
+	default: (client: SherpaClient, self: typeof globalThis) => void;
 };
 
 export type ProxyCtx = {
@@ -61,7 +61,7 @@ export type Trap<T> = {
 	set?: (ctx: TrapCtx<T>, v: T) => void;
 };
 
-export class ScramjetClient {
+export class SherpaClient {
 	locationProxy: any;
 	serviceWorker: ServiceWorkerContainer;
 	// epoxy: EpoxyClient;
@@ -89,27 +89,27 @@ export class ScramjetClient {
 	box: SingletonBox;
 
 	constructor(public global: typeof globalThis) {
-		if (SCRAMJETCLIENT in global) {
+		if (SHERPACLIENT in global) {
 			console.error(
-				"attempted to initialize a scramjet client, but one is already loaded - this is very bad"
+				"attempted to initialize a sherpa client, but one is already loaded - this is very bad"
 			);
 			throw new Error();
 		}
 
 		if (iswindow) {
 			try {
-				if (SCRAMJETCLIENT in global.parent) {
-					this.box = global.parent[SCRAMJETCLIENT].box;
+				if (SHERPACLIENT in global.parent) {
+					this.box = global.parent[SHERPACLIENT].box;
 				}
 			} catch {}
 			try {
-				if (SCRAMJETCLIENT in global.top) {
-					this.box = global.top[SCRAMJETCLIENT].box;
+				if (SHERPACLIENT in global.top) {
+					this.box = global.top[SHERPACLIENT].box;
 				}
 			} catch {}
 			try {
-				if (global.opener && SCRAMJETCLIENT in global.opener) {
-					this.box = global.opener[SCRAMJETCLIENT].box;
+				if (global.opener && SHERPACLIENT in global.opener) {
+					this.box = global.opener[SHERPACLIENT].box;
 				}
 			} catch {}
 			if (!this.box) {
@@ -139,8 +139,8 @@ export class ScramjetClient {
 					addEventListener("message", ({ data }) => {
 						if (typeof data !== "object") return;
 						if (
-							"$scramjet$type" in data &&
-							data.$scramjet$type === "baremuxinit"
+							"$sherpa$type" in data &&
+							data.$sherpa$type === "baremuxinit"
 						) {
 							resolve(data.port);
 						}
@@ -152,7 +152,7 @@ export class ScramjetClient {
 		this.serviceWorker = this.global.navigator.serviceWorker;
 
 		if (iswindow) {
-			global.document[SCRAMJETCLIENT] = this;
+			global.document[SHERPACLIENT] = this;
 		}
 
 		this.wrapfn = createWrapFn(this, global);
@@ -267,25 +267,25 @@ export class ScramjetClient {
 					return null;
 				}
 
-				// find the topmost frame that's controlled by scramjet, stopping before the real top frame
+				// find the topmost frame that's controlled by sherpa, stopping before the real top frame
 				while (currentWin.parent.window !== currentWin.window) {
-					if (!currentWin.parent.window[SCRAMJETCLIENT]) break;
+					if (!currentWin.parent.window[SHERPACLIENT]) break;
 					currentWin = currentWin.parent.window;
 				}
 
-				const curclient = currentWin[SCRAMJETCLIENT];
+				const curclient = currentWin[SHERPACLIENT];
 				const frame = curclient.descriptors.get(
 					"window.frameElement",
 					currentWin
 				);
 				if (!frame) {
-					// we're inside an iframe, but the top frame is scramjet-controlled and top level, so we can't get a top frame name
+					// we're inside an iframe, but the top frame is sherpa-controlled and top level, so we can't get a top frame name
 					return null;
 				}
 				if (!frame.name) {
-					// the top frame is scramjet-controlled, but it has no name. this is user error
+					// the top frame is sherpa-controlled, but it has no name. this is user error
 					console.error(
-						"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
+						"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
 					);
 
 					return null;
@@ -302,23 +302,23 @@ export class ScramjetClient {
 				}
 
 				let parentWin = client.global.parent.window;
-				if (parentWin[SCRAMJETCLIENT]) {
-					// we're inside an iframe, and the parent is scramjet-controlled
-					const parentClient = parentWin[SCRAMJETCLIENT];
+				if (parentWin[SHERPACLIENT]) {
+					// we're inside an iframe, and the parent is sherpa-controlled
+					const parentClient = parentWin[SHERPACLIENT];
 					const frame = parentClient.descriptors.get(
 						"window.frameElement",
 						parentWin
 					);
 
 					if (!frame) {
-						// parent is scramjet controlled and top-level. there is no parent frame name
+						// parent is sherpa controlled and top-level. there is no parent frame name
 						return null;
 					}
 
 					if (!frame.name) {
-						// the parent frame is scramjet-controlled, but it has no name. this is user error
+						// the parent frame is sherpa-controlled, but it has no name. this is user error
 						console.error(
-							"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
+							"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
 						);
 
 						return null;
@@ -326,16 +326,16 @@ export class ScramjetClient {
 
 					return frame.name;
 				} else {
-					// we're inside an iframe, and the parent is not scramjet-controlled
+					// we're inside an iframe, and the parent is not sherpa-controlled
 					// return our own frame name
 					const frame = client.descriptors.get(
 						"window.frameElement",
 						client.global
 					);
 					if (!frame.name) {
-						// the parent frame is not scramjet-controlled, so we can't get a parent frame name
+						// the parent frame is not sherpa-controlled, so we can't get a parent frame name
 						console.error(
-							"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
+							"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
 						);
 
 						return null;
@@ -347,28 +347,28 @@ export class ScramjetClient {
 		};
 		this.locationProxy = createLocationProxy(this, global);
 
-		global[SCRAMJETCLIENT] = this;
+		global[SHERPACLIENT] = this;
 	}
 
-	get frame(): ScramjetFrame | null {
+	get frame(): SherpaFrame | null {
 		if (!iswindow) return null;
 		const frame = this.descriptors.get("window.frameElement", this.global);
 
 		if (!frame) return null; // we're top level
-		const sframe = frame[SCRAMJETFRAME];
+		const sframe = frame[SHERPAFRAME];
 
 		if (!sframe) {
 			// we're in a subframe, recurse upward until we find one
 			let currentwin = this.global.window;
 			while (currentwin.parent !== currentwin) {
-				let currentclient = currentwin[SCRAMJETCLIENT];
+				let currentclient = currentwin[SHERPACLIENT];
 				let currentFrame = currentclient.descriptors.get(
 					"window.frameElement",
 					currentwin
 				);
 				if (!currentFrame) return null; // ??
-				if (currentFrame && currentFrame[SCRAMJETFRAME]) {
-					return currentFrame[SCRAMJETFRAME];
+				if (currentFrame && currentFrame[SHERPAFRAME]) {
+					return currentFrame[SHERPAFRAME];
 				}
 				currentwin = currentwin.parent.window;
 			}
@@ -381,7 +381,7 @@ export class ScramjetClient {
 		const frame = this.descriptors.get("window.frameElement", this.global);
 
 		if (!frame) return false; // we're top level
-		const sframe = frame[SCRAMJETFRAME];
+		const sframe = frame[SHERPAFRAME];
 		if (!sframe) return true;
 
 		return false;
@@ -395,10 +395,10 @@ export class ScramjetClient {
 			recursive: true,
 		});
 
-		const modules: ScramjetModule[] = [];
+		const modules: SherpaModule[] = [];
 
 		for (const key of context.keys()) {
-			const module = context(key) as ScramjetModule;
+			const module = context(key) as SherpaModule;
 			if (!key.endsWith(".ts")) continue;
 			if (
 				(key.startsWith("./dom/") && "window" in this.global) ||
@@ -550,7 +550,7 @@ export class ScramjetClient {
 						if ((err.stack as any) instanceof Object) {
 							//@ts-expect-error i'm not going to explain this
 							err.stack = err.stack.stack;
-							console.error("ERROR FROM SCRAMJET INTERNALS", err);
+							console.error("ERROR FROM SHERPA INTERNALS", err);
 							if (!flagEnabled("allowFailedIntercepts", this.url)) {
 								throw err;
 							}

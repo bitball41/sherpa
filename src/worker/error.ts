@@ -5,8 +5,8 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                 fetchedURL.textContent = ${JSON.stringify(fetchedURL)};
                 for (const node of document.querySelectorAll("#hostname")) node.textContent = ${JSON.stringify(location.hostname)};
                 reload.addEventListener("click", () => location.reload());
-                version.textContent = ${JSON.stringify((globalThis as any).$scramjetVersion?.version || "unknown")};
-                build.textContent = ${JSON.stringify((globalThis as any).$scramjetVersion?.build || "unknown")};
+                version.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.version || "unknown")};
+                build.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.build || "unknown")};
 
                 document.getElementById('copy-button').addEventListener('click', async () => {
                     const text = document.getElementById('errorTrace').value;
@@ -21,7 +21,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
             <html>
                 <head>
                     <meta charset="utf-8" />
-                    <title>Scramjet</title>
+                    <title>Sherpa</title>
                     <style>
                     :root {
                         --deep: #080602;
@@ -160,15 +160,15 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                                 <p>If you're the administrator of <b id="hostname"></b>, try:</p>
                                     <ul>
                                     <li>Restarting your server</li>
-                                    <li>Updating Scramjet</li>
-                                    <li>Troubleshooting the error on the <a href="https://github.com/MercuryWorkshop/scramjet" target="_blank">GitHub repository</a></li>
+                                    <li>Updating Sherpa</li>
+                                    <li>Troubleshooting the error on the <a href="https://github.com/MercuryWorkshop/sherpa" target="_blank">GitHub repository</a></li>
                                 </ul>
                             </div>
                         </div>
                         <br>
                         <button id="reload" class="primary">Reload</button>
                     </div>
-                    <p id="version-wrapper"><i>Scramjet v<span id="version"></span> (build <span id="build"></span>)</i></p>
+                    <p id="version-wrapper"><i>Sherpa v<span id="version"></span> (build <span id="build"></span>)</i></p>
                     <script src="${"data:application/javascript," + encodeURIComponent(script)}"></script>
                 </body>
             </html>

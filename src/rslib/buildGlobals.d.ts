@@ -6,11 +6,11 @@
 
 declare global {
 	interface GlobalThis {
-		$scramjetLoadController: any;
-		$scramjetLoadClient: any;
-		$scramjetLoadWorker: any;
-		$scramjetRequire: any;
-		$scramjetVersion: {
+		$sherpaLoadController: any;
+		$sherpaLoadClient: any;
+		$sherpaLoadWorker: any;
+		$sherpaRequire: any;
+		$sherpaVersion: {
 			build: string;
 			version: string;
 		};

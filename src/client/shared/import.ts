@@ -1,8 +1,8 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	const boundimport = client.natives.call(
 		"Function",
 		null,

@@ -1,12 +1,12 @@
 import { config, flagEnabled } from "@/shared";
 import { unrewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export const enabled = (client: ScramjetClient) =>
+export const enabled = (client: SherpaClient) =>
 	flagEnabled("cleanErrors", client.url);
 
-export default function (client: ScramjetClient, _self: Self) {
-	// v8 only. all we need to do is clean the scramjet urls from stack traces
+export default function (client: SherpaClient, _self: Self) {
+	// v8 only. all we need to do is clean the sherpa urls from stack traces
 	const closure = (error, stack) => {
 		let newstack = error.stack;
 
@@ -15,7 +15,7 @@ export default function (client: ScramjetClient, _self: Self) {
 
 			try {
 				if (url.endsWith(config.files.all)) {
-					// strip stack frames including scramjet handlers from the trace
+					// strip stack frames including sherpa handlers from the trace
 					const lines = newstack.split("\n");
 					const line = lines.find((l) => l.includes(url));
 					lines.splice(line, 1);

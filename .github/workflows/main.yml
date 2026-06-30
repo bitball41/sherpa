@@ -42,7 +42,7 @@ jobs:
         run: |
           CURRENT_VERSION=$(jq -r .version package.json)
           echo "Current version: $CURRENT_VERSION"
-          LATEST_VERSION=$(npm view @mercuryworkshop/scramjet versions --json | jq -r '.[-1]' || echo "0.0.0")
+          LATEST_VERSION=$(npm view @mercuryworkshop/sherpa versions --json | jq -r '.[-1]' || echo "0.0.0")
           echo "Latest NPM version: $LATEST_VERSION"
 
           if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ];
@@ -56,7 +56,7 @@ jobs:
           fi
 
   build:
-    name: Build Scramjet
+    name: Build Sherpa
     runs-on: ubuntu-latest
 
     steps:
@@ -83,7 +83,7 @@ jobs:
         with:
           path: |
             rewriter/wasm/out
-            dist/scramjet.wasm.wasm
+            dist/sherpa.wasm.wasm
           key: rewriter-release-${{ hashFiles('rewriter/wasm/Cargo.toml', 'rewriter/wasm/src/**/*.rs', 'rewriter/wasm/build.sh') }}
           restore-keys: |
             rewriter-release-
@@ -111,19 +111,19 @@ jobs:
         if: steps.rewriter-cache.outputs.cache-hit != 'true'
         run: "cargo install --git https://github.com/r58playz/wasm-snip"
 
-      - name: Pack Scramjet
+      - name: Pack Sherpa
         run: pnpm pack
 
       - name: Upload Artifact (pnpm pack)
         uses: actions/upload-artifact@v4
         with:
-          name: packaged-scramjet
-          path: mercuryworkshop-scramjet-*.tgz
+          name: packaged-sherpa
+          path: mercuryworkshop-sherpa-*.tgz
 
       - name: Upload Artifact (dist)
         uses: actions/upload-artifact@v4
         with:
-          name: scramjet
+          name: sherpa
           path: |
             dist/*.js
             dist/*.js.map
@@ -155,16 +155,16 @@ jobs:
       - name: Get artifacts
         uses: actions/download-artifact@v4
         with:
-          name: packaged-scramjet
+          name: packaged-sherpa
           path: .
 
       - name: Extract package
-        run: tar xvf mercuryworkshop-scramjet-*.tgz package --strip-components=1
+        run: tar xvf mercuryworkshop-sherpa-*.tgz package --strip-components=1
 
       - name: Run package validation tests
         run: pnpm test:package
   tests:
-    name: Run Scramjet Tests
+    name: Run Sherpa Tests
     runs-on: ubuntu-latest
     needs: [build, package-validation]
 
@@ -189,7 +189,7 @@ jobs:
       - name: Get artifacts
         uses: actions/download-artifact@v4
         with:
-          name: scramjet
+          name: sherpa
           path: dist
 
       - name: Install Playwright Browsers
@@ -215,7 +215,7 @@ jobs:
         with:
           path: |
             rewriter/wasm/out
-            dist/scramjet.wasm.wasm
+            dist/sherpa.wasm.wasm
           key: rewriter-release-${{ hashFiles('rewriter/wasm/Cargo.toml', 'rewriter/wasm/src/**/*.rs', 'rewriter/wasm/build.sh') }}
           restore-keys: |
             rewriter-release-
@@ -247,7 +247,7 @@ jobs:
       - name: Get artifacts
         uses: actions/download-artifact@v4
         with:
-          name: packaged-scramjet
+          name: packaged-sherpa
           path: .
 
       - name: Release unstable build to GitHub
@@ -257,7 +257,7 @@ jobs:
           tag: latest
           commit: main
           body: "${{ github.event.head_commit.url }} ${{ github.event.head_commit.message }}"
-          artifacts: "mercuryworkshop-scramjet-*.tgz"
+          artifacts: "mercuryworkshop-sherpa-*.tgz"
           prerelease: true
 
       - name: Release tagged version to GitHub
@@ -268,10 +268,10 @@ jobs:
           tag: "v${{ needs.version-check.outputs.new_version }}"
           commit: main
           body: "${{ github.event.head_commit.url }} ${{ github.event.head_commit.message }}"
-          artifacts: "mercuryworkshop-scramjet-*.tgz"
+          artifacts: "mercuryworkshop-sherpa-*.tgz"
 
   publish:
-    name: Publish Scramjet to NPM
+    name: Publish Sherpa to NPM
     runs-on: ubuntu-latest
     needs: [version-check, build, package-validation]
     permissions: write-all
@@ -287,14 +287,14 @@ jobs:
       - name: Get artifacts
         uses: actions/download-artifact@v4
         with:
-          name: packaged-scramjet
+          name: packaged-sherpa
           path: .
 
       - name: Update npm
         run: npm install -g npm@latest
 
       - name: Publish
-        run: npm publish mercuryworkshop-scramjet-${{ needs.version-check.outputs.new_version }}.tgz --access public --no-git-checks
+        run: npm publish mercuryworkshop-sherpa-${{ needs.version-check.outputs.new_version }}.tgz --access public --no-git-checks
 
   pages:
     name: Upload to Github Pages
@@ -324,7 +324,7 @@ jobs:
       - name: Get artifacts
         uses: actions/download-artifact@v4
         with:
-          name: scramjet
+          name: sherpa
           path: dist
 
       - name: Setup GitHub CLI

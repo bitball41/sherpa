@@ -1,17 +1,17 @@
 import type { MessageC2W, MessageW2C } from "@/worker";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, self: typeof window) {
+export default function (client: SherpaClient, self: typeof window) {
 	client.serviceWorker.addEventListener(
 		"message",
 		({ data }: { data: MessageW2C }) => {
-			if (!("scramjet$type" in data)) return;
+			if (!("sherpa$type" in data)) return;
 
-			if (data.scramjet$type === "cookie") {
+			if (data.sherpa$type === "cookie") {
 				client.cookieStore.setCookies([data.cookie], new URL(data.url));
 				const msg = {
-					scramjet$token: data.scramjet$token,
-					scramjet$type: "cookie",
+					sherpa$token: data.sherpa$token,
+					sherpa$type: "cookie",
 				};
 				client.serviceWorker.controller.postMessage(msg);
 			}
@@ -30,7 +30,7 @@ export default function (client: ScramjetClient, self: typeof window) {
 			);
 			if (controller) {
 				client.natives.call("ServiceWorker.prototype.postMessage", controller, {
-					scramjet$type: "cookie",
+					sherpa$type: "cookie",
 					cookie: value,
 					url: client.url.href,
 				});

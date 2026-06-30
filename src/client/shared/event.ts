@@ -1,16 +1,16 @@
 import { iswindow } from "@client/entry";
 import { unrewriteUrl } from "@rewriters/url";
-import { SCRAMJETCLIENT } from "@/symbols";
-import { ScramjetClient } from "@client/index";
+import { SHERPACLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 
-const realOnEvent = Symbol.for("scramjet original onevent function");
+const realOnEvent = Symbol.for("sherpa original onevent function");
 
-export default function (client: ScramjetClient, self: Self) {
+export default function (client: SherpaClient, self: Self) {
 	const handlers = {
 		message: {
 			_init() {
-				if (typeof this.data === "object" && "$scramjet$type" in this.data) {
+				if (typeof this.data === "object" && "$sherpa$type" in this.data) {
 					// this is a ctl message
 					return false;
 				}
@@ -24,21 +24,21 @@ export default function (client: ScramjetClient, self: Self) {
 			source() {
 				if (this.source === null) return null;
 
-				// const scram: ScramjetClient = this.source[SCRAMJETCLIENT];
+				// const scram: SherpaClient = this.source[SHERPACLIENT];
 
 				// if (scram) return scram.globalProxy;
 
 				return this.source;
 			},
 			origin() {
-				if (typeof this.data === "object" && "$scramjet$origin" in this.data)
-					return this.data.$scramjet$origin;
+				if (typeof this.data === "object" && "$sherpa$origin" in this.data)
+					return this.data.$sherpa$origin;
 
 				return client.url.origin;
 			},
 			data() {
-				if (typeof this.data === "object" && "$scramjet$data" in this.data)
-					return this.data.$scramjet$data;
+				if (typeof this.data === "object" && "$sherpa$data" in this.data)
+					return this.data.$sherpa$data;
 
 				return this.data;
 			},

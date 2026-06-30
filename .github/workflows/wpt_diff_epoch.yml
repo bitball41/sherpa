@@ -39,7 +39,7 @@ jobs:
         id: check
         run: |
           # Check if there were any commits in the last day
-          SCRAMJET_CHANGED=$(git log --since="24 hours ago" --oneline | wc -l)
+          SHERPA_CHANGED=$(git log --since="24 hours ago" --oneline | wc -l)
 
           # Check WPT-diff repo
           git clone --shallow-since="24 hours ago" https://github.com/MercuryWorkshop/WPT-diff.git wpt-diff-check
@@ -55,7 +55,7 @@ jobs:
           cd ..
 
           # Run tests if any repo has changes or if manually triggered
-          if [ "$SCRAMJET_CHANGED" -gt 0 ] || [ "$WPTDIFF_CHANGED" -gt 0 ] || [ "$WPT_CHANGED" -gt 0 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$SHERPA_CHANGED" -gt 0 ] || [ "$WPTDIFF_CHANGED" -gt 0 ] || [ "$WPT_CHANGED" -gt 0 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             echo "Changes detected or manually triggered (will run tests)"
           else
@@ -63,8 +63,8 @@ jobs:
             echo "No changes detected (skipping tests)"
           fi
 
-  build-scramjet:
-    name: Build Scramjet
+  build-sherpa:
+    name: Build Sherpa
     runs-on: ubuntu-latest
     needs: check-changes
     if: needs.check-changes.outputs.should-run == 'true'
@@ -114,19 +114,19 @@ jobs:
       - name: Install wasm-snip
         run: cargo install --git https://github.com/r58playz/wasm-snip
 
-      - name: Pack Scramjet
+      - name: Pack Sherpa
         run: pnpm pack
 
       - name: Upload artifact (pnpm pack)
         uses: actions/upload-artifact@v4
         with:
-          name: packaged-scramjet
-          path: mercuryworkshop-scramjet-*.tgz
+          name: packaged-sherpa
+          path: mercuryworkshop-sherpa-*.tgz
 
       - name: Upload artifact (dist)
         uses: actions/upload-artifact@v4
         with:
-          name: scramjet-dist
+          name: sherpa-dist
           path: |
             dist/*.js
             dist/*.js.map
@@ -150,7 +150,7 @@ jobs:
   run-wpt-tests:
     name: WPT tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    needs: [build-scramjet, generate-matrix]
+    needs: [build-sherpa, generate-matrix]
     timeout-minutes: 350
     strategy:
       matrix:
@@ -164,7 +164,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: scramjet-dist
+          name: sherpa-dist
           path: dist
 
       - name: Setup pnpm
@@ -256,7 +256,7 @@ jobs:
           path: wpt-diff/generatedValidators/
           key: ${{ runner.os }}-typia-${{ hashFiles('wpt-diff/src/util/validators/**/*.ts', 'wpt-diff/types/**/*.ts', 'wpt-diff/tsconfig.json') }}
 
-      - name: Start Scramjet demo server
+      - name: Start Sherpa demo server
         run: |
           pnpm start &
           DEMO_PID="$!"
@@ -298,7 +298,7 @@ jobs:
         run: |
           xvfb-run --auto-servernum pnpm start --report "wpt-report.json" --output-failed "failed-tests.json" --shard "${{ matrix.shard }}" --total-shards "$SHARD_COUNT" "$MAX_TESTS_ARG"
 
-      - name: Stop Scramjet demo server
+      - name: Stop Sherpa demo server
         if: always()
         run: |
           if [ -n "$DEMO_PID" ]; then
@@ -323,7 +323,7 @@ jobs:
 
   combine-and-upload-reports:
     name: Combine and upload reports
-    needs: [build-scramjet, generate-matrix, run-wpt-tests]
+    needs: [build-sherpa, generate-matrix, run-wpt-tests]
     if: ${{ !cancelled() && needs.run-wpt-tests.result != 'failure' && github.event.inputs.skip_combiner != 'true' }}
     runs-on: ubuntu-latest
 

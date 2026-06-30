@@ -1,8 +1,8 @@
 import { BareMuxConnection } from "@mercuryworkshop/bare-mux";
 import { rewriteUrl } from "@rewriters/url";
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, _self: typeof globalThis) {
+export default function (client: SherpaClient, _self: typeof globalThis) {
 	client.Proxy("Worker", {
 		construct(ctx) {
 			ctx.args[0] = rewriteUrl(ctx.args[0], client.meta) + "?dest=worker";
@@ -20,7 +20,7 @@ export default function (client: ScramjetClient, _self: typeof globalThis) {
 					"Worker.prototype.postMessage",
 					worker,
 					{
-						$scramjet$type: "baremuxinit",
+						$sherpa$type: "baremuxinit",
 						port,
 					},
 					[port]
@@ -56,7 +56,7 @@ export default function (client: ScramjetClient, _self: typeof globalThis) {
 					"MessagePort.prototype.postMessage",
 					worker.port,
 					{
-						$scramjet$type: "baremuxinit",
+						$sherpa$type: "baremuxinit",
 						port,
 					},
 					[port]

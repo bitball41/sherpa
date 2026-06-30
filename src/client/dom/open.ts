@@ -1,8 +1,8 @@
-import { ScramjetClient } from "@client/index";
-import { SCRAMJETCLIENT } from "@/symbols";
+import { SherpaClient } from "@client/index";
+import { SHERPACLIENT } from "@/symbols";
 import { rewriteUrl } from "@rewriters/url";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("window.open", {
 		apply(ctx) {
 			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
@@ -15,10 +15,10 @@ export default function (client: ScramjetClient) {
 
 			if (!realwin) return ctx.return(realwin);
 
-			if (SCRAMJETCLIENT in realwin) {
-				return ctx.return(realwin[SCRAMJETCLIENT].global);
+			if (SHERPACLIENT in realwin) {
+				return ctx.return(realwin[SHERPACLIENT].global);
 			} else {
-				const newclient = new ScramjetClient(realwin);
+				const newclient = new SherpaClient(realwin);
 				// hook the opened window
 				newclient.hook();
 
@@ -33,8 +33,8 @@ export default function (client: ScramjetClient) {
 			if (!f) return f;
 
 			const win = f.ownerDocument.defaultView;
-			if (win[SCRAMJETCLIENT]) {
-				// then this is a subframe in a scramjet context, and it's safe to pass back the real iframe
+			if (win[SHERPACLIENT]) {
+				// then this is a subframe in a sherpa context, and it's safe to pass back the real iframe
 				return f;
 			} else {
 				// no, the top frame is outside the sandbox

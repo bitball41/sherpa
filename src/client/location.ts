@@ -1,10 +1,10 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 import { UrlChangeEvent } from "@client/events";
 import { rewriteUrl } from "@rewriters/url";
 import { iswindow } from "@client/entry";
 
 export function createLocationProxy(
-	client: ScramjetClient,
+	client: SherpaClient,
 	self: typeof globalThis
 ) {
 	const Location = iswindow ? self.Location : self.WorkerLocation;

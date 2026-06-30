@@ -1,6 +1,6 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient) {
+export default function (client: SherpaClient) {
 	client.Proxy("IDBFactory.prototype.open", {
 		apply(ctx) {
 			ctx.args[0] = `${client.url.origin}@${ctx.args[0]}`;

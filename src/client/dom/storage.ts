@@ -1,6 +1,6 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, self: typeof window) {
+export default function (client: SherpaClient, self: typeof window) {
 	const handler: ProxyHandler<Storage> = {
 		get(target, prop) {
 			switch (prop) {

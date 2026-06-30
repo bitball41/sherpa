@@ -1,4 +1,4 @@
-export class ScramjetHeaders {
+export class SherpaHeaders {
 	headers = {};
 
 	set(key: string, v: string) {

@@ -57,7 +57,7 @@ const iifeConfig = defineConfig({
 		},
 	},
 	output: {
-		filename: "scramjet.[name].js",
+		filename: "sherpa.[name].js",
 		path: join(__dirname, "dist"),
 		libraryTarget: "es2022",
 		iife: true,
@@ -152,7 +152,7 @@ const moduleConfig = defineConfig({
 		},
 	},
 	output: {
-		filename: "scramjet.[name].js",
+		filename: "sherpa.[name].js",
 		path: join(__dirname, "dist"),
 		libraryTarget: "module",
 		iife: false,
@@ -171,7 +171,7 @@ const moduleConfig = defineConfig({
 		new rspack.DefinePlugin({
 			REWRITERWASM: (() => {
 				try {
-					const wasmPath = join(__dirname, "dist/scramjet.wasm.wasm");
+					const wasmPath = join(__dirname, "dist/sherpa.wasm.wasm");
 					const wasmBuf = readFileSync(wasmPath);
 					const wasmB64 = wasmBuf.toString("base64");
 					return JSON.stringify(wasmB64);

@@ -1,31 +1,31 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
 /**
- * Union type for all global Scramjet events.
+ * Union type for all global Sherpa events.
  */
-export type ScramjetGlobalEvent = ScramjetGlobalDownloadEvent;
+export type SherpaGlobalEvent = SherpaGlobalDownloadEvent;
 
 /**
  * Event class for proxified download interception.
  */
-export class ScramjetGlobalDownloadEvent extends Event {
+export class SherpaGlobalDownloadEvent extends Event {
 	type = "download";
-	constructor(public download: ScramjetDownload) {
+	constructor(public download: SherpaDownload) {
 		super("download");
 	}
 }
 
 /**
- * Map for all global Scramjet events with their corresponding event types.
+ * Map for all global Sherpa events with their corresponding event types.
  */
-export type ScramjetGlobalEvents = {
-	download: ScramjetGlobalDownloadEvent;
+export type SherpaGlobalEvents = {
+	download: SherpaGlobalDownloadEvent;
 };
 
 /**
  * Event for proxified download interception.
  */
-export type ScramjetDownload = {
+export type SherpaDownload = {
 	filename?: string;
 	url: string;
 	type: string;
@@ -34,24 +34,24 @@ export type ScramjetDownload = {
 };
 
 /**
- * Union type for all Scramjet proxified navigation events.
+ * Union type for all Sherpa proxified navigation events.
  */
-export type ScramjetEvent =
+export type SherpaEvent =
 	| NavigateEvent
 	| UrlChangeEvent
-	| ScramjetContextEvent;
+	| SherpaContextEvent;
 
 /**
- * Type map for all Scramjet navigation events with their corresponding event types.
+ * Type map for all Sherpa navigation events with their corresponding event types.
  */
-export type ScramjetEvents = {
+export type SherpaEvents = {
 	navigate: NavigateEvent;
 	urlchange: UrlChangeEvent;
-	contextInit: ScramjetContextEvent;
+	contextInit: SherpaContextEvent;
 };
 
 /**
- * Navigation event class fired when Scramjet frame navigates to a new proxified URL.
+ * Navigation event class fired when Sherpa frame navigates to a new proxified URL.
  */
 export class NavigateEvent extends Event {
 	type = "navigate";
@@ -61,7 +61,7 @@ export class NavigateEvent extends Event {
 }
 
 /**
- * URL change event class fired when the proxified URL changes in a Scramjet frame.
+ * URL change event class fired when the proxified URL changes in a Sherpa frame.
  */
 export class UrlChangeEvent extends Event {
 	type = "urlchange";
@@ -71,13 +71,13 @@ export class UrlChangeEvent extends Event {
 }
 
 /**
- * Event class fired when Scramjet initializes in a frame.
+ * Event class fired when Sherpa initializes in a frame.
  */
-export class ScramjetContextEvent extends Event {
+export class SherpaContextEvent extends Event {
 	type = "contextInit";
 	constructor(
 		public window: Self,
-		public client: ScramjetClient
+		public client: SherpaClient
 	) {
 		super("contextInit");
 	}

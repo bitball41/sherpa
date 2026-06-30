@@ -1,6 +1,6 @@
-import { ScramjetClient } from "@client/index";
+import { SherpaClient } from "@client/index";
 
-export default function (client: ScramjetClient, _self: typeof window) {
+export default function (client: SherpaClient, _self: typeof window) {
 	client.Trap("Element.prototype.attributes", {
 		get(ctx) {
 			const map = ctx.get() as NamedNodeMap;
@@ -52,8 +52,8 @@ export default function (client: ScramjetClient, _self: typeof window) {
 				},
 				has(target, prop) {
 					if (typeof prop === "symbol") return Reflect.has(target, prop);
-					if (prop.startsWith("scramjet-attr-")) return false;
-					if (map[prop]?.name?.startsWith("scramjet-attr-")) return false;
+					if (prop.startsWith("sherpa-attr-")) return false;
+					if (map[prop]?.name?.startsWith("sherpa-attr-")) return false;
 
 					return Reflect.has(target, prop);
 				},
