@@ -2,6 +2,8 @@ import { config, flagEnabled } from "@/shared";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 
+const SYNC_XHR_WATCHDOG_MS = 30_000;
+
 export default function (client: SherpaClient, self: Self) {
 	let worker;
 	if (self.Worker && flagEnabled("syncxhr", client.url)) {
@@ -53,7 +55,9 @@ export default function (client: SherpaClient, self: Self) {
 
 			const now = performance.now();
 			while (view.getUint8(0) === 0) {
-				if (performance.now() - now > 1000) {
+				// Keep a finite watchdog in case the helper worker fails before it can
+				// release the lock; otherwise this main-thread spin would never end.
+				if (performance.now() - now > SYNC_XHR_WATCHDOG_MS) {
 					throw new Error("xhr timeout");
 				}
 				/* spin */
