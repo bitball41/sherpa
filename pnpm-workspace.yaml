@@ -6,3 +6,7 @@ packages:
 
 overrides:
   "entities@4.5.0": "6.0.1"
+
+allowBuilds:
+  bufferutil: true
+  core-js: true
