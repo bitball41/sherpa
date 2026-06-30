@@ -114,6 +114,8 @@ export async function handleFetch(
 					break;
 				case "dest":
 					break;
+				case "scope":
+					break;
 				case "topFrame":
 					topFrameName = value;
 					break;
@@ -156,6 +158,7 @@ export async function handleFetch(
 			const url = dataUrl.startsWith("blob:") ? dataUrl : "(data url)";
 			response.finalURL = url;
 			let body: BodyType;
+			const headers = Object.fromEntries(response.headers.entries());
 
 			if (response.body) {
 				body = await rewriteBody(
@@ -163,10 +166,10 @@ export async function handleFetch(
 					meta,
 					request.destination,
 					scriptType,
-					this.cookieStore
+					this.cookieStore,
+					headers
 				);
 			}
-			const headers = Object.fromEntries(response.headers.entries());
 
 			if (crossOriginIsolated) {
 				headers["Cross-Origin-Opener-Policy"] = "same-origin";
@@ -180,15 +183,20 @@ export async function handleFetch(
 			});
 		}
 
-		const activeWorker: FakeServiceWorker | null = this.serviceWorkers.find(
-			(w) => w.origin === url.origin
+		// A request is only handled by a service worker whose registered scope
+		// is a path-prefix of the request URL. When multiple registered workers
+		// match, the one with the longest (most specific) scope wins, per spec.
+		const matchingWorkers = this.serviceWorkers.filter(
+			(w) =>
+				w.connected &&
+				w.origin === url.origin &&
+				url.pathname.startsWith(w.scope)
 		);
+		const activeWorker = matchingWorkers.sort(
+			(a, b) => b.scope.length - a.scope.length
+		)[0];
 
-		if (
-			activeWorker?.connected &&
-			requestUrl.searchParams.get("from") !== "swruntime"
-		) {
-			// TODO: check scope
+		if (activeWorker && requestUrl.searchParams.get("from") !== "swruntime") {
 			const r = await activeWorker.fetch(request);
 			if (r) return r;
 		}
@@ -551,7 +559,8 @@ async function handleResponse(
 			meta,
 			destination,
 			scriptType,
-			cookieStore
+			cookieStore,
+			responseHeaders
 		);
 	}
 
@@ -601,32 +610,75 @@ async function handleResponse(
 	});
 }
 
+// Per the HTML spec's encoding-sniffing algorithm: an explicit HTTP
+// charset wins, then a BOM, then a <meta charset> declaration sniffed from
+// the first 1024 bytes (decoded as windows-1252, which never throws since
+// every byte maps to some character - this matches how browsers prescan).
+function detectHtmlCharset(
+	buf: ArrayBuffer,
+	contentTypeHeader: string | null
+): string {
+	const headerCharset = contentTypeHeader?.match(/charset=["']?([\w-]+)/i)?.[1];
+	if (headerCharset) return headerCharset.toLowerCase();
+
+	const bytes = new Uint8Array(buf);
+	if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "utf-8";
+	if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
+	if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
+
+	const prefix = new TextDecoder("windows-1252").decode(
+		bytes.subarray(0, Math.min(1024, bytes.length))
+	);
+	const metaCharset = prefix.match(/<meta[^>]+charset=["']?([\w-]+)/i)?.[1];
+	if (metaCharset) return metaCharset.toLowerCase();
+
+	return "utf-8";
+}
+
+function decodeWithCharset(buf: ArrayBuffer, charset: string): string {
+	try {
+		return new TextDecoder(charset).decode(buf);
+	} catch {
+		// unrecognized/unsupported charset label - fall back rather than
+		// throwing and breaking the page entirely
+		return new TextDecoder("utf-8").decode(buf);
+	}
+}
+
 async function rewriteBody(
 	response: BareResponseFetch,
 	meta: URLMeta,
 	destination: RequestDestination,
 	workertype: string,
-	cookieStore: CookieStore
+	cookieStore: CookieStore,
+	responseHeaders: Record<string, string>
 ): Promise<BodyType> {
 	switch (destination) {
 		case "iframe":
 		case "document":
 			if (response.headers.get("content-type")?.startsWith("text/html")) {
-				// note from percs: i think this has the potential to be slow asf, but for right now its fine (we should probably look for a better solution)
-				// another note from percs: regex seems to be broken, gonna comment this out
-				/*
-        const buf = await response.arrayBuffer();
-        const decode = new TextDecoder("utf-8").decode(buf);
-        const charsetHeader = response.headers.get("content-type");
-        const charset =
-          charsetHeader?.split("charset=")[1] ||
-          decode.match(/charset=([^"]+)/)?.[1] ||
-          "utf-8";
-        const htmlContent = charset
-          ? new TextDecoder(charset).decode(buf)
-          : decode;
-        */
-				return rewriteHtml(await response.text(), cookieStore, meta, true);
+				const buf = await response.arrayBuffer();
+				const charset = detectHtmlCharset(
+					buf,
+					response.headers.get("content-type")
+				);
+				const htmlContent = decodeWithCharset(buf, charset);
+
+				// The rewritten body always goes back out as a UTF-8-encoded
+				// string regardless of the upstream charset, so the outgoing
+				// header must say so - an explicit HTTP charset takes priority
+				// over any now-stale in-document <meta charset> declaration,
+				// so this alone is enough to stop the browser re-mojibake-ing it.
+				responseHeaders["content-type"] = /charset=/i.test(
+					responseHeaders["content-type"] || ""
+				)
+					? responseHeaders["content-type"].replace(
+							/charset=[\w-]+/i,
+							"charset=utf-8"
+						)
+					: `${responseHeaders["content-type"] || "text/html"}; charset=utf-8`;
+
+				return rewriteHtml(htmlContent, cookieStore, meta, true);
 			} else {
 				return response.body;
 			}
