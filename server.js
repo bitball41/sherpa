@@ -99,7 +99,7 @@ if (!process.env.CI) {
 	try {
 		writeFileSync(
 			".git/hooks/pre-commit",
-			"pnpm format\ngit update-index --again"
+			"#!/bin/sh\npnpm format\ngit update-index --again\n"
 		);
 		chmodSync(".git/hooks/pre-commit", 0o755);
 	} catch {}

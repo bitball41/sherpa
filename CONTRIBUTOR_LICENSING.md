@@ -1,3 +1,12 @@
+> **Fork note:** This Contributor License Agreement is inherited verbatim from
+> upstream Scramjet and refers throughout to **Mercury Workshop Inc**. It applies
+> to contributions made to the upstream project, not to the Sherpa fork — Sherpa
+> is not currently soliciting external contributions and has no CLA of its own.
+> It is kept here for provenance and licensing history only. Sherpa itself is
+> distributed under **AGPL-3.0-only** (see [`LICENSE`](LICENSE)). If Sherpa ever
+> starts accepting outside contributions, this document must be revisited and
+> re-scoped to the fork's actual maintainer before it means anything.
+
 # What is this / Why do we need it
 
 Agreeing to these terms allows us (Mercury Workshop) to use the code you contribute to the project without restrictions.

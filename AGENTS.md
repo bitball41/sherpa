@@ -11,7 +11,7 @@ upstream black box.
 
 This file is the durable, tool-agnostic source of truth for this project.
 (There is also Claude-Code-specific memory/plan state elsewhere on this
-machine, but treat *this file plus `git log`* as authoritative — re-derive
+machine, but treat _this file plus `git log`_ as authoritative — re-derive
 anything that seems stale from those.)
 
 ## Decisions already made (do not re-litigate without asking the owner)
@@ -35,7 +35,9 @@ anything that seems stale from those.)
 
 ## Current state (check `git log --oneline` to confirm this is still accurate)
 
-8 commits past the upstream `legacy` baseline:
+12 commits past the upstream `legacy` baseline (plus an in-progress
+compat/docs polish pass in the working tree — see "Latest polish pass" below):
+
 - `3316c04a`/`f3d73e09`/`458677d0` — rebrand pass (scramjet→sherpa renamed
   throughout: globals like `$scramjetLoadController`→`$sherpaLoadController`,
   classes like `ScramjetController`→`SherpaController`, the `"$scramjet"`
@@ -47,11 +49,11 @@ anything that seems stale from those.)
 - `09facf8f` — fixed a real bug: `EventSource.prototype.url` getter was
   missing a `return`, always returned `undefined`.
 - `904a5db7` + `78593f89` — implemented real Service Worker scope tracking
-  end-to-end. Previously: the registered scope was stored as the *script
-  URL* instead of the real scope, never transmitted to the worker context at
+  end-to-end. Previously: the registered scope was stored as the _script
+  URL_ instead of the real scope, never transmitted to the worker context at
   all, and fetch-interception matched workers by origin only (no scope
   check) — meaning any one registered worker for an origin would intercept
-  *every* request to that origin regardless of path. Now threads the real
+  _every_ request to that origin regardless of path. Now threads the real
   scope (explicit `options.scope`, else default directory-of-script-URL)
   through registration → `postMessage` → `FakeServiceWorker`, and through the
   `SharedWorker`'s own URL as a query param so the worker-side runtime can
@@ -67,18 +69,60 @@ anything that seems stale from those.)
   disabled — its regex broke on single-quoted/unquoted `<meta charset>`
   attributes). New `detectHtmlCharset()`/`decodeWithCharset()` helpers
   implement the HTML spec's sniffing order (HTTP header → BOM → `<meta
-  charset>` sniffed from the first 1024 bytes decoded as windows-1252,
+charset>` sniffed from the first 1024 bytes decoded as windows-1252,
   default utf-8), and the outgoing `Content-Type` charset is normalized to
   `utf-8` since the rewritten body always goes back out UTF-8-encoded
   regardless of the source charset.
 - `5c46974a` — investigated `src/client/dom/origin.ts`'s `"this isn't
-  right!!"` TODO on the `origin` trap. Conclusion: `client.url.origin` is
+right!!"` TODO on the `origin` trap. Conclusion: `client.url.origin` is
   actually correct for the normal case. The real gap is opaque origin for
   `<iframe sandbox>` without `allow-same-origin` (real browsers force
   `window.origin` to the literal string `"null"` there) — but there's no
   sandbox-attribute tracking anywhere in the client/frame model to support a
   correct fix, and it's unresolved in upstream's `main`/2.x branch too. Owner
   said skip it; documented in `KNOWN_ISSUES.md`.
+
+Four more compat fixes landed after the block above (each addresses an item
+that used to be in "What's NOT done yet"):
+
+- `85e90af0` — `Element.prototype.setAttributeNode` was an empty no-op stub;
+  now it runs the real attribute through Sherpa's rewriting trap (URL/CSS/
+  srcdoc), records the original for the page-facing attribute APIs, and
+  restores the replaced node's value so detaching doesn't lose it. Also
+  respects native `InUseAttributeError` semantics.
+- `411020ba` — cross-realm `location` assignment in `src/client/shared/wrap.ts`
+  now goes through the `box.locations` map / `trysetfn` path so
+  `otherframe.location = "..."` works across realms instead of only same-realm.
+- `d0705915` — the synchronous-XHR watchdog in
+  `src/client/shared/requests/xmlhttprequest.ts` was a hardcoded 1s timeout;
+  it's been extended/reworked so slow sync requests aren't cut off prematurely.
+- `ed255a97` — CORS/credentials emulation in `src/worker/fetch.ts` (+
+  `request.ts`, `headers.ts`): virtual requests now honor the real
+  `credentials` mode and referrer policy instead of always forcing
+  `credentials: "omit"`. This resolves the self-admitted "i was against cors
+  emulation but we might break stuff" TODO.
+
+### Latest polish pass (working tree — not yet committed unless git log says otherwise)
+
+- `src/shared/rewriters/url.ts` — `rewriteUrl`/`unrewriteUrl` now pass
+  **non-http(s) URL schemes through untouched** (`tel:`, `sms:`, `intent:`,
+  `magnet:`, `ftp:`, `ws:`, …) instead of mangling them into proxied URLs.
+  Previously a `<a href="tel:...">` or an Android `intent://` deep link got
+  URL-encoded behind the proxy prefix and broke; now only `http:`/`https:`
+  (and relative/protocol-relative URLs that resolve to them) are proxied,
+  mirroring what `SherpaController.encodeUrl` already did. Verified against a
+  spread of schemes. `unrewriteUrl` also short-circuits anything that isn't
+  actually prefixed with the proxy origin so it can't slice a missing prefix
+  into garbage.
+- `assets/sherpa.png` — replaced the leftover **Scramjet** logo art (the
+  rebrand had renamed the file but never swapped the image) with the real
+  Sherpa logo. Removed the stray `sherpa logo.png` from the repo root.
+- `README.md` — rewritten into a proper front page (logo, how-it-works,
+  library usage, build-from-source, project layout, AGPL note).
+- `src/entry.ts` — fixed a rebrand straggler: a JSDoc referenced
+  `MercuryWorkshop/sherpa` (wrong repo) → `bitball41/sherpa`.
+- `KNOWN_ISSUES.md` — expanded to track the remaining deferred compat gaps
+  (below) with reasoning, not just the sandboxed-origin one.
 
 **Build verified after every change above:** `pnpm build` + `pnpm build:types`
 both clean (rspack + rslib typecheck), and a manual browser smoke test
@@ -90,31 +134,40 @@ the RELEASE=1 fix), `sherpa.bundle.js` 1.34MB→897KB (parse-domain removal).
 
 ## What's NOT done yet
 
-**More compat gaps**, found during the original research pass but not yet
-fixed (lower priority than what's already done, available for a future
-round — re-run a compat-gap survey across `src/client/**` and
-`src/worker/**` for `TODO`/`FIXME`/admitted-hack comments if this list goes
-stale):
-- `javascript:` URL unrewriting incomplete (`src/shared/rewriters/url.ts`)
-- CORS emulation is self-admittedly conflicted — forces credentials to
-  `"omit"` always, comment literally says "i was against cors emulation but
-  we might actually break stuff if we send full origin/referrer always"
-  (`src/worker/fetch.ts`)
-- Cross-frame `location.href` assignment isn't safe across realms
-  (`src/client/shared/wrap.ts`)
-- `postMessage` origin detection is fragile, falls back to guessing
-  (`src/client/shared/postmessage.ts`)
-- Sync XHR has a hardcoded, non-configurable 1s timeout
-  (`src/client/shared/requests/xmlhttprequest.ts`)
-- `Element.prototype.setAttributeNode` is an empty no-op stub
-  (`src/client/dom/element.ts`)
-- CSS property proxy is an admitted "dumb hack", traps every property
-  individually (`src/client/dom/css.ts`)
+**Remaining compat gaps.** The four safely-fixable items from the original
+research pass are now done (see "Current state"). What's left is genuinely
+harder or architectural — each is documented with reasoning in
+`KNOWN_ISSUES.md`, and the honest engineering call is that forcing a "fix"
+risks breaking more sites than it helps, so they're deferred, not queued:
+
+- `javascript:` URL **unrewriting** is still a `//TODO`
+  (`src/shared/rewriters/url.ts`). The forward direction (rewrite) works; the
+  reverse can't cleanly recover the original because `rewriteJs` isn't a
+  losslessly reversible transform. Upstream leaves it too. (Note: the
+  unrelated URL-_scheme_ mangling in the same file was fixed this pass — see
+  "Latest polish pass".)
+- `postMessage` origin detection is fragile and falls back to guessing / an
+  empty pollutant when all three args are strings
+  (`src/client/shared/postmessage.ts`) — a fundamental cross-realm
+  limitation, risky to change.
+- CSS property proxy is an admitted "dumb hack" that traps every property
+  individually (`src/client/dom/css.ts`) — it works; rewriting it is risky.
+- `cleanrestfn` (`$sherpa$clean`) is emitted by the Rust rewriter for rest/
+  spread patterns but implemented as an **empty no-op** in
+  `src/client/shared/wrap.ts`. Matches upstream; reimplementing it wrong would
+  corrupt legitimate rest objects on every site, so left alone.
 - A few places silently swallow errors in bare `catch {}` blocks
-  (`src/client/shared/error.ts` and others)
+  (`src/client/shared/error.ts`, `document.ts`, `element.ts`, `client.ts`).
+  Most are intentional rewrite-failure fallbacks (bad HTML/CSS → raw value),
+  not real bugs.
+
+To find fresh gaps if this list goes stale, re-run a survey across
+`src/client/**` / `src/worker/**` / `src/shared/**` for
+`TODO`/`FIXME`/`hack`/`jank`/admitted-hack comments.
 
 **Phase D — wiring Sherpa into Bardo as the 5th engine — has not started.**
 When that happens, it touches (in `C:\Users\cjnis\liminal`):
+
 - `package.json` — add `"sherpa": "file:../sherpa"` as a local dependency
   (not published, so not a git/npm-registry dependency yet)
 - `src/lib/types.ts` — add `"sherpa"` to the `EngineName` union (currently
@@ -125,13 +178,13 @@ When that happens, it touches (in `C:\Users\cjnis\liminal`):
   `initEngine()`, a new `initSherpa()`/`startSherpaController()` pair modeled
   on the existing `initScramjet()`/`startScramjetController()` (Sherpa uses
   the full controller path like stock Scramjet v1, NOT the lightweight
-  `PrefixFrame` model used by klystron/opulent/scramjet2), and an *additive*
+  `PrefixFrame` model used by klystron/opulent/scramjet2), and an _additive_
   append to `forceReload()`'s service-worker-unregister and IndexedDB-cleanup
   loops (do not touch the existing entries for the other 4 engines —
   `forceReload()` is shared across all engines and this is the highest-risk
   edit in that file)
 - `src/components/settings/Settings.tsx` — append a `["sherpa", "Sherpa",
-  "<hint>"]` tuple to the engine-picker array (the sole source of truth for
+"<hint>"]` tuple to the engine-picker array (the sole source of truth for
   that UI, no separate registry exists)
 - `public/sw-sherpa.js` — new file, adapt from the existing `public/sw.js`
 - `server.ts` — static mount for Sherpa's dist + a `/sw-sherpa.js` route,
@@ -150,19 +203,20 @@ path is reachable from wherever this is being read.
 
 Already installed and verified on this machine — if working somewhere else,
 these all need installing first:
+
 - `rustup` + the `wasm32-unknown-unknown` target
 - `wasm-bindgen-cli` pinned to **exactly** version `0.2.100` (the build
   script hard-checks this — `cargo install wasm-bindgen-cli --version
-  0.2.100`)
+0.2.100`)
 - Binaryen's `wasm-opt` (`npm install -g binaryen` ships a prebuilt binary)
 - The `wasm-snip` fork from `github.com/r58Playz/wasm-snip` — **not** the
   crates.io version (`cargo install --git
-  https://github.com/r58Playz/wasm-snip`)
+https://github.com/r58Playz/wasm-snip`)
 - `pnpm`
 - On Windows specifically: the above `cargo install` steps need Microsoft's
   MSVC linker, i.e. Visual Studio Build Tools with the C++ workload
   (`winget install --id Microsoft.VisualStudio.2022.BuildTools --override
-  "--add Microsoft.VisualStudio.Workload.VCTools"`) — a multi-GB download,
+"--add Microsoft.VisualStudio.Workload.VCTools"`) — a multi-GB download,
   hit this as a blocker once already.
 
 Build sequence: `pnpm i` → `RELEASE=1 pnpm rewriter:build` (compiles the Rust

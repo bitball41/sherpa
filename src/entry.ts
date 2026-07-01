@@ -3,7 +3,7 @@
 import type { SherpaVersionInfo } from "./types";
 
 /**
- * Hash of the current commit in `MercuryWorkshop/sherpa` Sherpa was built from.
+ * Hash of the current commit in `bitball41/sherpa` Sherpa was built from.
  */
 declare const COMMITHASH: string;
 /**
