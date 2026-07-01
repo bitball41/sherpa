@@ -4629,7 +4629,7 @@ globalThis.$sherpaRequire = function(path) {
  *
  * @category Window Context
  */ const $sherpaVersion = {
-    build: "1f8c494c",
+    build: "370e9333",
     version: "1.1.0"
 };
 globalThis.$sherpaLoadController = $sherpaLoadController;
@@ -5424,7 +5424,7 @@ function traverseParsedHtml(node, cookieStore, meta) {
         }
     }
     if (node.name === "style" && node.children[0] !== undefined) node.children[0].data = (0,_rewriters_css__WEBPACK_IMPORTED_MODULE_4__.rewriteCss)(node.children[0].data, meta);
-    if (node.name === "script" && node.attribs.type === "module" && node.attribs.src) node.attribs.src = node.attribs.src + "?type=module";
+    if (node.name === "script" && scriptTypeEssence(node.attribs.type) === "module" && node.attribs.src) node.attribs.src = node.attribs.src + "?type=module";
     if (node.name === "script" && node.attribs.type === "importmap" && node.children[0] !== undefined) {
         let json = node.children[0].data;
         try {
@@ -5443,9 +5443,9 @@ function traverseParsedHtml(node, cookieStore, meta) {
             console.error("Failed to parse importmap JSON:", e);
         }
     }
-    if (node.name === "script" && /(application|text)\/javascript|module|undefined/.test(node.attribs.type) && node.children[0] !== undefined) {
+    if (node.name === "script" && isJsScriptType(node.attribs.type) && node.children[0] !== undefined) {
         let js = node.children[0].data;
-        const module = node.attribs.type === "module" ? true : false;
+        const module = scriptTypeEssence(node.attribs.type) === "module";
         node.attribs["sherpa-attr-script-source-src"] = bytesToBase64(encoder.encode(js));
         const htmlcomment = /<!--[\s\S]*?-->/g;
         js = js.replace(htmlcomment, "");
@@ -5455,10 +5455,19 @@ function traverseParsedHtml(node, cookieStore, meta) {
         if (node.attribs["http-equiv"].toLowerCase() === "content-security-policy") {
             // just delete it. this needs to be emulated eventually but like
             node = new domhandler__WEBPACK_IMPORTED_MODULE_1__.Comment(node.attribs.content);
-        } else if (node.attribs["http-equiv"] === "refresh" && node.attribs.content.includes("url")) {
-            const contentArray = node.attribs.content.split("url=");
-            if (contentArray[1]) contentArray[1] = (0,_rewriters_url__WEBPACK_IMPORTED_MODULE_3__.rewriteUrl)(contentArray[1].trim(), meta);
-            node.attribs.content = contentArray.join("url=");
+        } else if (node.attribs["http-equiv"].toLowerCase() === "refresh" && node.attribs.content) {
+            // content looks like "<seconds>[; url=<url>]" — the url key is
+            // ASCII case-insensitive and the value may be quoted
+            node.attribs.content = node.attribs.content.replace(/(url\s*=\s*)([\s\S]*)/i, (_, key, rest)=>{
+                const url = rest.trim();
+                const quote = /^['"]/.test(url) ? url[0] : "";
+                if (quote) {
+                    const end = url.indexOf(quote, 1);
+                    const inner = end === -1 ? url.slice(1) : url.slice(1, end);
+                    return key + quote + (0,_rewriters_url__WEBPACK_IMPORTED_MODULE_3__.rewriteUrl)(inner.trim(), meta) + quote;
+                }
+                return key + (0,_rewriters_url__WEBPACK_IMPORTED_MODULE_3__.rewriteUrl)(url, meta);
+            });
         }
     }
     if (node.childNodes) {
@@ -5469,16 +5478,54 @@ function traverseParsedHtml(node, cookieStore, meta) {
     return node;
 }
 function rewriteSrcset(srcset, meta) {
-    const sources = srcset.split(/ .*,/).map((src)=>src.trim());
-    const rewrittenSources = sources.map((source)=>{
-        // Split into URLs and descriptors (if any)
-        // e.g. url0, url1 1.5x, url2 2x
-        const [url, ...descriptors] = source.split(/\s+/);
-        // Rewrite the URLs and keep the descriptors (if any)
-        const rewrittenUrl = (0,_rewriters_url__WEBPACK_IMPORTED_MODULE_3__.rewriteUrl)(url.trim(), meta);
-        return descriptors.length > 0 ? `${rewrittenUrl} ${descriptors.join(" ")}` : rewrittenUrl;
-    });
-    return rewrittenSources.join(", ");
+    // candidates can't be naively split on commas: URLs may contain commas
+    // (data: URIs) and only a comma outside parentheses ends a descriptor.
+    // this follows the HTML spec's srcset parsing algorithm: a URL runs to the
+    // next whitespace, a trailing comma on the URL ends the candidate, and
+    // otherwise the descriptor runs to the next top-level comma
+    const candidates = [];
+    let pos = 0;
+    while(pos < srcset.length){
+        while(pos < srcset.length && /[\s,]/.test(srcset[pos]))pos++;
+        if (pos >= srcset.length) break;
+        const urlStart = pos;
+        while(pos < srcset.length && !/\s/.test(srcset[pos]))pos++;
+        let url = srcset.slice(urlStart, pos);
+        let descriptor = "";
+        if (url.endsWith(",")) {
+            url = url.replace(/,+$/, "");
+        } else {
+            while(pos < srcset.length && /\s/.test(srcset[pos]))pos++;
+            const descStart = pos;
+            let parens = 0;
+            while(pos < srcset.length){
+                const c = srcset[pos];
+                if (c === "(") parens++;
+                else if (c === ")" && parens > 0) parens--;
+                else if (c === "," && parens === 0) break;
+                pos++;
+            }
+            descriptor = srcset.slice(descStart, pos).trim();
+            pos++;
+        }
+        if (!url) continue;
+        const rewritten = (0,_rewriters_url__WEBPACK_IMPORTED_MODULE_3__.rewriteUrl)(url, meta);
+        candidates.push(descriptor ? `${rewritten} ${descriptor}` : rewritten);
+    }
+    return candidates.join(", ");
+}
+// per the HTML spec a script with no type or an empty type is classic JS, the
+// comparison is ASCII case-insensitive, and MIME parameters don't affect the
+// essence (`text/javascript;charset=utf-8` still executes)
+function scriptTypeEssence(type) {
+    if (type === undefined) return "text/javascript";
+    const essence = type.split(";")[0].trim().toLowerCase();
+    return essence === "" ? "text/javascript" : essence;
+}
+const jsMimeEssences = /^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^text\/(?:javascript1\.[0-5]|jscript|livescript)$/;
+function isJsScriptType(type) {
+    const essence = scriptTypeEssence(type);
+    return essence === "module" || jsMimeEssences.test(essence);
 }
 // function base64ToBytes(base64) {
 // 	const binString = atob(base64);

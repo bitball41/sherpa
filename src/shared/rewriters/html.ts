@@ -178,7 +178,7 @@ function traverseParsedHtml(
 
 	if (
 		node.name === "script" &&
-		node.attribs.type === "module" &&
+		scriptTypeEssence(node.attribs.type) === "module" &&
 		node.attribs.src
 	)
 		node.attribs.src = node.attribs.src + "?type=module";
@@ -208,11 +208,11 @@ function traverseParsedHtml(
 	}
 	if (
 		node.name === "script" &&
-		/(application|text)\/javascript|module|undefined/.test(node.attribs.type) &&
+		isJsScriptType(node.attribs.type) &&
 		node.children[0] !== undefined
 	) {
 		let js = node.children[0].data;
-		const module = node.attribs.type === "module" ? true : false;
+		const module = scriptTypeEssence(node.attribs.type) === "module";
 		node.attribs["sherpa-attr-script-source-src"] = bytesToBase64(
 			encoder.encode(js)
 		);
@@ -233,13 +233,26 @@ function traverseParsedHtml(
 			// just delete it. this needs to be emulated eventually but like
 			node = new Comment(node.attribs.content);
 		} else if (
-			node.attribs["http-equiv"] === "refresh" &&
-			node.attribs.content.includes("url")
+			node.attribs["http-equiv"].toLowerCase() === "refresh" &&
+			node.attribs.content
 		) {
-			const contentArray = node.attribs.content.split("url=");
-			if (contentArray[1])
-				contentArray[1] = rewriteUrl(contentArray[1].trim(), meta);
-			node.attribs.content = contentArray.join("url=");
+			// content looks like "<seconds>[; url=<url>]" — the url key is
+			// ASCII case-insensitive and the value may be quoted
+			node.attribs.content = node.attribs.content.replace(
+				/(url\s*=\s*)([\s\S]*)/i,
+				(_, key: string, rest: string) => {
+					const url = rest.trim();
+					const quote = /^['"]/.test(url) ? url[0] : "";
+					if (quote) {
+						const end = url.indexOf(quote, 1);
+						const inner = end === -1 ? url.slice(1) : url.slice(1, end);
+
+						return key + quote + rewriteUrl(inner.trim(), meta) + quote;
+					}
+
+					return key + rewriteUrl(url, meta);
+				}
+			);
 		}
 	}
 
@@ -257,21 +270,65 @@ function traverseParsedHtml(
 }
 
 export function rewriteSrcset(srcset: string, meta: URLMeta) {
-	const sources = srcset.split(/ .*,/).map((src) => src.trim());
-	const rewrittenSources = sources.map((source) => {
-		// Split into URLs and descriptors (if any)
-		// e.g. url0, url1 1.5x, url2 2x
-		const [url, ...descriptors] = source.split(/\s+/);
+	// candidates can't be naively split on commas: URLs may contain commas
+	// (data: URIs) and only a comma outside parentheses ends a descriptor.
+	// this follows the HTML spec's srcset parsing algorithm: a URL runs to the
+	// next whitespace, a trailing comma on the URL ends the candidate, and
+	// otherwise the descriptor runs to the next top-level comma
+	const candidates: string[] = [];
+	let pos = 0;
 
-		// Rewrite the URLs and keep the descriptors (if any)
-		const rewrittenUrl = rewriteUrl(url.trim(), meta);
+	while (pos < srcset.length) {
+		while (pos < srcset.length && /[\s,]/.test(srcset[pos])) pos++;
+		if (pos >= srcset.length) break;
 
-		return descriptors.length > 0
-			? `${rewrittenUrl} ${descriptors.join(" ")}`
-			: rewrittenUrl;
-	});
+		const urlStart = pos;
+		while (pos < srcset.length && !/\s/.test(srcset[pos])) pos++;
+		let url = srcset.slice(urlStart, pos);
 
-	return rewrittenSources.join(", ");
+		let descriptor = "";
+		if (url.endsWith(",")) {
+			url = url.replace(/,+$/, "");
+		} else {
+			while (pos < srcset.length && /\s/.test(srcset[pos])) pos++;
+			const descStart = pos;
+			let parens = 0;
+			while (pos < srcset.length) {
+				const c = srcset[pos];
+				if (c === "(") parens++;
+				else if (c === ")" && parens > 0) parens--;
+				else if (c === "," && parens === 0) break;
+				pos++;
+			}
+			descriptor = srcset.slice(descStart, pos).trim();
+			pos++;
+		}
+
+		if (!url) continue;
+		const rewritten = rewriteUrl(url, meta);
+		candidates.push(descriptor ? `${rewritten} ${descriptor}` : rewritten);
+	}
+
+	return candidates.join(", ");
+}
+
+// per the HTML spec a script with no type or an empty type is classic JS, the
+// comparison is ASCII case-insensitive, and MIME parameters don't affect the
+// essence (`text/javascript;charset=utf-8` still executes)
+function scriptTypeEssence(type: string | undefined): string {
+	if (type === undefined) return "text/javascript";
+	const essence = type.split(";")[0].trim().toLowerCase();
+
+	return essence === "" ? "text/javascript" : essence;
+}
+
+const jsMimeEssences =
+	/^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^text\/(?:javascript1\.[0-5]|jscript|livescript)$/;
+
+function isJsScriptType(type: string | undefined): boolean {
+	const essence = scriptTypeEssence(type);
+
+	return essence === "module" || jsMimeEssences.test(essence);
 }
 
 // function base64ToBytes(base64) {

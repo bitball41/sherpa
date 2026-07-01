@@ -173,6 +173,50 @@ end-to-end via the preview route: defaults render correctly (white/navy/sky), an
 a fully custom theme (custom colors + title + logo, applied at runtime through
 `modifyConfig`) renders correctly too, with no console errors.
 
+### HTML rewriter compat pass (`src/shared/rewriters/html.ts`)
+
+Three defects fixed in the HTML rewriter; all three also exist unfixed in
+upstream's `main`/2.x (verified against the fetched tree), so none can be
+ported — these are original fixes.
+
+- **`rewriteSrcset` was badly broken.** The old `srcset.split(/ .*,/)` used a
+  greedy regex that (a) dropped middle candidates entirely (`"a 1x, b 2x, c
+3x"` → only a and c survive), (b) stripped the first candidate's descriptor,
+  and (c) failed to split descriptor-less srcsets (`"a.png, b.png"` came out
+  as one mangled URL with a trailing comma). Rewritten as a parser following
+  the HTML spec's srcset algorithm: URL runs to whitespace, a trailing comma
+  on the URL token ends the candidate, otherwise the descriptor runs to the
+  next top-level (paren-aware) comma. Handles data: URIs with embedded
+  commas. This affects `img`/`source` `srcset` and `link` `imagesrcset` via
+  `htmlRules`, in both the worker's static-HTML path and the client's DOM
+  attribute traps.
+- **`<meta http-equiv=refresh>` rewriting was case-sensitive and crashy.**
+  `http-equiv === "refresh"` and `split("url=")` missed the canonical
+  uppercase forms (`Refresh`, `URL=`), so those refreshes navigated to the
+  real, unproxied URL — punching through the proxy. A `refresh` meta with no
+  `content` attribute threw, killing the whole HTML rewrite for the page. Now
+  matched ASCII case-insensitively, quoted URL values are handled, and a
+  missing `content` is a no-op.
+- **Inline script type detection missed spec-JS types.** The old
+  `/(application|text)\/javascript|module|undefined/` test skipped
+  `type=""` (which the spec treats as classic JS) and case variants like
+  `text/JavaScript`, so those inline scripts ran **unrewritten** — real
+  `location`/`top`/etc., a proxy escape. It also over-matched garbage like
+  `type="nomodule"` via substring. New `scriptTypeEssence()`/
+  `isJsScriptType()` helpers: ASCII case-insensitive, parameters stripped
+  (`text/javascript;charset=utf-8` executes), full JS MIME essence list
+  (`x-`/`ecma` variants, `javascript1.0-1.5`, `jscript`, `livescript`), and
+  the `module`/`?type=module` checks now share the same essence parsing.
+
+Verified three ways: 45 unit assertions on the parsing logic (scratch
+harness), `pnpm build`/`build:types`/`test:package` clean with no new lint
+errors, and end-to-end in a browser through the real SW pipeline (playground
+`playgroundData` injection under a fake origin): all srcset candidates come
+out proxied with descriptors preserved, `type=""`/`TEXT/JavaScript` scripts
+execute rewritten (they see the emulated origin, not the real one),
+`application/ld+json` is left untouched, and an uppercase `URL=` refresh
+target gets proxied.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original
