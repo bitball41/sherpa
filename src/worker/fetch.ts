@@ -29,6 +29,19 @@ import {
 	createVirtualRequestContext,
 	shouldSendCookies,
 } from "@/worker/request";
+import { retryTransientHttp2Request } from "@/worker/retry";
+
+async function fetchWithTransientRetry(
+	client: BareClient,
+	url: URL,
+	init: RequestInit
+): Promise<BareResponseFetch> {
+	return retryTransientHttp2Request(
+		() => client.fetch(url, init) as Promise<BareResponseFetch>,
+		init.method || "GET",
+		init.body != null
+	);
+}
 
 function isRedirect(response: BareResponseFetch) {
 	return response.status >= 300 && response.status < 400;
@@ -343,7 +356,7 @@ export async function handleFetch(
 
 		const response =
 			(await ev.response) ||
-			((await this.client.fetch(ev.url, {
+			(await fetchWithTransientRetry(this.client, ev.url, {
 				method: ev.method,
 				body: ev.body,
 				headers: ev.requestHeaders,
@@ -355,7 +368,7 @@ export async function handleFetch(
 				redirect: "manual",
 				// @ts-ignore why the fuck is this not typed microsoft
 				duplex: "half",
-			})) as BareResponseFetch);
+			}));
 		response.finalURL = ev.url.href;
 
 		return await handleResponse(

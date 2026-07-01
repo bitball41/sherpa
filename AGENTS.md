@@ -17,11 +17,9 @@ anything that seems stale from those.)
 ## Decisions already made (do not re-litigate without asking the owner)
 
 - **Name:** Sherpa. **Base:** upstream's `legacy` branch (1.x), not `main`.
-- **Location:** working **locally only** at `C:\Users\cjnis\sherpa` — explicitly
-  NOT pushed to GitHub yet. Eventual home (when the owner decides to publish):
-  `github.com/bitball41/sherpa` (matches the GitHub org that owns Bardo, NOT
-  the owner's personal `cjnis` account — `gh` on this machine is already
-  authenticated as `bitball41`).
+- **Location:** the working checkout is `C:\Users\cjnis\sherpa`; the public
+  repository is `github.com/bitball41/sherpa` (matching the GitHub org that
+  owns Bardo, NOT the owner's personal `cjnis` account).
 - **License:** Scramjet is AGPL-3.0-only; this fork keeps that license
   verbatim. When/if this gets wired into Bardo and published, the plan is to
   keep the Sherpa repo public and add a "Source code" link in Bardo's
@@ -35,8 +33,7 @@ anything that seems stale from those.)
 
 ## Current state (check `git log --oneline` to confirm this is still accurate)
 
-12 commits past the upstream `legacy` baseline (plus an in-progress
-compat/docs polish pass in the working tree — see "Latest polish pass" below):
+19 commits past the upstream `legacy` baseline. Key changes include:
 
 - `3316c04a`/`f3d73e09`/`458677d0` — rebrand pass (scramjet→sherpa renamed
   throughout: globals like `$scramjetLoadController`→`$sherpaLoadController`,
@@ -101,8 +98,11 @@ that used to be in "What's NOT done yet"):
   `credentials` mode and referrer policy instead of always forcing
   `credentials: "omit"`. This resolves the self-admitted "i was against cors
   emulation but we might break stuff" TODO.
+- The worker fetch path retries a bodyless `GET`/`HEAD`/`OPTIONS` once when
+  Epoxy/Hyper reports a remote HTTP/2 `GOAWAY(NO_ERROR)`, preventing a graceful
+  connection rotation from becoming a user-visible Sherpa error page.
 
-### Latest polish pass (working tree — not yet committed unless git log says otherwise)
+### Latest polish pass
 
 - `src/shared/rewriters/url.ts` — `rewriteUrl`/`unrewriteUrl` now pass
   **non-http(s) URL schemes through untouched** (`tel:`, `sms:`, `intent:`,
@@ -132,7 +132,7 @@ both clean (rspack + rslib typecheck), and a manual browser smoke test
 ~2.32MB to ~1.61MB (~30% smaller): `sherpa.wasm.wasm` 867KB→534KB (this was
 the RELEASE=1 fix), `sherpa.bundle.js` 1.34MB→897KB (parse-domain removal).
 
-### Customization pass (working tree — not yet committed unless git log says otherwise)
+### Customization pass
 
 Turned the error page into a first-class, config-driven customization feature
 and leaned into "customization" as Sherpa's differentiator vs Scramjet.
@@ -206,8 +206,8 @@ To find fresh gaps if this list goes stale, re-run a survey across
 `src/client/**` / `src/worker/**` / `src/shared/**` for
 `TODO`/`FIXME`/`hack`/`jank`/admitted-hack comments.
 
-**Phase D — wiring Sherpa into Bardo as the 5th engine — has not started.**
-When that happens, it touches (in `C:\Users\cjnis\liminal`):
+**Phase D — wiring Sherpa into Bardo as the 5th engine — is implemented in
+`C:\Users\cjnis\liminal`.** The integration touches:
 
 - `package.json` — add `"sherpa": "file:../sherpa"` as a local dependency
   (not published, so not a git/npm-registry dependency yet)
