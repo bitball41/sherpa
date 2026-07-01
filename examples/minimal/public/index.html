@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Sherpa — minimal example</title>
+		<style>
+			body {
+				font-family: system-ui, sans-serif;
+				margin: 0;
+				display: flex;
+				flex-direction: column;
+				height: 100vh;
+			}
+			header {
+				padding: 0.6rem 0.8rem;
+				background: #222444;
+				color: #fff;
+			}
+			header h1 {
+				font-size: 1rem;
+				margin: 0 0 0.4rem;
+			}
+			.bar {
+				display: flex;
+				gap: 0.4rem;
+			}
+			.bar input {
+				flex: 1;
+				padding: 0.4rem 0.6rem;
+				border-radius: 0.4rem;
+				border: 1px solid #444;
+			}
+			.bar button {
+				padding: 0.4rem 0.8rem;
+				border: none;
+				border-radius: 0.4rem;
+				background: #a1c5f3;
+				color: #222444;
+				font-weight: 600;
+				cursor: pointer;
+			}
+			iframe {
+				flex: 1;
+				width: 100%;
+				border: none;
+				background: #fff;
+			}
+			.hint {
+				font-size: 0.75rem;
+				opacity: 0.85;
+				margin-top: 0.4rem;
+			}
+			code {
+				background: rgba(255, 255, 255, 0.15);
+				padding: 0 0.25em;
+				border-radius: 0.25em;
+				word-break: break-all;
+			}
+		</style>
+
+		<!-- 1. bare-mux (the transport multiplexer)  2. the Sherpa engine bundle -->
+		<script src="/baremux/index.js"></script>
+		<script src="/scram/sherpa.all.js"></script>
+	</head>
+	<body>
+		<header>
+			<h1>Sherpa — minimal example</h1>
+			<div class="bar">
+				<input id="url" value="https://example.com" spellcheck="false" />
+				<button id="go">Go</button>
+				<button id="err" title="Preview the themed error page">
+					Error page
+				</button>
+			</div>
+			<div class="hint">
+				Proxied link (note it's base64, not percent-encoding — set from the
+				<code>codec</code> config, no fork): <code id="encoded"></code>
+			</div>
+		</header>
+		<iframe id="frame"></iframe>
+
+		<script>
+			(async () => {
+				// --- Transport: point bare-mux at the epoxy transport + this
+				//     server's Wisp endpoint.
+				const wispUrl =
+					(location.protocol === "https:" ? "wss" : "ws") +
+					"://" +
+					location.host +
+					"/wisp/";
+				const conn = new BareMux.BareMuxConnection("/baremux/worker.js");
+				await conn.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
+
+				// --- The controller. Everything customized below is set from
+				//     config — you never fork Sherpa to change it.
+				const { SherpaController } = $sherpaLoadController();
+				const sherpa = new SherpaController({
+					prefix: "/sherpa/",
+					files: {
+						wasm: "/scram/sherpa.wasm.wasm",
+						all: "/scram/sherpa.all.js",
+						sync: "/scram/sherpa.sync.js",
+					},
+
+					// (A) Custom error page — themed straight from config.
+					errorPage: {
+						background: "#0f1020",
+						surface: "#1b1d33",
+						text: "#e7e9ff",
+						muted: "#a0a1dc",
+						accent: "#a1c5f3",
+						accentText: "#0f1020",
+						title: "Hmm, that didn't load",
+					},
+
+					// (B) Custom URL codec — changes how proxied links look.
+					//     Default is encodeURIComponent; this uses URL-safe base64.
+					codec: {
+						encode: (url) =>
+							url
+								? btoa(encodeURIComponent(url))
+										.replace(/\+/g, "-")
+										.replace(/\//g, "_")
+										.replace(/=+$/, "")
+								: url,
+						decode: (url) =>
+							url
+								? decodeURIComponent(
+										atob(url.replace(/-/g, "+").replace(/_/g, "/"))
+									)
+								: url,
+					},
+				});
+				await sherpa.init();
+				await navigator.serviceWorker.register("/sw.js");
+
+				// Reuse the styled <iframe> as the proxy frame.
+				const frame = sherpa.createFrame(document.getElementById("frame"));
+
+				const urlInput = document.getElementById("url");
+				const encoded = document.getElementById("encoded");
+				const showEncoded = () => {
+					try {
+						encoded.textContent = sherpa.encodeUrl(urlInput.value.trim());
+					} catch {
+						encoded.textContent = "(enter a full URL)";
+					}
+				};
+				urlInput.addEventListener("input", showEncoded);
+				showEncoded();
+
+				const go = () => {
+					let u = urlInput.value.trim();
+					if (!/^https?:\/\//.test(u)) u = "https://" + u;
+					frame.go(u);
+				};
+				document.getElementById("go").addEventListener("click", go);
+				urlInput.addEventListener("keydown", (e) => e.key === "Enter" && go());
+
+				// Live-preview the themed error page (no need to break a real site).
+				document.getElementById("err").addEventListener("click", () => {
+					frame.frame.src = sherpa.errorPreviewUrl;
+				});
+			})();
+		</script>
+	</body>
+</html>

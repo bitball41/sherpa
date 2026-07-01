@@ -104,6 +104,8 @@ self.addEventListener("fetch", (ev) => {
 
 `SherpaController.encodeUrl(url)` / `decodeUrl(url)` convert between real URLs and their proxied form if you need to build links yourself. See the API reference (Typedoc, below) or the runnable demo in [`static/`](static/) for a complete wiring.
 
+For the smallest possible end-to-end integration — a plain page, a ~20-line service worker, and a small server — see [`examples/minimal/`](examples/minimal/). It also doubles as a customization demo (custom error-page theme + custom URL codec, both from config).
+
 ## Customization
 
 Sherpa is meant to be reskinned and reconfigured per deployment. Almost all of it lives on the `SherpaController` config, so you can change it without touching the engine source.
