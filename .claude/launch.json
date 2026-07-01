@@ -1,0 +1,19 @@
+{
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "sherpa-dev",
+			"runtimeExecutable": "pnpm",
+			"runtimeArgs": ["dev"],
+			"port": 1337,
+			"autoPort": false
+		},
+		{
+			"name": "sherpa-minimal",
+			"runtimeExecutable": "node",
+			"runtimeArgs": ["examples/minimal/server.mjs"],
+			"port": 8989,
+			"autoPort": false
+		}
+	]
+}
