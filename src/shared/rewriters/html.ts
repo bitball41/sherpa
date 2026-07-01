@@ -6,7 +6,7 @@ import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { CookieStore } from "@/shared/cookie";
 import { config } from "@/shared";
-import { htmlRules } from "@/shared/htmlRules";
+import { findHtmlRule } from "@/shared/htmlRules";
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
@@ -142,30 +142,24 @@ function traverseParsedHtml(
 	}
 
 	if (node.attribs) {
-		for (const rule of htmlRules) {
-			for (const attr in rule) {
-				const sel = rule[attr.toLowerCase()];
-				if (typeof sel === "function") continue;
+		const attributes = Object.keys(node.attribs);
+		for (const attr of attributes) {
+			const rule = findHtmlRule(attr, node.name);
+			if (!rule) continue;
 
-				if (sel === "*" || sel.includes(node.name)) {
-					if (node.attribs[attr] !== undefined) {
-						const value = node.attribs[attr];
-						const v = rule.fn(value, meta, cookieStore);
+			const value = node.attribs[attr];
+			const rewritten = rule.fn(value, meta, cookieStore);
 
-						if (v === null) delete node.attribs[attr];
-						else {
-							node.attribs[attr] = v;
-						}
-						node.attribs[`sherpa-attr-${attr}`] = value;
-					}
-				}
-			}
+			if (rewritten === null) delete node.attribs[attr];
+			else node.attribs[attr] = rewritten;
+			node.attribs[`sherpa-attr-${attr}`] = value;
 		}
-		for (const [attr, value] of Object.entries(node.attribs)) {
-			if (eventAttributes.includes(attr)) {
+		for (const attr of attributes) {
+			if (eventAttributes.has(attr)) {
+				const value = node.attribs[attr];
 				node.attribs[`sherpa-attr-${attr}`] = value;
 				node.attribs[attr] = rewriteJs(
-					value as string,
+					value,
 					`(inline ${attr} on element)`,
 					meta
 				);
@@ -344,7 +338,7 @@ function bytesToBase64(bytes: Uint8Array) {
 
 	return btoa(binString);
 }
-const eventAttributes = [
+const eventAttributes = new Set([
 	"onbeforexrselect",
 	"onabort",
 	"onbeforeinput",
@@ -445,4 +439,4 @@ const eventAttributes = [
 	"onscrollend",
 	"onscrollsnapchange",
 	"onscrollsnapchanging",
-];
+]);

@@ -36,10 +36,7 @@ export type SherpaDownload = {
 /**
  * Union type for all Sherpa proxified navigation events.
  */
-export type SherpaEvent =
-	| NavigateEvent
-	| UrlChangeEvent
-	| SherpaContextEvent;
+export type SherpaEvent = NavigateEvent | UrlChangeEvent | SherpaContextEvent;
 
 /**
  * Type map for all Sherpa navigation events with their corresponding event types.

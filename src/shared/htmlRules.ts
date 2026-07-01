@@ -3,10 +3,12 @@ import { rewriteCss } from "@rewriters/css";
 import { rewriteHtml, rewriteSrcset } from "@rewriters/html";
 import { rewriteUrl, unrewriteBlob, URLMeta } from "@rewriters/url";
 
-export const htmlRules: {
+export type HtmlRule = {
 	[key: string]: "*" | string[] | ((...any: any[]) => string | null);
 	fn: (value: string, meta: URLMeta, cookieStore: CookieStore) => string | null;
-}[] = [
+};
+
+export const htmlRules: HtmlRule[] = [
 	{
 		fn: (value: string, meta: URLMeta) => {
 			return rewriteUrl(value, meta);
@@ -100,3 +102,33 @@ export const htmlRules: {
 		target: ["a", "base"],
 	},
 ];
+
+// Attribute rewriting runs for every element parsed from a page and for every
+// dynamic setAttribute call. Index the small rule table once instead of
+// repeatedly scanning every rule and every selector on those hot paths.
+const htmlRulesByAttribute = new Map<string, HtmlRule[]>();
+
+for (const rule of htmlRules) {
+	for (const attribute in rule) {
+		if (attribute === "fn") continue;
+
+		const rules = htmlRulesByAttribute.get(attribute);
+		if (rules) rules.push(rule);
+		else htmlRulesByAttribute.set(attribute, [rule]);
+	}
+}
+
+export function findHtmlRule(
+	attribute: string,
+	elementName: string
+): HtmlRule | undefined {
+	const normalizedAttribute = attribute.toLowerCase();
+	const rules = htmlRulesByAttribute.get(normalizedAttribute);
+	if (!rules) return;
+
+	for (const rule of rules) {
+		const selector = rule[normalizedAttribute];
+		if (selector === "*") return rule;
+		if (Array.isArray(selector) && selector.includes(elementName)) return rule;
+	}
+}

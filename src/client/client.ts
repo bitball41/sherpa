@@ -26,10 +26,7 @@ export type AnyFunction = Function;
 
 export type SherpaModule = {
 	enabled: (client: SherpaClient) => boolean | undefined;
-	disabled: (
-		client: SherpaClient,
-		self: typeof globalThis
-	) => void | undefined;
+	disabled: (client: SherpaClient, self: typeof globalThis) => void | undefined;
 	order: number | undefined;
 	default: (client: SherpaClient, self: typeof globalThis) => void;
 };
@@ -138,10 +135,7 @@ export class SherpaClient {
 				new Promise((resolve) => {
 					addEventListener("message", ({ data }) => {
 						if (typeof data !== "object") return;
-						if (
-							"$sherpa$type" in data &&
-							data.$sherpa$type === "baremuxinit"
-						) {
+						if ("$sherpa$type" in data && data.$sherpa$type === "baremuxinit") {
 							resolve(data.port);
 						}
 					});

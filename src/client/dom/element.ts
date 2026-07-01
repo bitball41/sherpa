@@ -1,4 +1,4 @@
-import { htmlRules } from "@/shared/htmlRules";
+import { findHtmlRule } from "@/shared/htmlRules";
 import { rewriteCss, unrewriteCss } from "@rewriters/css";
 import { rewriteHtml, unrewriteHtml } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
@@ -178,14 +178,7 @@ export default function (client: SherpaClient, self: typeof window) {
 		apply(ctx) {
 			const [name, value] = ctx.args;
 
-			const ruleList = htmlRules.find((rule) => {
-				const r = rule[name.toLowerCase()];
-				if (!r) return false;
-				if (r === "*") return true;
-				if (typeof r === "function") return false; // this can't happen but ts
-
-				return r.includes(ctx.this.tagName.toLowerCase());
-			});
+			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
 
 			if (ruleList) {
 				const ret = ruleList.fn(value, client.meta, client.cookieStore);
@@ -248,14 +241,7 @@ export default function (client: SherpaClient, self: typeof window) {
 		apply(ctx) {
 			const [_namespace, name, value] = ctx.args;
 
-			const ruleList = htmlRules.find((rule) => {
-				const r = rule[name.toLowerCase()];
-				if (!r) return false;
-				if (r === "*") return true;
-				if (typeof r === "function") return false; // this can't happen but ts
-
-				return r.includes(ctx.this.tagName.toLowerCase());
-			});
+			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
 
 			if (ruleList) {
 				ctx.args[2] = ruleList.fn(value, client.meta, client.cookieStore);
