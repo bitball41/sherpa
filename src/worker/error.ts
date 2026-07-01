@@ -1,12 +1,38 @@
+import { config } from "@/shared";
+import { DEFAULT_ERROR_PAGE } from "@/shared/errorPage";
+
+/**
+ * Renders the HTML for Sherpa's error page.
+ *
+ * The look of this page is fully themeable at runtime through the `errorPage`
+ * field of the {@link SherpaController} config — see {@link SherpaErrorPageConfig}.
+ * Any fields a deployment leaves unset fall back to {@link DEFAULT_ERROR_PAGE},
+ * so this always renders a complete, styled page even against an older persisted
+ * config that predates theming.
+ */
 export function errorTemplate(trace: string, fetchedURL: string) {
-	// turn script into a data URI so we don"t have to escape any HTML values
+	// Merge the developer's theme over the built-in defaults. `config` may be
+	// momentarily unset in the worker (e.g. an error very early in startup), so
+	// guard it and always fall back to a fully-populated default theme.
+	const theme = { ...DEFAULT_ERROR_PAGE, ...(config?.errorPage ?? {}) };
+
+	// turn script into a data URI so we don"t have to escape any HTML values.
+	// Everything the page displays (trace, URL, title, logo, repo link) is
+	// injected here via JSON.stringify so quotes/markup can't break the page.
 	const script = `
                 errorTrace.value = ${JSON.stringify(trace)};
                 fetchedURL.textContent = ${JSON.stringify(fetchedURL)};
+                errorTitle.textContent = ${JSON.stringify(theme.title)};
+                repoLink.href = ${JSON.stringify(theme.repoUrl)};
                 for (const node of document.querySelectorAll("#hostname")) node.textContent = ${JSON.stringify(location.hostname)};
                 reload.addEventListener("click", () => location.reload());
                 version.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.version || "unknown")};
                 build.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.build || "unknown")};
+                ${
+									theme.logo
+										? `logo.src = ${JSON.stringify(theme.logo)}; logo.hidden = false;`
+										: ``
+								}
 
                 document.getElementById('copy-button').addEventListener('click', async () => {
                     const text = document.getElementById('errorTrace').value;
@@ -24,36 +50,49 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                     <title>Sherpa</title>
                     <style>
                     :root {
-                        --deep: #080602;
-                        --shallow: #181412;
-                        --beach: #f1e8e1;
-                        --shore: #b1a8a1;
-                        --accent: #ffa938;
-                        --font-sans: -apple-system, system-ui, BlinkMacSystemFont, sans-serif;
-                        --font-monospace: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                        --background: ${theme.background};
+                        --surface: ${theme.surface};
+                        --text: ${theme.text};
+                        --muted: ${theme.muted};
+                        --accent: ${theme.accent};
+                        --accent-text: ${theme.accentText};
+                        --font-sans: ${theme.fontSans};
+                        --font-monospace: ${theme.fontMono};
                     }
 
-                    *:not(div,p,span,ul,li,i,span) {
-                        background-color: var(--deep);
-                        color: var(--beach);
+                    *:not(div,p,span,ul,li,i,img) {
+                        background-color: var(--background);
+                        color: var(--text);
                         font-family: var(--font-sans);
+                    }
+
+                    a {
+                        color: color-mix(in srgb, var(--accent) 60%, var(--text));
+                    }
+
+                    #logo {
+                        max-height: 72px;
+                        width: auto;
+                        margin-bottom: 0.25em;
+                        background: transparent;
                     }
 
                     textarea,
                     button {
-                        background-color: var(--shallow);
+                        background-color: var(--surface);
                         border-radius: 0.6em;
                         padding: 0.6em;
                         border: none;
                         appearance: none;
                         font-family: var(--font-sans);
-                        color: var(--beach);
+                        color: var(--text);
                     }
 
                     button.primary {
                         background-color: var(--accent);
-                        color: var(--deep);
+                        color: var(--accent-text);
                         font-weight: bold;
+                        cursor: pointer;
                     }
 
                     textarea {
@@ -88,7 +127,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                         position: absolute;
                         width: 100%;
                         height: 100%;
-                        background-color: color-mix(in srgb, var(--deep) 70%, transparent);
+                        background-color: color-mix(in srgb, var(--background) 70%, transparent);
                         z-index: 99;
                     }
 
@@ -106,9 +145,9 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                         top: 0.5rem;
                         right: 0.5rem;
                         font-size: 0.8rem;
-                        color: var(--shore)!important;
+                        color: var(--muted)!important;
                         i {
-                            background-color: color-mix(in srgb, var(--deep), transparent 50%);
+                            background-color: color-mix(in srgb, var(--background), transparent 50%);
                             border-radius: 9999px;
                             padding: 0.2em 0.5em;
                         }
@@ -134,11 +173,14 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                     #errorTrace-wrapper:hover #copy-button {
                         opacity: 1;
                     }
+                    /* Developer-supplied overrides (errorPage.css) — last wins. */
+                    ${theme.css}
                     </style>
                 </head>
                 <body>
                     <div id="cover"></div>
                     <div id="inner">
+                        <img id="logo" hidden alt="" />
                         <h1 id="errorTitle">Uh oh!</h1>
                         <p>There was an error loading <b id="fetchedURL"></b></p>
                         <!-- <p id="errorMessage">Internal Server Error</p> -->
@@ -161,7 +203,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                                     <ul>
                                     <li>Restarting your server</li>
                                     <li>Updating Sherpa</li>
-                                    <li>Troubleshooting the error on the <a href="https://github.com/MercuryWorkshop/sherpa" target="_blank">GitHub repository</a></li>
+                                    <li>Troubleshooting the error on the <a id="repoLink" target="_blank" rel="noreferrer">GitHub repository</a></li>
                                 </ul>
                             </div>
                         </div>

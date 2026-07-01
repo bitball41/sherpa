@@ -219,7 +219,7 @@ function BrowserApp() {
 
 	const cfg = h(Config);
 	document.body.appendChild(cfg);
-	this.githubURL = `https://github.com/MercuryWorkshop/sherpa/commit/${$sherpaVersion.build}`;
+	this.githubURL = `https://github.com/bitball41/sherpa/commit/${$sherpaVersion.build}`;
 
 	return html`
       <div>
@@ -229,6 +229,7 @@ function BrowserApp() {
         <button on:click=${() => frame.back()}>&lt;-</button>
         <button on:click=${() => frame.forward()}>-&gt;</button>
         <button on:click=${() => frame.reload()}>&#x21bb;</button>
+        <button on:click=${() => (frame.frame.src = sherpa.errorPreviewUrl)} title="Preview the Sherpa error page">error page</button>
 
         <input class="bar" autocomplete="off" autocapitalize="off" autocorrect="off" 
         bind:value=${use(this.url)} on:input=${(e) => {

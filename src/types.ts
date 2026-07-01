@@ -35,6 +35,52 @@ export type SherpaFlags = {
 	allowFailedIntercepts: boolean;
 };
 
+/**
+ * Theming and branding for Sherpa's built-in error page — the page shown when
+ * a proxied navigation fails. Every field is plain, serializable data, so it
+ * can be set through the {@link SherpaController} config and is persisted and
+ * hot-swapped like the rest of the Sherpa config (no need to edit the engine
+ * source). Set any subset of fields; anything you leave out falls back to the
+ * Sherpa defaults in `DEFAULT_ERROR_PAGE`.
+ *
+ * @example
+ * ```typescript
+ * new SherpaController({
+ *   errorPage: {
+ *     accent: "#a1c5f3",
+ *     title: "This page didn't load",
+ *     logo: "/brand/logo.svg",
+ *   },
+ * });
+ * ```
+ */
+export interface SherpaErrorPageConfig {
+	/** Page background color. Default: `#ffffff` (white). */
+	background: string;
+	/** Card / textarea / secondary surface color. Default: `#eef0fb`. */
+	surface: string;
+	/** Primary text color. Default: `#222444` (deep navy). */
+	text: string;
+	/** Muted / secondary text color. Default: `#a0a1dc` (lavender). */
+	muted: string;
+	/** Accent color for primary buttons and links. Default: `#a1c5f3` (sky). */
+	accent: string;
+	/** Text color drawn on top of {@link accent}. Default: `#222444`. */
+	accentText: string;
+	/** Sans-serif font stack for body copy. */
+	fontSans: string;
+	/** Monospace font stack for the error trace. */
+	fontMono: string;
+	/** Heading shown at the top of the page. Default: `"Uh oh!"`. */
+	title: string;
+	/** Optional logo (URL or data URI) shown above the title. Empty = none. */
+	logo: string;
+	/** Repository URL for the "GitHub repository" troubleshooting link. */
+	repoUrl: string;
+	/** Extra CSS appended verbatim to the page, for full control. */
+	css: string;
+}
+
 export interface SherpaConfig {
 	prefix: string;
 	globals: {
@@ -58,6 +104,7 @@ export interface SherpaConfig {
 	};
 	flags: SherpaFlags;
 	siteFlags: Record<string, Partial<SherpaFlags>>;
+	errorPage: SherpaErrorPageConfig;
 	codec: {
 		encode: string;
 		decode: string;
@@ -68,8 +115,9 @@ export interface SherpaConfig {
  * The config for Sherpa initialization.
  */
 export interface SherpaInitConfig
-	extends Omit<SherpaConfig, "codec" | "flags"> {
+	extends Omit<SherpaConfig, "codec" | "flags" | "errorPage"> {
 	flags: Partial<SherpaFlags>;
+	errorPage: Partial<SherpaErrorPageConfig>;
 	codec: {
 		encode: (url: string) => string;
 		decode: (url: string) => string;

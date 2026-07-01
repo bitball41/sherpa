@@ -91,6 +91,11 @@ export class SherpaServiceWorker extends EventTarget {
 
 			if (data.sherpa$type === "loadConfig") {
 				this.config = data.config;
+				// Also refresh the module-level shared config (and re-parse the
+				// codecs) so runtime `SherpaController.modifyConfig` updates — flags,
+				// siteFlags, error-page theme — actually reach the code paths that
+				// read the shared `config`, not just `this.config`.
+				setConfig(data.config);
 			}
 		});
 	}

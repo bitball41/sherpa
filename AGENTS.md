@@ -132,6 +132,47 @@ both clean (rspack + rslib typecheck), and a manual browser smoke test
 ~2.32MB to ~1.61MB (~30% smaller): `sherpa.wasm.wasm` 867KB→534KB (this was
 the RELEASE=1 fix), `sherpa.bundle.js` 1.34MB→897KB (parse-domain removal).
 
+### Customization pass (working tree — not yet committed unless git log says otherwise)
+
+Turned the error page into a first-class, config-driven customization feature
+and leaned into "customization" as Sherpa's differentiator vs Scramjet.
+
+- **Error-page theming.** New `SherpaErrorPageConfig` type (`src/types.ts`) on
+  `SherpaConfig`/`SherpaInitConfig`, with the single source of truth for
+  defaults in `src/shared/errorPage.ts` (`DEFAULT_ERROR_PAGE`, re-exported from
+  `@/shared`). `src/controller/controller.ts` seeds it into `defaultConfig`;
+  `src/worker/error.ts` merges `{ ...DEFAULT_ERROR_PAGE, ...config.errorPage }`
+  at render time and injects the theme (CSS variables + title/logo/repo link via
+  the existing JSON.stringify'd data-URI script). All plain serializable data,
+  so it persists to IDB and hot-swaps like the rest of the config — no engine
+  edits needed. `errorPage.css` is appended last so devs can override anything.
+- **New default palette:** a clean _light_ theme — white bg, `#222444` (deep
+  navy) text, `#a0a1dc` (lavender) muted, `#a1c5f3` (sky blue) accent — replacing
+  the old dark beach/orange theme.
+- **Preview mechanism.** Navigating to `` `${prefix}$error` `` renders the themed
+  page with a sample trace (early sentinel check in `src/worker/fetch.ts`, before
+  any real fetch). `SherpaController.errorPreviewUrl` getter returns that URL;
+  the `static/` demo wires it to an "error page" toolbar button.
+- **Fixed a latent config gap** that this feature depends on: the worker's
+  `loadConfig` _message_ handler (`src/worker/index.ts`) set `this.config` but
+  never called `setConfig`, so runtime `modifyConfig` updates never reached the
+  module-level shared `config` that the error template / `flagEnabled` /
+  rewriters read (nor re-parsed the codecs). Now calls `setConfig(data.config)`,
+  so runtime re-theming (and flags/siteFlags/codec updates) actually take effect.
+- **Rebrand straggler fixed:** the error page's troubleshooting link pointed at
+  `github.com/MercuryWorkshop/sherpa` (wrong repo) — now the configurable
+  `repoUrl`, defaulting to `github.com/bitball41/sherpa`. Same stale link fixed
+  in `static/ui.js` (the commit link).
+- **README:** added a "What makes Sherpa different from Scramjet" section
+  (under the what-is paragraphs) and a "Customization" section documenting the
+  error page + the other existing knobs (`prefix`, `codec`, `flags`, `siteFlags`,
+  `globals`, `files`).
+
+Build verified (`pnpm build` + `pnpm build:types` both clean) and browser-tested
+end-to-end via the preview route: defaults render correctly (white/navy/sky), and
+a fully custom theme (custom colors + title + logo, applied at runtime through
+`modifyConfig`) renders correctly too, with no console errors.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

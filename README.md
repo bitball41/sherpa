@@ -19,6 +19,17 @@ Sherpa is an **interception-based web proxy** that runs almost entirely in the b
 
 Sherpa is the proxy engine behind **Bardo**, a separate web-proxy app. The goal of the fork is an engine that can be owned and modified directly rather than consumed as an upstream black box.
 
+## What makes Sherpa different from Scramjet
+
+Scramjet is what everyone already reaches for, so the fair question is why run Sherpa instead. Sherpa forks Scramjet's `legacy`/1.x engine and keeps the same API — the difference is what the fork optimizes for:
+
+- **Customization is a first-class feature, not a fork-and-patch chore.** The error page is fully themeable straight from config — colors, fonts, logo, copy, or raw CSS — with no engine edits, plus a built-in way to preview it. The proxy prefix, URL codec, feature flags, per-site flag overrides, and the names of the globals Sherpa injects are all configurable too. See [Customization](#customization). And because Sherpa ships as source you own, anything config doesn't cover you can still change directly; stock Scramjet is typically consumed as an unmodifiable npm dependency.
+- **Concrete reliability fixes over the 1.x baseline.** Charset-aware HTML decoding (follows the HTML spec's sniffing order instead of assuming UTF‑8); real Service-Worker scope tracking (upstream matched by origin only, so a single registered worker intercepted _every_ path on that origin); cross-realm `location` assignment; a reworked synchronous-XHR watchdog (upstream cut sync requests off at a hardcoded 1s); CORS/credentials and referrer-policy emulation that honors the request's real credentials mode; and non-`http(s)` scheme passthrough so `tel:`, `intent:`, `magnet:`, and friends stop getting mangled behind the proxy prefix.
+- **Smaller.** The build dropped ~30% (~2.32 MB → ~1.61 MB) by removing a dead dependency and shipping the size-optimized WASM rewriter.
+- **Focused scope.** Sherpa's stated goals are site compatibility and performance/size. Stealth / anti-detection is explicitly a non-goal.
+
+Everything past the rename is tracked in this repo's commit history; [`AGENTS.md`](AGENTS.md) has the full rationale.
+
 ## Supported sites
 
 Sherpa has CAPTCHA support. Some of the popular sites it handles include:
@@ -92,6 +103,67 @@ self.addEventListener("fetch", (ev) => {
 ```
 
 `SherpaController.encodeUrl(url)` / `decodeUrl(url)` convert between real URLs and their proxied form if you need to build links yourself. See the API reference (Typedoc, below) or the runnable demo in [`static/`](static/) for a complete wiring.
+
+## Customization
+
+Sherpa is meant to be reskinned and reconfigured per deployment. Almost all of it lives on the `SherpaController` config, so you can change it without touching the engine source.
+
+### The error page
+
+When a proxied navigation fails, Sherpa serves a built-in error page. It's fully themeable through the `errorPage` config — set any subset of fields and the rest fall back to Sherpa's defaults:
+
+```js
+const sherpa = new SherpaController({
+	prefix: "/sherpa/",
+	errorPage: {
+		background: "#ffffff", // page background          (default: white)
+		text: "#222444", // primary text             (default: #222444, deep navy)
+		muted: "#a0a1dc", // secondary text           (default: #a0a1dc, lavender)
+		accent: "#a1c5f3", // buttons & links          (default: #a1c5f3, sky blue)
+		accentText: "#222444", // text drawn on the accent color
+		surface: "#eef0fb", // card / textarea background
+		title: "Uh oh!", // the big heading
+		logo: "/brand/logo.svg", // optional logo above the title (URL or data URI)
+		repoUrl: "https://github.com/bitball41/sherpa", // troubleshooting link
+		fontSans: "system-ui, sans-serif", // body font stack
+		fontMono: "ui-monospace, monospace", // error-trace font stack
+		css: "", // raw CSS appended last, for anything the fields don't reach
+	},
+});
+```
+
+Those four colors — white, `#222444`, `#a0a1dc`, `#a1c5f3` — are the defaults: a clean light theme. Override only the fields you care about. Anything the named fields don't cover goes in `errorPage.css`, which is appended _after_ Sherpa's own styles so it always wins. You can also re-theme at runtime:
+
+```js
+sherpa.modifyConfig({
+	errorPage: { accent: "#e11d48", title: "This page didn't load" },
+});
+```
+
+**Previewing it** — you don't have to break a real site to see your theme. Point any frame at `SherpaController.errorPreviewUrl` (which is just `` `${prefix}$error` ``) and Sherpa renders the error page with a sample trace filled in:
+
+```js
+const frame = sherpa.createFrame();
+document.body.appendChild(frame.frame);
+frame.frame.src = sherpa.errorPreviewUrl; // shows your themed error page
+```
+
+The runnable demo in [`static/`](static/) wires this to an **error page** button in its toolbar.
+
+### Other knobs
+
+All on the `SherpaController` config:
+
+| Field                           | What it does                                                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prefix`                        | The path every proxied URL lives under (default `/sherpa/`). Rebrand or obscure your proxy routes by changing it.                                         |
+| `codec.encode` / `codec.decode` | How real URLs get encoded into proxied ones. Defaults to `encodeURIComponent`; drop in Base64, XOR, or any reversible transform to change how links look. |
+| `flags`                         | Feature flags — service workers, sync XHR, sourcemaps, error capture, download interception, and more.                                                    |
+| `siteFlags`                     | Per-site flag overrides keyed by a URL regex, so you can flip features on or off for specific origins.                                                    |
+| `globals`                       | The names of the wrapper functions Sherpa injects into rewritten pages (e.g. `$sherpa$wrap`). Rename them to avoid collisions or fingerprint your build.  |
+| `files`                         | Where the bundle, WASM, and sync runtime are served from.                                                                                                 |
+
+Because Sherpa is a source dependency you own, these are the easy, supported customizations — but you're never limited to them.
 
 ## Development
 

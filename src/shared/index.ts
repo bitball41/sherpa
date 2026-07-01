@@ -1,6 +1,7 @@
 import { SherpaConfig, SherpaFlags } from "@/types";
 
 export * from "./cookie";
+export * from "./errorPage";
 export * from "./headers";
 export * from "./htmlRules";
 export * from "./rewriters";

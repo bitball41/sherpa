@@ -4,6 +4,7 @@ import {
 	config,
 	loadCodecs,
 	setConfig,
+	DEFAULT_ERROR_PAGE,
 } from "@/shared/index";
 import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
 import { SherpaFrame } from "@/controller/frame";
@@ -59,6 +60,7 @@ export class SherpaController extends EventTarget {
 				allowFailedIntercepts: true,
 			},
 			siteFlags: {},
+			errorPage: { ...DEFAULT_ERROR_PAGE },
 			codec: {
 				encode: (url: string) => {
 					if (!url) return url;
@@ -136,6 +138,23 @@ export class SherpaController extends EventTarget {
 		const prefixed = location.origin + config.prefix;
 
 		return codecDecode(url.slice(prefixed.length));
+	}
+
+	/**
+	 * A URL that renders a live preview of Sherpa's error page using your
+	 * current {@link SherpaErrorPageConfig | `errorPage`} theme, with a sample
+	 * trace filled in. Point a frame (or any navigation) at it to see your
+	 * customization without having to trigger a real fetch failure.
+	 *
+	 * @example
+	 * ```typescript
+	 * const frame = sherpa.createFrame();
+	 * document.body.appendChild(frame.frame);
+	 * frame.frame.src = sherpa.errorPreviewUrl; // shows the themed error page
+	 * ```
+	 */
+	get errorPreviewUrl(): string {
+		return config.prefix + "$error";
 	}
 
 	async openIDB(): Promise<IDBPDatabase<SherpaDB>> {

@@ -108,6 +108,21 @@ export async function handleFetch(
 			});
 		}
 
+		// Error-page preview. Navigating to `${prefix}$error` renders the themed
+		// error page with a representative sample trace, so developers can preview
+		// their `errorPage` customization without triggering a real fetch failure.
+		// `SherpaController.errorPreviewUrl` returns this URL.
+		if (requestUrl.pathname === this.config.prefix + "$error") {
+			const sampleTrace = [
+				"Message: Failed to fetch",
+				"Url: https://example.com/",
+				"Destination: document",
+				"Stack: TypeError: Failed to fetch\n    at Sherpa error-page preview",
+			].join("\n\n");
+
+			return renderError(sampleTrace, "https://example.com/");
+		}
+
 		let scriptType = "";
 		let topFrameName;
 		let parentFrameName;
@@ -619,7 +634,8 @@ function detectHtmlCharset(
 	if (headerCharset) return headerCharset.toLowerCase();
 
 	const bytes = new Uint8Array(buf);
-	if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "utf-8";
+	if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)
+		return "utf-8";
 	if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
 	if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
 
