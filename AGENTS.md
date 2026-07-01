@@ -33,7 +33,7 @@ anything that seems stale from those.)
 
 ## Current state (check `git log --oneline` to confirm this is still accurate)
 
-19 commits past the upstream `legacy` baseline. Key changes include:
+20 commits past the upstream `legacy` baseline. Key changes include:
 
 - `3316c04a`/`f3d73e09`/`458677d0` — rebrand pass (scramjet→sherpa renamed
   throughout: globals like `$scramjetLoadController`→`$sherpaLoadController`,

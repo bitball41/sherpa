@@ -26,7 +26,6 @@
 		"test": "npm run test:package && npm run test:integration",
 		"test:package": "ava tests/ci/packageValidation.js",
 		"test:integration": "npx playwright test",
-		"preinstall": "npx only-allow pnpm",
 		"docs": "typedoc",
 		"docs:dev": "typedoc --options typedoc.dev-facing.json",
 		"docs:serve": "npx serve _docs; typedoc --watch"
