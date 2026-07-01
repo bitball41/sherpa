@@ -221,8 +221,14 @@ export function renderError(err: unknown, fetchedURL: string) {
 	const headers = {
 		"content-type": "text/html",
 	};
+	// The error page is only ever served for a document/iframe navigation, so
+	// when we're cross-origin isolated it must re-assert *both* COOP and COEP —
+	// matching the main response path. Sending COEP without COOP leaves the
+	// error page a non-isolated popup, which an isolated opener can't keep, and
+	// omitting them entirely gets the new tab blocked with ERR_BLOCKED_BY_RESPONSE.
 	if (crossOriginIsolated) {
 		headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+		headers["Cross-Origin-Opener-Policy"] = "same-origin";
 	}
 
 	return new Response(errorTemplate(String(err), fetchedURL), {

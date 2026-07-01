@@ -6404,8 +6404,14 @@ function renderError(err, fetchedURL) {
     const headers = {
         "content-type": "text/html"
     };
+    // The error page is only ever served for a document/iframe navigation, so
+    // when we're cross-origin isolated it must re-assert *both* COOP and COEP —
+    // matching the main response path. Sending COEP without COOP leaves the
+    // error page a non-isolated popup, which an isolated opener can't keep, and
+    // omitting them entirely gets the new tab blocked with ERR_BLOCKED_BY_RESPONSE.
     if (crossOriginIsolated) {
         headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+        headers["Cross-Origin-Opener-Policy"] = "same-origin";
     }
     return new Response(errorTemplate(String(err), fetchedURL), {
         status: 500,
@@ -6669,7 +6675,26 @@ async function handleFetch(request, client) {
         const activeWorker = matchingWorkers.sort((a, b)=>b.scope.length - a.scope.length)[0];
         if (activeWorker && requestUrl.searchParams.get("from") !== "swruntime") {
             const r = await activeWorker.fetch(request);
-            if (r) return r;
+            if (r) {
+                // A fake-SW response is a fresh navigable/subresource the worker
+                // serves directly, bypassing the header re-stamping in
+                // handleResponse. When we're cross-origin isolated it must
+                // re-assert COOP+COEP too, or Chrome blocks a new-tab/popup
+                // navigation to it with ERR_BLOCKED_BY_RESPONSE: an isolated
+                // opener can only keep an equally-isolated popup.
+                if (crossOriginIsolated && [
+                    "document",
+                    "iframe",
+                    "worker",
+                    "sharedworker",
+                    "style",
+                    "script"
+                ].includes(request.destination)) {
+                    r.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+                    r.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+                }
+                return r;
+            }
         }
         if (url.origin === new URL(request.url).origin) {
             throw new Error("attempted to fetch from same origin - this means the site has obtained a reference to the real origin, aborting");
@@ -12781,7 +12806,7 @@ globalThis.$sherpaRequire = function(path) {
  *
  * @category Window Context
  */ const $sherpaVersion = {
-    build: "f5b770d2",
+    build: "1f8c494c",
     version: "1.1.0"
 };
 globalThis.$sherpaLoadController = $sherpaLoadController;

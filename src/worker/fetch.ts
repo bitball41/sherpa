@@ -232,7 +232,30 @@ export async function handleFetch(
 
 		if (activeWorker && requestUrl.searchParams.get("from") !== "swruntime") {
 			const r = await activeWorker.fetch(request);
-			if (r) return r;
+			if (r) {
+				// A fake-SW response is a fresh navigable/subresource the worker
+				// serves directly, bypassing the header re-stamping in
+				// handleResponse. When we're cross-origin isolated it must
+				// re-assert COOP+COEP too, or Chrome blocks a new-tab/popup
+				// navigation to it with ERR_BLOCKED_BY_RESPONSE: an isolated
+				// opener can only keep an equally-isolated popup.
+				if (
+					crossOriginIsolated &&
+					[
+						"document",
+						"iframe",
+						"worker",
+						"sharedworker",
+						"style",
+						"script",
+					].includes(request.destination)
+				) {
+					r.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+					r.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+				}
+
+				return r;
+			}
 		}
 		if (url.origin === new URL(request.url).origin) {
 			throw new Error(
