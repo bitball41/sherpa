@@ -49,6 +49,15 @@ export function rewriteUrl(url: string | URL, meta: URLMeta) {
 		if (base.startsWith("about:")) base = unrewriteUrl(self.location.href); // jank!!!!! weird jank!!!
 		const realUrl = tryCanParseURL(url, base);
 		if (!realUrl) return url;
+
+		// Only http(s) URLs are ever proxied. If this resolved to some other
+		// scheme (tel:, sms:, intent:, magnet:, ftp:, ws:, ...) it's handled by
+		// the browser or an external app, so pass it through untouched instead
+		// of mangling it into a proxied URL. Mirrors SherpaController.encodeUrl.
+		if (realUrl.protocol !== "http:" && realUrl.protocol !== "https:") {
+			return url;
+		}
+
 		const encodedHash = codecEncode(realUrl.hash.slice(1));
 		const realHash = encodedHash ? "#" + encodedHash : "";
 		realUrl.hash = "";
@@ -81,6 +90,12 @@ export function unrewriteUrl(url: string | URL) {
 	} else if (url.startsWith("mailto:") || url.startsWith("about:")) {
 		return url;
 	} else {
+		// If this isn't one of our proxied URLs there's nothing to decode - e.g.
+		// an external-scheme URL (tel:, magnet:, ...) that rewriteUrl passed
+		// through, or an already-bare URL. Returning it untouched avoids slicing
+		// off a prefix that isn't there and producing garbage.
+		if (!url.startsWith(prefixed)) return url;
+
 		const realUrl = tryCanParseURL(url);
 		if (!realUrl) return url;
 		const decodedHash = codecDecode(realUrl.hash.slice(1));
