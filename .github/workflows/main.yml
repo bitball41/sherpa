@@ -118,7 +118,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: packaged-sherpa
-          path: mercuryworkshop-sherpa-*.tgz
+          # the package is named plain "sherpa" (no npm scope), so pnpm pack
+          # emits sherpa-<version>.tgz; the old upstream-scoped glob matched
+          # nothing and the artifact was silently never uploaded
+          path: sherpa-*.tgz
+          if-no-files-found: error
 
       - name: Upload Artifact (dist)
         uses: actions/upload-artifact@v4
@@ -159,7 +163,7 @@ jobs:
           path: .
 
       - name: Extract package
-        run: tar xvf mercuryworkshop-sherpa-*.tgz package --strip-components=1
+        run: tar xvf sherpa-*.tgz package --strip-components=1
 
       - name: Run package validation tests
         run: pnpm test:package
@@ -257,7 +261,7 @@ jobs:
           tag: latest
           commit: main
           body: "${{ github.event.head_commit.url }} ${{ github.event.head_commit.message }}"
-          artifacts: "mercuryworkshop-sherpa-*.tgz"
+          artifacts: "sherpa-*.tgz"
           prerelease: true
 
       - name: Release tagged version to GitHub
@@ -268,7 +272,7 @@ jobs:
           tag: "v${{ needs.version-check.outputs.new_version }}"
           commit: main
           body: "${{ github.event.head_commit.url }} ${{ github.event.head_commit.message }}"
-          artifacts: "mercuryworkshop-sherpa-*.tgz"
+          artifacts: "sherpa-*.tgz"
 
   publish:
     name: Publish Sherpa to NPM
@@ -294,7 +298,7 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Publish
-        run: npm publish mercuryworkshop-sherpa-${{ needs.version-check.outputs.new_version }}.tgz --access public --no-git-checks
+        run: npm publish sherpa-${{ needs.version-check.outputs.new_version }}.tgz --access public --no-git-checks
 
   pages:
     name: Upload to Github Pages

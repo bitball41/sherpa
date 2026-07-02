@@ -137,130 +137,134 @@ function traverseParsedHtml(
 	cookieStore: CookieStore,
 	meta: URLMeta
 ) {
-	if (node.name === "base" && node.attribs.href !== undefined) {
-		meta.base = new URL(node.attribs.href, meta.origin);
-	}
+	// only element nodes carry attribs; gating on it lets the text/comment
+	// nodes that make up most of a document skip all tag handling below
+	const attribs = node.attribs;
+	if (attribs !== undefined) {
+		const name = node.name;
 
-	if (node.attribs) {
-		const attributes = Object.keys(node.attribs);
+		if (name === "base" && attribs.href !== undefined) {
+			meta.base = new URL(attribs.href, meta.origin);
+		}
+
+		const attributes = Object.keys(attribs);
 		for (const attr of attributes) {
-			const rule = findHtmlRule(attr, node.name);
+			const rule = findHtmlRule(attr, name);
 			if (!rule) continue;
 
-			const value = node.attribs[attr];
+			const value = attribs[attr];
 			const rewritten = rule.fn(value, meta, cookieStore);
 
-			if (rewritten === null) delete node.attribs[attr];
-			else node.attribs[attr] = rewritten;
-			node.attribs[`sherpa-attr-${attr}`] = value;
+			if (rewritten === null) delete attribs[attr];
+			else attribs[attr] = rewritten;
+			attribs[`sherpa-attr-${attr}`] = value;
 		}
 		for (const attr of attributes) {
 			if (eventAttributes.has(attr)) {
-				const value = node.attribs[attr];
-				node.attribs[`sherpa-attr-${attr}`] = value;
-				node.attribs[attr] = rewriteJs(
-					value,
-					`(inline ${attr} on element)`,
-					meta
+				const value = attribs[attr];
+				attribs[`sherpa-attr-${attr}`] = value;
+				attribs[attr] = rewriteJs(value, `(inline ${attr} on element)`, meta);
+			}
+		}
+
+		if (name === "style") {
+			if (node.children[0] !== undefined)
+				node.children[0].data = rewriteCss(node.children[0].data, meta);
+		} else if (name === "script") {
+			// the type's MIME essence decides everything below; compute it once
+			const type = attribs.type;
+			const essence = scriptTypeEssence(type);
+
+			if (essence === "module" && attribs.src)
+				attribs.src = attribs.src + "?type=module";
+
+			if (type === "importmap" && node.children[0] !== undefined) {
+				let json = node.children[0].data;
+				try {
+					const map = JSON.parse(json);
+					if (map.imports) {
+						for (const key in map.imports) {
+							let url = map.imports[key];
+							if (typeof url === "string") {
+								url = rewriteUrl(url, meta);
+								map.imports[key] = url;
+							}
+						}
+					}
+
+					node.children[0].data = JSON.stringify(map);
+				} catch (e) {
+					console.error("Failed to parse importmap JSON:", e);
+				}
+			}
+			if (
+				(essence === "module" || jsMimeEssences.test(essence)) &&
+				node.children[0] !== undefined
+			) {
+				let js = node.children[0].data;
+				const module = essence === "module";
+				attribs["sherpa-attr-script-source-src"] = bytesToBase64(
+					encoder.encode(js)
+				);
+				js = js.replace(htmlComment, "");
+				node.children[0].data = rewriteJs(
+					js,
+					"(inline script element)",
+					meta,
+					module
 				);
 			}
-		}
-	}
-
-	if (node.name === "style" && node.children[0] !== undefined)
-		node.children[0].data = rewriteCss(node.children[0].data, meta);
-
-	if (
-		node.name === "script" &&
-		scriptTypeEssence(node.attribs.type) === "module" &&
-		node.attribs.src
-	)
-		node.attribs.src = node.attribs.src + "?type=module";
-
-	if (
-		node.name === "script" &&
-		node.attribs.type === "importmap" &&
-		node.children[0] !== undefined
-	) {
-		let json = node.children[0].data;
-		try {
-			const map = JSON.parse(json);
-			if (map.imports) {
-				for (const key in map.imports) {
-					let url = map.imports[key];
-					if (typeof url === "string") {
-						url = rewriteUrl(url, meta);
-						map.imports[key] = url;
-					}
-				}
-			}
-
-			node.children[0].data = JSON.stringify(map);
-		} catch (e) {
-			console.error("Failed to parse importmap JSON:", e);
-		}
-	}
-	if (
-		node.name === "script" &&
-		isJsScriptType(node.attribs.type) &&
-		node.children[0] !== undefined
-	) {
-		let js = node.children[0].data;
-		const module = scriptTypeEssence(node.attribs.type) === "module";
-		node.attribs["sherpa-attr-script-source-src"] = bytesToBase64(
-			encoder.encode(js)
-		);
-		const htmlcomment = /<!--[\s\S]*?-->/g;
-		js = js.replace(htmlcomment, "");
-		node.children[0].data = rewriteJs(
-			js,
-			"(inline script element)",
-			meta,
-			module
-		);
-	}
-
-	if (node.name === "meta" && node.attribs["http-equiv"] !== undefined) {
-		if (
-			node.attribs["http-equiv"].toLowerCase() === "content-security-policy"
-		) {
-			// just delete it. this needs to be emulated eventually but like
-			node = new Comment(node.attribs.content);
-		} else if (
-			node.attribs["http-equiv"].toLowerCase() === "refresh" &&
-			node.attribs.content
-		) {
-			// content looks like "<seconds>[; url=<url>]" — the url key is
-			// ASCII case-insensitive and the value may be quoted
-			node.attribs.content = node.attribs.content.replace(
-				/(url\s*=\s*)([\s\S]*)/i,
-				(_, key: string, rest: string) => {
-					const url = rest.trim();
-					const quote = /^['"]/.test(url) ? url[0] : "";
-					if (quote) {
-						const end = url.indexOf(quote, 1);
-						const inner = end === -1 ? url.slice(1) : url.slice(1, end);
-
-						return key + quote + rewriteUrl(inner.trim(), meta) + quote;
-					}
-
-					return key + rewriteUrl(url, meta);
-				}
-			);
+		} else if (name === "meta" && attribs["http-equiv"] !== undefined) {
+			node = rewriteMetaHttpEquiv(node, meta);
 		}
 	}
 
 	if (node.childNodes) {
-		for (const childNode in node.childNodes) {
-			node.childNodes[childNode] = traverseParsedHtml(
-				node.childNodes[childNode],
-				cookieStore,
-				meta
-			);
+		const children = node.childNodes;
+		for (let i = 0; i < children.length; i++) {
+			children[i] = traverseParsedHtml(children[i], cookieStore, meta);
 		}
 	}
 
 	return node;
+}
+
+function rewriteMetaHttpEquiv(node: any, meta: URLMeta) {
+	const httpEquiv = node.attribs["http-equiv"].toLowerCase();
+	if (httpEquiv === "content-security-policy") {
+		// just delete it. this needs to be emulated eventually but like
+		node = new Comment(node.attribs.content);
+	} else if (httpEquiv === "refresh" && node.attribs.content) {
+		// content looks like "<seconds>[; url=<url>]" — the url key is
+		// ASCII case-insensitive and the value may be quoted
+		node.attribs.content = node.attribs.content.replace(
+			/(url\s*=\s*)([\s\S]*)/i,
+			(_, key: string, rest: string) => {
+				const url = rest.trim();
+				const quote = /^['"]/.test(url) ? url[0] : "";
+				if (quote) {
+					const end = url.indexOf(quote, 1);
+					const inner = end === -1 ? url.slice(1) : url.slice(1, end);
+
+					return key + quote + rewriteUrl(inner.trim(), meta) + quote;
+				}
+
+				return key + rewriteUrl(url, meta);
+			}
+		);
+	}
+
+	return node;
+}
+
+// whitespace test for srcset scanning: char-code comparisons for the ASCII
+// range (all realistic srcsets), regex fallback for exotic unicode whitespace
+// so behavior matches /\s/ exactly
+function isSrcsetSpace(code: number): boolean {
+	if (code === 32 || (code >= 9 && code <= 13)) return true;
+	if (code < 128) return false;
+
+	return /\s/.test(String.fromCharCode(code));
 }
 
 export function rewriteSrcset(srcset: string, meta: URLMeta) {
@@ -270,28 +274,33 @@ export function rewriteSrcset(srcset: string, meta: URLMeta) {
 	// next whitespace, a trailing comma on the URL ends the candidate, and
 	// otherwise the descriptor runs to the next top-level comma
 	const candidates: string[] = [];
+	const len = srcset.length;
 	let pos = 0;
 
-	while (pos < srcset.length) {
-		while (pos < srcset.length && /[\s,]/.test(srcset[pos])) pos++;
-		if (pos >= srcset.length) break;
+	while (pos < len) {
+		while (pos < len) {
+			const c = srcset.charCodeAt(pos);
+			if (c !== 44 /* , */ && !isSrcsetSpace(c)) break;
+			pos++;
+		}
+		if (pos >= len) break;
 
 		const urlStart = pos;
-		while (pos < srcset.length && !/\s/.test(srcset[pos])) pos++;
+		while (pos < len && !isSrcsetSpace(srcset.charCodeAt(pos))) pos++;
 		let url = srcset.slice(urlStart, pos);
 
 		let descriptor = "";
 		if (url.endsWith(",")) {
 			url = url.replace(/,+$/, "");
 		} else {
-			while (pos < srcset.length && /\s/.test(srcset[pos])) pos++;
+			while (pos < len && isSrcsetSpace(srcset.charCodeAt(pos))) pos++;
 			const descStart = pos;
 			let parens = 0;
-			while (pos < srcset.length) {
-				const c = srcset[pos];
-				if (c === "(") parens++;
-				else if (c === ")" && parens > 0) parens--;
-				else if (c === "," && parens === 0) break;
+			while (pos < len) {
+				const c = srcset.charCodeAt(pos);
+				if (c === 40 /* ( */) parens++;
+				else if (c === 41 /* ) */ && parens > 0) parens--;
+				else if (c === 44 /* , */ && parens === 0) break;
 				pos++;
 			}
 			descriptor = srcset.slice(descStart, pos).trim();
@@ -316,14 +325,11 @@ function scriptTypeEssence(type: string | undefined): string {
 	return essence === "" ? "text/javascript" : essence;
 }
 
+// a script executes as (classic) JS when its type's essence matches this or
+// is "module"; the traversal above tests `essence === "module" ||
+// jsMimeEssences.test(essence)` with the essence it already computed
 const jsMimeEssences =
 	/^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^text\/(?:javascript1\.[0-5]|jscript|livescript)$/;
-
-function isJsScriptType(type: string | undefined): boolean {
-	const essence = scriptTypeEssence(type);
-
-	return essence === "module" || jsMimeEssences.test(essence);
-}
 
 // function base64ToBytes(base64) {
 // 	const binString = atob(base64);
@@ -331,10 +337,19 @@ function isJsScriptType(type: string | undefined): boolean {
 // 	return Uint8Array.from(binString, (m) => m.codePointAt(0));
 // }
 
-function bytesToBase64(bytes: Uint8Array) {
-	const binString = Array.from(bytes, (byte) =>
-		String.fromCodePoint(byte)
-	).join("");
+const htmlComment = /<!--[\s\S]*?-->/g;
+
+export function bytesToBase64(bytes: Uint8Array) {
+	// chunked String.fromCharCode.apply builds the binary string thousands of
+	// times faster than one string object per byte; 8k args stays comfortably
+	// under every engine's argument-count limit
+	let binString = "";
+	for (let i = 0; i < bytes.length; i += 8192) {
+		binString += String.fromCharCode.apply(
+			null,
+			bytes.subarray(i, i + 8192) as unknown as number[]
+		);
+	}
 
 	return btoa(binString);
 }

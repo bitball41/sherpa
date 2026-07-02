@@ -121,7 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: packaged-sherpa
-          path: mercuryworkshop-sherpa-*.tgz
+          path: sherpa-*.tgz
 
       - name: Upload artifact (dist)
         uses: actions/upload-artifact@v4

@@ -88,3 +88,25 @@ implementation would mutate or strip properties from legitimate user rest object
 theoretical leak.
 
 **Status:** deferred. Do not implement without a concrete failing site and a test.
+
+## CSS `url()` regex truncates at an unescaped `)` inside quoted URLs
+
+**File:** `src/shared/rewriters/css.ts` (`urlRegex`)
+
+The lazy `url\((['"]?)(.+?)(['"]?)\)` pattern (inherited from upstream Scramjet's
+vk6 regex; the 2026 perf pass only added capture groups, verified byte-equivalent)
+stops matching at the first `)`, even inside a quoted URL like `url('/a(b).png')`.
+In practice the damage self-heals with the default `encodeURIComponent` codec: the
+suffix after the `)` passes through verbatim and re-concatenates into a proxied URL
+that round-trips correctly (covered by `bench/verify.mjs`, and flagged by a review
+bot on PR #1 with an example that in fact produces correct output). It only truly
+corrupts when a **custom codec** (base64, XOR, ...) is configured, because the raw
+suffix then isn't valid codec output.
+
+A real fix means replacing the regex with a quote-aware tokenizer (per CSS syntax,
+unquoted `url()` cannot contain unescaped parens, so only the quoted branch needs
+it). That changes matching behavior relative to upstream for other edge inputs, so
+it should ship as its own compat change with fixtures, not ride along in an
+output-equivalence-verified perf PR.
+
+**Status:** deferred; behavior identical to upstream and to pre-perf-pass Sherpa.
