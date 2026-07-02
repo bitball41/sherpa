@@ -29,7 +29,15 @@ export async function asyncSetWasm() {
 export const textDecoder = new TextDecoder();
 let MAGIC = "\0asm".split("").map((x) => x.charCodeAt(0));
 
+let wasmInitialized = false;
+
 function initWasm() {
+	// initSync latches onto the first module it's given and ignores later
+	// calls, but its argument was still being evaluated every time - meaning
+	// a full synchronous WebAssembly.Module compile of the rewriter on EVERY
+	// JS rewrite. Latch here instead so the compile happens exactly once.
+	if (wasmInitialized) return;
+
 	if (!(wasm_u8 instanceof Uint8Array))
 		throw new Error("rewriter wasm not found (was it fetched correctly?)");
 
@@ -42,6 +50,7 @@ function initWasm() {
 	initSync({
 		module: new WebAssembly.Module(wasm_u8),
 	});
+	wasmInitialized = true;
 }
 
 let rewriters = [];

@@ -1,0 +1,18 @@
+{
+	"name": "sherpa-bench",
+	"private": true,
+	"type": "module",
+	"description": "Reproducible performance benchmarks: Sherpa vs upstream Scramjet 1.x (the fork baseline).",
+	"scripts": {
+		"corpus": "node corpus/generate.mjs",
+		"build": "node build.mjs",
+		"micro": "node micro.mjs",
+		"verify": "node verify.mjs",
+		"size": "node size.mjs",
+		"e2e": "node e2e/run.mjs"
+	},
+	"dependencies": {
+		"@mercuryworkshop/scramjet": "1.1.0",
+		"esbuild": "^0.25.9"
+	}
+}

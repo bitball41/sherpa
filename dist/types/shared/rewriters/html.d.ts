@@ -4,3 +4,4 @@ export declare function getInjectScripts<T>(cookieStore: CookieStore, script: (s
 export declare function rewriteHtml(html: string, cookieStore: CookieStore, meta: URLMeta, fromTop?: boolean): string;
 export declare function unrewriteHtml(html: string): string;
 export declare function rewriteSrcset(srcset: string, meta: URLMeta): string;
+export declare function bytesToBase64(bytes: Uint8Array): string;

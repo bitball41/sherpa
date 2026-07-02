@@ -217,6 +217,43 @@ execute rewritten (they see the emulated origin, not the real one),
 `application/ld+json` is left untouched, and an uppercase `URL=` refresh
 target gets proxied.
 
+### Performance pass (benchmarked vs upstream Scramjet 1.x)
+
+Goal: make Sherpa measurably faster than the Scramjet it forked, with
+evidence. A reproducible benchmark harness now lives in `bench/` (see
+`bench/README.md` for methodology + full results). It compares against two
+baselines that are the same frozen code: the fork-point commit `57ba89e`
+(bundled from source for controlled micro benchmarks) and the published
+`@mercuryworkshop/scramjet@1.1.0` dist (for end-to-end browser runs and wire
+size).
+
+- **Optimizations** (all output-equivalent, verified byte-for-byte across
+  10k+ comparisons by `bench/verify.mjs`): chunked `bytesToBase64` (was one
+  string object per byte — dominates inline-script-heavy pages); CSS regexes
+  compiled once + matches rebuilt from capture groups (was a quadratic
+  rescan per match that also corrupted `$&`-style URLs); char-code srcset
+  scanning (was a regex per character); indexed child traversal (was
+  `for..in` over an array); element work gated on `attribs`; script MIME
+  essence computed once; first-char gate before the URL scheme
+  `startsWith` chain; cached `location.origin + prefix`; fragment handling
+  via `href` slicing (skips the `hash` setter); `flagEnabled` regex cache;
+  **`initWasm` latch** (the WASM rewriter was synchronously recompiled via
+  `new WebAssembly.Module` on every JS rewrite because `initSync`'s argument
+  was evaluated before its internal guard); worker-side WASM bootstrap
+  payload cached per worker lifetime (was re-base64ing ~0.5 MB per page
+  load); charset decoders hoisted.
+- **Results:** rewriters 1.3–1.8× faster (5.3× on script-heavy HTML), also
+  confirmed on live-captured Wikipedia/MDN pages (1.38–1.44×); end-to-end
+  proxied page loads in Chromium 1.12–1.26× faster across two independent
+  runs; cold start at parity; wire size at parity (~1% larger than
+  published Scramjet while carrying more compat fixes).
+- **Environment note:** `rewriter/wasm/out/` is gitignored and needed for
+  `pnpm build`; on a machine without the Rust toolchain the wasm-bindgen
+  glue can be recovered from the committed dist source maps
+  (`dist/sherpa.bundle.js.map` → `sourcesContent` for
+  `rewriter/wasm/out/wasm.js` and its snippet), plus a hand-written
+  `wasm.d.ts`. CI builds the real thing (cached by Cargo hash).
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

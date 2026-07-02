@@ -19,7 +19,7 @@ import { rewriteJs } from "@rewriters/js";
 import { SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
-import { rewriteHtml } from "@rewriters/html";
+import { bytesToBase64, rewriteHtml } from "@rewriters/html";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteWorkers } from "@rewriters/worker";
 import { SherpaDownload } from "@client/events";
@@ -47,6 +47,23 @@ function isRedirect(response: BareResponseFetch) {
 	return response.status >= 300 && response.status < 400;
 }
 
+let cachedWasmPayload: Promise<string> | null = null;
+let cachedWasmPayloadPath: string | null = null;
+
+// displayable mime types, checked as a download fallback
+const displayableMimes = [
+	// Text types
+	"text/html",
+	"text/plain",
+	"text/css",
+	"text/javascript",
+	"text/xml",
+	"application/javascript",
+	"application/json",
+	"application/xml",
+	"application/pdf",
+];
+
 function isDownload(responseHeaders: object, destination: string): boolean {
 	if (["document", "iframe"].includes(destination)) {
 		const header = responseHeaders["content-disposition"];
@@ -58,18 +75,6 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 			}
 		} else {
 			// check mime type as fallback
-			const displayableMimes = [
-				// Text types
-				"text/html",
-				"text/plain",
-				"text/css",
-				"text/javascript",
-				"text/xml",
-				"application/javascript",
-				"application/json",
-				"application/xml",
-				"application/pdf",
-			];
 			const contentType = responseHeaders["content-type"]
 				?.split(";")[0]
 				.trim()
@@ -99,25 +104,31 @@ export async function handleFetch(
 		const requestUrl = new URL(request.url);
 
 		if (requestUrl.pathname === this.config.files.wasm) {
-			return fetch(this.config.files.wasm).then(async (x) => {
-				const buf = await x.arrayBuffer();
-				const b64 = btoa(
-					new Uint8Array(buf)
-						.reduce(
-							(data, byte) => (data.push(String.fromCharCode(byte)), data),
-							[]
-						)
-						.join("")
-				);
+			// this bootstrap script is requested by every proxied document, and
+			// base64-ing the ~0.5 MB rewriter used to happen on each one - build
+			// the payload once per worker lifetime and share it
+			if (cachedWasmPayloadPath !== this.config.files.wasm) {
+				const wasmPath = this.config.files.wasm;
+				cachedWasmPayloadPath = wasmPath;
+				cachedWasmPayload = fetch(wasmPath).then(async (x) => {
+					const b64 = bytesToBase64(new Uint8Array(await x.arrayBuffer()));
 
-				let payload = "";
-				payload +=
-					"if ('document' in self && document.currentScript) { document.currentScript.remove(); }\n";
-				payload += `self.WASM = '${b64}';`;
-
-				return new Response(payload, {
-					headers: { "content-type": "text/javascript" },
+					return (
+						"if ('document' in self && document.currentScript) { document.currentScript.remove(); }\n" +
+						`self.WASM = '${b64}';`
+					);
 				});
+				// don't pin a transient fetch failure for the worker's lifetime
+				cachedWasmPayload.catch(() => {
+					if (cachedWasmPayloadPath === wasmPath) {
+						cachedWasmPayloadPath = null;
+						cachedWasmPayload = null;
+					}
+				});
+			}
+
+			return new Response(await cachedWasmPayload, {
+				headers: { "content-type": "text/javascript" },
 			});
 		}
 
@@ -662,11 +673,17 @@ async function handleResponse(
 // charset wins, then a BOM, then a <meta charset> declaration sniffed from
 // the first 1024 bytes (decoded as windows-1252, which never throws since
 // every byte maps to some character - this matches how browsers prescan).
+const headerCharsetRegex = /charset=["']?([\w-]+)/i;
+const metaCharsetRegex = /<meta[^>]+charset=["']?([\w-]+)/i;
+const prescanDecoder = new TextDecoder("windows-1252");
+const utf8Decoder = new TextDecoder("utf-8");
+const decodersByCharset = new Map<string, TextDecoder>();
+
 function detectHtmlCharset(
 	buf: ArrayBuffer,
 	contentTypeHeader: string | null
 ): string {
-	const headerCharset = contentTypeHeader?.match(/charset=["']?([\w-]+)/i)?.[1];
+	const headerCharset = contentTypeHeader?.match(headerCharsetRegex)?.[1];
 	if (headerCharset) return headerCharset.toLowerCase();
 
 	const bytes = new Uint8Array(buf);
@@ -675,23 +692,30 @@ function detectHtmlCharset(
 	if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
 	if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
 
-	const prefix = new TextDecoder("windows-1252").decode(
+	const prefix = prescanDecoder.decode(
 		bytes.subarray(0, Math.min(1024, bytes.length))
 	);
-	const metaCharset = prefix.match(/<meta[^>]+charset=["']?([\w-]+)/i)?.[1];
+	const metaCharset = prefix.match(metaCharsetRegex)?.[1];
 	if (metaCharset) return metaCharset.toLowerCase();
 
 	return "utf-8";
 }
 
 function decodeWithCharset(buf: ArrayBuffer, charset: string): string {
-	try {
-		return new TextDecoder(charset).decode(buf);
-	} catch {
-		// unrecognized/unsupported charset label - fall back rather than
-		// throwing and breaking the page entirely
-		return new TextDecoder("utf-8").decode(buf);
+	let decoder = decodersByCharset.get(charset);
+	if (!decoder) {
+		try {
+			decoder = new TextDecoder(charset);
+		} catch {
+			// unrecognized/unsupported charset label - fall back rather than
+			// throwing and breaking the page entirely
+			decoder = utf8Decoder;
+		}
+		// charset labels seen by one worker form a tiny set, but cap it anyway
+		if (decodersByCharset.size < 64) decodersByCharset.set(charset, decoder);
 	}
+
+	return decoder.decode(buf);
 }
 
 async function rewriteBody(
