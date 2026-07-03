@@ -220,13 +220,15 @@ async function ensureSuffixIndex(client: BareClient): Promise<void> {
 
 async function loadSuffixIndex(client: BareClient): Promise<void> {
 	try {
+		// load the cached list even when it's expired: if the refresh below
+		// fails, serving a stale list is far more accurate than the naive
+		// eTLD+1 fallback (which breaks multi-label suffixes like co.uk)
 		const cached = await getCachedSuffixList();
-		if (cached && Date.now() < cached.expiry) {
+		if (cached) {
 			suffixIndex = buildSuffixIndex(cached.data);
 			suffixIndexExpiry = cached.expiry;
 			registrableCache.clear();
-
-			return;
+			if (Date.now() < cached.expiry) return;
 		}
 	} catch {
 		// a broken IndexedDB read shouldn't stop the network path below

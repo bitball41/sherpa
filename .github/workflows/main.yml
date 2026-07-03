@@ -29,6 +29,7 @@ jobs:
   version-check:
     name: Check Version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version_changed: ${{ steps.check.outputs.version_changed }}
       new_version: ${{ steps.check.outputs.new_version }}
@@ -42,7 +43,8 @@ jobs:
         run: |
           CURRENT_VERSION=$(jq -r .version package.json)
           echo "Current version: $CURRENT_VERSION"
-          LATEST_VERSION=$(npm view @mercuryworkshop/sherpa versions --json | jq -r '.[-1]' || echo "0.0.0")
+          PKG_NAME=$(jq -r .name package.json)
+          LATEST_VERSION=$(npm view "$PKG_NAME" versions --json | jq -r '.[-1]' || echo "0.0.0")
           echo "Latest NPM version: $LATEST_VERSION"
 
           if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ];
@@ -58,6 +60,7 @@ jobs:
   build:
     name: Build Sherpa
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -136,6 +139,7 @@ jobs:
   package-validation:
     name: Validate Package Structure
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
 
     steps:
@@ -170,6 +174,7 @@ jobs:
   tests:
     name: Run Sherpa Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [build, package-validation]
 
     steps:
@@ -205,6 +210,7 @@ jobs:
   rewritertests:
     name: "Run Rewriter Tests"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [build, package-validation]
 
     steps:
@@ -236,6 +242,7 @@ jobs:
   upload:
     name: Upload release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [version-check, build, package-validation, rewritertests, tests]
     permissions: write-all
     if: github.ref == 'refs/heads/main'
@@ -277,9 +284,15 @@ jobs:
   publish:
     name: Publish Sherpa to NPM
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [version-check, build, package-validation]
     permissions: write-all
-    if: ${{ (needs.version-check.outputs.version_changed == 'true') && (github.ref == 'refs/heads/main') }}
+    # Publishing is opt-in (repo variable ENABLE_NPM_PUBLISH=true): the
+    # unscoped npm name "sherpa" is already owned by an unrelated package, so
+    # publishing under the current package.json name can never succeed and
+    # was failing every main push. Pick a publishable name/scope first - see
+    # KNOWN_ISSUES.md.
+    if: ${{ (vars.ENABLE_NPM_PUBLISH == 'true') && (needs.version-check.outputs.version_changed == 'true') && (github.ref == 'refs/heads/main') }}
 
     steps:
       - name: Setup Node.js
@@ -303,6 +316,7 @@ jobs:
   pages:
     name: Upload to Github Pages
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build, package-validation, rewritertests, tests]
     permissions: write-all
     if: github.ref == 'refs/heads/main'
