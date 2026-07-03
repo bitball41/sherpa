@@ -5,10 +5,10 @@
 import { FakeServiceWorker } from "@/worker/fakesw";
 import { handleFetch } from "@/worker/fetch";
 import BareClient from "@mercuryworkshop/bare-mux";
-import { SherpaConfig, SherpaDB } from "@/types";
+import { SherpaConfig } from "@/types";
 import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
-import { openDB } from "idb";
+import { getDB } from "@/shared/security/db";
 import { config, loadCodecs, setConfig } from "@/shared";
 import { SherpaDownload } from "@client/events";
 export * from "./error";
@@ -56,7 +56,7 @@ export class SherpaServiceWorker extends EventTarget {
 		this.client = new BareClient();
 
 		(async () => {
-			const db = await openDB<SherpaDB>("$sherpa", 1);
+			const db = await getDB();
 			const cookies = await db.get("cookies", "cookies");
 			if (cookies) {
 				this.cookieStore.load(cookies);
@@ -85,7 +85,7 @@ export class SherpaServiceWorker extends EventTarget {
 
 			if (data.sherpa$type === "cookie") {
 				this.cookieStore.setCookies([data.cookie], new URL(data.url));
-				const db = await openDB<SherpaDB>("$sherpa", 1);
+				const db = await getDB();
 				await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
 			}
 
@@ -129,7 +129,7 @@ export class SherpaServiceWorker extends EventTarget {
 	async loadConfig() {
 		if (this.config) return;
 
-		const db = await openDB<SherpaDB>("$sherpa", 1);
+		const db = await getDB();
 		this.config = await db.get("config", "config");
 
 		if (this.config) {

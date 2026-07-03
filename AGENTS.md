@@ -254,6 +254,58 @@ size).
   `rewriter/wasm/out/wasm.js` and its snippet), plus a hand-written
   `wasm.d.ts`. CI builds the real thing (cached by Cargo hash).
 
+### Per-request hot-path pass (service-worker security emulation)
+
+The first perf pass optimized the rewriters; this one removed the per-request
+overhead in the worker's security emulation (`src/shared/security/`), which
+runs for **every** proxied request and was inherited unchanged from upstream:
+
+- **One IndexedDB connection per context** (`src/shared/security/db.ts`).
+  Every helper used to call `openDB()` per operation — 4–6 fresh connections
+  per proxied request across `forceReferrer.ts`, `siteTests.ts`, and
+  `src/worker/index.ts`. Now a cached connection promise (reopened only on
+  abnormal termination).
+- **Redirect trackers moved in-memory** (`forceReferrer.ts`). They previously
+  cost four awaited IDB transactions per request (get+put on init, get on
+  read, delete on completion) for state that only lives for a single
+  request/redirect chain, all handled by the same worker instance. Same
+  1-hour TTL, swept lazily; worst case on a worker restart mid-chain is one
+  `Sec-Fetch-Site` computed from the final hop only — the same fallback as an
+  expired tracker.
+- **Referrer policies get a write-through cache with negative entries**
+  (`forceReferrer.ts`). Still persisted in IDB (pages outlive SW restarts),
+  but reads are served from a bounded Map — including "known absent", which
+  is the common case and used to cost an IDB read per response.
+- **Public-suffix-list matching indexed** (`siteTests.ts`). The old code
+  linearly scanned all ~10.2k PSL rules, calling `split(".")` on every rule,
+  for every registrable-domain computation — measured at **~2.4 ms per
+  lookup**, i.e. ~5 ms per cross-origin request on the request path plus the
+  same again in `rewriteHeaders`. Now the list is parsed once into
+  exact/wildcard/exception sets and matched bottom-up per the PSL spec
+  algorithm in O(labels) (~0.003 ms), with a bounded per-hostname memo.
+  Verified against the old algorithm on the real 10,228-rule list: 13k+
+  equivalence checks, 0 mismatches.
+- **PSL loading fixed three ways** (`siteTests.ts`): the parsed index lives
+  in memory (the IDB copy is only read once per worker lifetime); concurrent
+  cold-cache callers share one in-flight load (previously a page's worth of
+  parallel cross-origin requests each started its own ~230 KB download); and
+  a failed download now degrades to the stale index or a naive eTLD+1
+  fallback (with a 60 s retry window) instead of **throwing and turning the
+  proxied request into an error page** whenever publicsuffix.org was
+  unreachable through the transport.
+- **Real bug fixed in `src/worker/fetch.ts`:** the Set-Cookie loop was
+  `for (const cookie in maybeHeaders)` — iterating array _indices_ — so the
+  client's synchronous cookie store was told the cookie was the string
+  `"0"`. `document.cookie` reads missed HTTP-set cookies until the next full
+  page load re-seeded the jar. Now iterates the values.
+
+All verified with a scratch harness that bundles the real modules via
+esbuild with `idb` stubbed in-memory and a mock transport: equivalence vs the
+old PSL algorithm, fetch-dedup under 50-way parallel cold start, offline
+fallback, tracker/policy behavior. `pnpm build`, `build:types`,
+`test:package` clean; lint has only pre-existing errors (6, down from 8 on
+main — the rewrite removed two).
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

@@ -2,9 +2,8 @@ import {
 	type RedirectTracker,
 	type ReferrerPolicyData,
 	type SiteDirective,
-	SherpaDB,
 } from "@/types";
-import { openDB, IDBPDatabase } from "idb";
+import { getDB } from "@/shared/security/db";
 
 // Persist the redirect trackers for an hour
 const TRACKER_EXPIRY = 60 * 60 * 1000;
@@ -15,48 +14,24 @@ const SITE_HIERARCHY: Record<SiteDirective, number> = {
 	"cross-site": 3,
 };
 
-/**
- * Gets a connection to the IndexedDB database
- *
- * @returns Promise that resolves to the database connection
- */
-async function getDB(): Promise<IDBPDatabase<SherpaDB>> {
-	return openDB<SherpaDB>("$sherpa", 1);
-}
+// Redirect trackers live for a single request (or the few hops of a redirect
+// chain), all handled by the same service worker instance, so they're kept
+// in memory instead of costing four awaited IndexedDB transactions per
+// proxied request. Losing them to a worker restart mid-chain only means one
+// Sec-Fetch-Site header is computed from the final hop instead of the whole
+// chain - the same graceful fallback as an expired tracker.
+const trackers = new Map<string, RedirectTracker>();
+let lastTrackerSweep = Date.now();
 
-/**
- * Retrieves a redirect tracker for a given URL
- *
- * @param url The URL to look up
- * @returns Redirect tracker if found, or `null`
- */
-async function getTracker(url: string): Promise<RedirectTracker | null> {
-	const db = await getDB();
-	return (await db.get("redirectTrackers", url)) || null;
-}
+/** Drop abandoned trackers (redirect chains that never completed). */
+function sweepExpiredTrackers(): void {
+	const now = Date.now();
+	if (now - lastTrackerSweep < TRACKER_EXPIRY) return;
+	lastTrackerSweep = now;
 
-/**
- * Store or update a redirect tracker for a given URL
- *
- * @param url URL to store the tracker for
- * @param tracker Redirect tracker data to store
- */
-async function setTracker(
-	url: string,
-	tracker: RedirectTracker
-): Promise<void> {
-	const db = await getDB();
-	await db.put("redirectTrackers", tracker, url);
-}
-
-/**
- * Delete a redirect tracker for a given URL
- *
- * @param url URL whose tracker should be deleted
- */
-async function deleteTracker(url: string): Promise<void> {
-	const db = await getDB();
-	await db.delete("redirectTrackers", url);
+	for (const [url, tracker] of trackers) {
+		if (now - tracker.chainStarted > TRACKER_EXPIRY) trackers.delete(url);
+	}
 }
 
 /**
@@ -71,12 +46,10 @@ export async function initializeTracker(
 	referrer: string | null,
 	initialSite: string
 ): Promise<void> {
-	const existing = await getTracker(requestUrl);
-	if (existing) {
-		return;
-	}
+	sweepExpiredTrackers();
+	if (trackers.has(requestUrl)) return;
 
-	await setTracker(requestUrl, {
+	trackers.set(requestUrl, {
 		originalReferrer: referrer || "",
 		mostRestrictiveSite: initialSite as SiteDirective,
 		referrerPolicy: "",
@@ -96,14 +69,14 @@ export async function updateTracker(
 	redirectUrl: string,
 	newReferrerPolicy?: string
 ): Promise<void> {
-	const tracker = await getTracker(originalUrl);
+	const tracker = trackers.get(originalUrl);
 	if (!tracker) return;
 
-	await deleteTracker(originalUrl);
+	trackers.delete(originalUrl);
 	if (newReferrerPolicy) {
 		tracker.referrerPolicy = newReferrerPolicy;
 	}
-	await setTracker(redirectUrl, tracker);
+	trackers.set(redirectUrl, tracker);
 }
 
 /**
@@ -117,7 +90,7 @@ export async function getMostRestrictiveSite(
 	requestUrl: string,
 	currentSite: string
 ): Promise<string> {
-	const tracker = await getTracker(requestUrl);
+	const tracker = trackers.get(requestUrl);
 	if (!tracker) return currentSite;
 
 	const trackedValue = SITE_HIERARCHY[tracker.mostRestrictiveSite];
@@ -125,7 +98,6 @@ export async function getMostRestrictiveSite(
 
 	if (currentValue > trackedValue) {
 		tracker.mostRestrictiveSite = currentSite as SiteDirective;
-		await setTracker(requestUrl, tracker);
 
 		return currentSite;
 	}
@@ -138,25 +110,33 @@ export async function getMostRestrictiveSite(
  * @param requestUrl URL of the completed request
  */
 export async function cleanTracker(requestUrl: string): Promise<void> {
-	await deleteTracker(requestUrl);
+	trackers.delete(requestUrl);
 }
 
 /**
  * Clean up expired trackers
  */
 export async function cleanExpiredTrackers(): Promise<void> {
-	const now = Date.now();
-	const db = await getDB();
-	const tx = db.transaction("redirectTrackers", "readwrite");
+	lastTrackerSweep = 0;
+	sweepExpiredTrackers();
+}
 
-	for await (const cursor of tx.store) {
-		const tracker = cursor.value as RedirectTracker;
-		if (now - tracker.chainStarted > TRACKER_EXPIRY) {
-			cursor.delete();
-		}
+// Referrer policies are keyed by page URL and outlive any one request, so
+// they stay in IndexedDB (pages outlive service worker restarts) - but every
+// response that carries a Referer header looks one up, so reads go through a
+// small in-memory cache. Absence is cached too (`null`): most referrers have
+// no stored policy, and without a negative entry each of those would still
+// pay an IndexedDB read per request. This worker is the only writer, so the
+// cache can't go stale.
+const REFERRER_POLICY_CACHE_MAX = 512;
+const referrerPolicyCache = new Map<string, ReferrerPolicyData | null>();
+
+function cacheReferrerPolicy(url: string, data: ReferrerPolicyData | null) {
+	if (referrerPolicyCache.size >= REFERRER_POLICY_CACHE_MAX) {
+		// drop the oldest entry; insertion order is a fine eviction heuristic
+		referrerPolicyCache.delete(referrerPolicyCache.keys().next().value);
 	}
-
-	await tx.done;
+	referrerPolicyCache.set(url, data);
 }
 
 /**
@@ -171,8 +151,10 @@ export async function storeReferrerPolicy(
 	policy: string,
 	referrer: string
 ): Promise<void> {
-	const db = await getDB();
 	const data: ReferrerPolicyData = { policy, referrer };
+	referrerPolicyCache.delete(url);
+	cacheReferrerPolicy(url, data);
+	const db = await getDB();
 	await db.put("referrerPolicies", data, url);
 }
 
@@ -185,6 +167,12 @@ export async function storeReferrerPolicy(
 export async function getReferrerPolicy(
 	url: string
 ): Promise<ReferrerPolicyData | null> {
+	const cached = referrerPolicyCache.get(url);
+	if (cached !== undefined) return cached;
+
 	const db = await getDB();
-	return (await db.get("referrerPolicies", url)) || null;
+	const data = (await db.get("referrerPolicies", url)) || null;
+	cacheReferrerPolicy(url, data);
+
+	return data;
 }

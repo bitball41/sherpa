@@ -113,6 +113,18 @@ same CPU cost.
 Cold start (fresh context + SW install + first page): statistical parity —
 741 vs 742 ms and 630 vs 642 ms medians across the two runs.
 
+**Follow-up pass (per-request hot path).** A later pass removed the
+per-request IndexedDB traffic and the linear public-suffix-list scan in the
+service worker's security emulation (see `src/shared/security/`). Measured
+back-to-back on one machine (Chromium 141, same harness, same fixture): the
+rewriter-pass baseline scored 1.18–1.22× vs Scramjet 1.1.0; with the
+hot-path pass it scores **1.35–1.37×** (e.g. landing 131.4 vs 177.3 ms,
+article 175.7 vs 236.7 ms, app 145.8 vs 196.9 ms, gallery 170.3 vs
+233.2 ms). The fixture is single-origin, which never even reaches the
+public-suffix-list path — pages with cross-origin subresources gain more
+(the old PSL scan alone cost ~2.4 ms of CPU per registrable-domain lookup,
+several times per cross-origin request; it's ~0.003 ms indexed).
+
 ### Wire cost
 
 Total runtime download (all.js + sync.js + wasm): Sherpa 704.4 KiB raw /
