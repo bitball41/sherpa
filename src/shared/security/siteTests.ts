@@ -4,20 +4,51 @@ import type {
 	default as BareClient,
 	BareResponseFetch,
 } from "@mercuryworkshop/bare-mux";
-import { SherpaDB } from "@/types";
-import { openDB, IDBPDatabase } from "idb";
+import { getDB } from "@/shared/security/db";
 
 // Cache every hour
 const CACHE_DURATION_MINUTES = 60;
 const CACHE_KEY = "publicSuffixList";
 
+// Don't re-attempt a failed public-suffix-list download on every request;
+// fall back to the naive eTLD+1 heuristic for a while instead
+const FETCH_RETRY_MS = 60 * 1000;
+
 /**
- * Gets a connection to the IndexedDB database
- *
- * @returns Resolves to the database connection
+ * The public suffix list indexed for O(labels) lookups. The raw list is ~10k
+ * rules; scanning it per request (as this used to) costs more than the fetch
+ * being classified. Rules are split into exact matches, wildcard rules
+ * (`*.ck`, stored as their parent `ck`), and exception rules (`!www.ck`,
+ * stored as `www.ck`).
  */
-async function getDB(): Promise<IDBPDatabase<SherpaDB>> {
-	return openDB<SherpaDB>("$sherpa", 1);
+type SuffixIndex = {
+	exact: Set<string>;
+	wildcard: Set<string>;
+	exception: Set<string>;
+};
+
+let suffixIndex: SuffixIndex | null = null;
+let suffixIndexExpiry = 0;
+let suffixLoadPromise: Promise<void> | null = null;
+let lastFetchFailure = 0;
+
+// registrable domains repeat heavily within a page (same CDN/analytics hosts
+// on every request), so memoize per hostname
+const REGISTRABLE_CACHE_MAX = 4096;
+const registrableCache = new Map<string, string>();
+
+function buildSuffixIndex(rules: string[]): SuffixIndex {
+	const exact = new Set<string>();
+	const wildcard = new Set<string>();
+	const exception = new Set<string>();
+
+	for (const rule of rules) {
+		if (rule.startsWith("!")) exception.add(rule.substring(1));
+		else if (rule.startsWith("*.")) wildcard.add(rule.substring(2));
+		else exact.add(rule);
+	}
+
+	return { exact, wildcard, exception };
 }
 
 /**
@@ -30,6 +61,7 @@ async function getCachedSuffixList(): Promise<{
 	expiry: number;
 } | null> {
 	const db = await getDB();
+
 	return (await db.get("publicSuffixList", CACHE_KEY)) || null;
 }
 
@@ -85,8 +117,6 @@ export async function getSiteDirective(
  * @param url2 Second URL to compare
  * @param client `BareClient` instance used for fetching
  * @returns Whether the two URLs are from the same site
- *
- * @throws {Error} If an error occurs while getting the Public Suffix List
  */
 export async function isSameSite(
 	url1: URL,
@@ -109,70 +139,133 @@ async function getRegistrableDomain(
 	url: URL,
 	client: BareClient
 ): Promise<string> {
-	const publicSuffixes = await getPublicSuffixList(client);
-
 	const hostname = url.hostname.toLowerCase();
-	const labels = hostname.split(".");
-	let matchedSuffix = "";
+	const cached = registrableCache.get(hostname);
+	if (cached !== undefined) return cached;
 
-	let isException = false;
-	for (const suffix of publicSuffixes) {
-		const actualSuffix = suffix.startsWith("!") ? suffix.substring(1) : suffix;
-		const suffixLabels = actualSuffix.split(".");
+	await ensureSuffixIndex(client);
 
-		if (matchesSuffix(labels, suffixLabels)) {
-			if (suffix.startsWith("!")) {
-				matchedSuffix = actualSuffix;
-				isException = true;
-				break;
-			}
-			if (!isException && actualSuffix.length > matchedSuffix.length) {
-				matchedSuffix = actualSuffix;
-			}
-		}
-	}
+	const registrable = computeRegistrableDomain(hostname, suffixIndex);
+	if (registrableCache.size >= REGISTRABLE_CACHE_MAX) registrableCache.clear();
+	registrableCache.set(hostname, registrable);
 
-	if (!matchedSuffix) {
-		return labels.slice(-2).join(".");
-	}
-
-	const suffixLabelCount = matchedSuffix.split(".").length;
-	const domainLabelCount = isException
-		? suffixLabelCount
-		: suffixLabelCount + 1;
-
-	return labels.slice(-domainLabelCount).join(".");
+	return registrable;
 }
 
 /**
- * Checks if hostname labels match a suffix pattern
- * @param hostnameLabels Labels of the hostname (split by `.`)
- * @param suffixLabels Labels of the suffix pattern (split by `.`)
- * @returns Whether the hostname matches the suffix
+ * Matches a hostname against the suffix index per the PSL algorithm: the
+ * prevailing rule is an exception rule if one matches, otherwise the matching
+ * rule with the most labels. With no match (or no list available) it falls
+ * back to treating the last label as the public suffix.
+ *
+ * @see https://github.com/publicsuffix/list/wiki/Format#algorithm
  */
-function matchesSuffix(
-	hostnameLabels: string[],
-	suffixLabels: string[]
-): boolean {
-	if (hostnameLabels.length < suffixLabels.length) {
-		return false;
+function computeRegistrableDomain(
+	hostname: string,
+	index: SuffixIndex | null
+): string {
+	const labels = hostname.split(".");
+	if (!index) return labels.slice(-2).join(".");
+
+	let suffixLabelCount = 0;
+	let exceptionLabelCount = 0;
+	let candidate = "";
+	let parent = "";
+
+	for (let i = labels.length - 1; i >= 0; i--) {
+		parent = candidate;
+		candidate = i === labels.length - 1 ? labels[i] : labels[i] + "." + parent;
+		const labelCount = labels.length - i;
+
+		if (index.exception.has(candidate)) {
+			exceptionLabelCount = labelCount;
+			break;
+		}
+		// a wildcard rule `*.X` matches any candidate that is exactly one label
+		// deeper than X; `parent` is the candidate from the previous iteration
+		if (index.exact.has(candidate) || (parent && index.wildcard.has(parent))) {
+			suffixLabelCount = labelCount;
+		}
 	}
 
-	const offset = hostnameLabels.length - suffixLabels.length;
-	for (let i = 0; i < suffixLabels.length; i++) {
-		const hostLabel = hostnameLabels[offset + i];
-		const suffixLabel = suffixLabels[i];
+	// an exception rule is itself the registrable domain; otherwise it's the
+	// matched public suffix plus one label, defaulting to eTLD+1
+	const registrableLabelCount = exceptionLabelCount
+		? exceptionLabelCount
+		: suffixLabelCount
+			? suffixLabelCount + 1
+			: 2;
 
-		if (suffixLabel === "*") {
-			continue;
-		}
+	return labels.slice(-registrableLabelCount).join(".");
+}
 
-		if (hostLabel !== suffixLabel) {
-			return false;
+/**
+ * Ensures the in-memory suffix index exists and is fresh. All concurrent
+ * callers share one load (a page's worth of parallel cross-origin requests
+ * used to each start their own ~230 KB list download on a cold cache), and a
+ * failed download degrades to the stale index / naive fallback instead of
+ * failing the proxied request outright.
+ */
+async function ensureSuffixIndex(client: BareClient): Promise<void> {
+	const now = Date.now();
+	if (suffixIndex && now < suffixIndexExpiry) return;
+	if (now - lastFetchFailure < FETCH_RETRY_MS) return;
+
+	suffixLoadPromise ??= loadSuffixIndex(client).finally(() => {
+		suffixLoadPromise = null;
+	});
+
+	await suffixLoadPromise;
+}
+
+async function loadSuffixIndex(client: BareClient): Promise<void> {
+	try {
+		const cached = await getCachedSuffixList();
+		if (cached && Date.now() < cached.expiry) {
+			suffixIndex = buildSuffixIndex(cached.data);
+			suffixIndexExpiry = cached.expiry;
+			registrableCache.clear();
+
+			return;
 		}
+	} catch {
+		// a broken IndexedDB read shouldn't stop the network path below
 	}
 
-	return true;
+	try {
+		const rules = await fetchPublicSuffixList(client);
+		suffixIndex = buildSuffixIndex(rules);
+		suffixIndexExpiry = Date.now() + CACHE_DURATION_MINUTES * 60 * 1000;
+		registrableCache.clear();
+		await setCachedSuffixList(rules);
+	} catch (err) {
+		// keep serving the stale index if there is one; otherwise callers fall
+		// back to the naive heuristic until the retry window elapses
+		lastFetchFailure = Date.now();
+		console.warn("failed to refresh public suffix list:", err);
+	}
+}
+
+async function fetchPublicSuffixList(client: BareClient): Promise<string[]> {
+	let publicSuffixesResponse: BareResponseFetch;
+	try {
+		publicSuffixesResponse = await client.fetch(
+			"https://publicsuffix.org/list/public_suffix_list.dat"
+		);
+	} catch (err) {
+		throw new Error(`Failed to fetch public suffix list: ${err}`);
+	}
+	const publicSuffixesRaw = await publicSuffixesResponse.text();
+
+	return publicSuffixesRaw
+		.split("\n")
+		.map((line) => {
+			const trimmed = line.trim();
+			const spaceIndex = trimmed.indexOf(" ");
+
+			return spaceIndex > -1 ? trimmed.substring(0, spaceIndex) : trimmed;
+		})
+		.filter((line) => line && !line.startsWith("//"));
 }
 
 /**
@@ -194,26 +287,7 @@ export async function getPublicSuffixList(
 		return cached.data;
 	}
 
-	let publicSuffixesResponse: BareResponseFetch;
-	try {
-		publicSuffixesResponse = await client.fetch(
-			"https://publicsuffix.org/list/public_suffix_list.dat"
-		);
-	} catch (err) {
-		throw new Error(`Failed to fetch public suffix list: ${err}`);
-	}
-	const publicSuffixesRaw = await publicSuffixesResponse.text();
-
-	const publicSuffixes = publicSuffixesRaw
-		.split("\n")
-		.map((line) => {
-			const trimmed = line.trim();
-			const spaceIndex = trimmed.indexOf(" ");
-
-			return spaceIndex > -1 ? trimmed.substring(0, spaceIndex) : trimmed;
-		})
-		.filter((line) => line && !line.startsWith("//"));
-
+	const publicSuffixes = await fetchPublicSuffixList(client);
 	await setCachedSuffixList(publicSuffixes);
 
 	return publicSuffixes;

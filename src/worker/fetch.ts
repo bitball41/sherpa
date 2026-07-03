@@ -524,7 +524,9 @@ async function handleResponse(
 	}
 
 	const maybeHeaders = responseHeaders["set-cookie"] || [];
-	for (const cookie in maybeHeaders) {
+	const setCookies =
+		maybeHeaders instanceof Array ? maybeHeaders : [maybeHeaders];
+	for (const cookie of setCookies) {
 		if (client) {
 			const promise = swtarget.dispatch(client, {
 				sherpa$type: "cookie",
@@ -537,10 +539,7 @@ async function handleResponse(
 		}
 	}
 
-	await cookieStore.setCookies(
-		maybeHeaders instanceof Array ? maybeHeaders : [maybeHeaders],
-		url
-	);
+	await cookieStore.setCookies(setCookies, url);
 
 	for (const header in responseHeaders) {
 		// flatten everything past here

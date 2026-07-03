@@ -15,8 +15,6 @@ export declare function getSiteDirective(meta: URLMeta, referrerURL: URL, client
  * @param url2 Second URL to compare
  * @param client `BareClient` instance used for fetching
  * @returns Whether the two URLs are from the same site
- *
- * @throws {Error} If an error occurs while getting the Public Suffix List
  */
 export declare function isSameSite(url1: URL, url2: URL, client: BareClient): Promise<boolean>;
 /**
