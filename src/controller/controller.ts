@@ -11,9 +11,7 @@ import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
 import { openDB, IDBPDatabase } from "idb";
 import {
-	SherpaEvents,
 	SherpaGlobalDownloadEvent,
-	SherpaGlobalEvent,
 	SherpaGlobalEvents,
 } from "@client/events";
 
@@ -180,6 +178,7 @@ export class SherpaController extends EventTarget {
 
 		this.db = db;
 		await this.#saveConfig();
+
 		return db;
 	}
 

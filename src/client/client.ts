@@ -295,7 +295,7 @@ export class SherpaClient {
 					return null;
 				}
 
-				let parentWin = client.global.parent.window;
+				const parentWin = client.global.parent.window;
 				if (parentWin[SHERPACLIENT]) {
 					// we're inside an iframe, and the parent is sherpa-controlled
 					const parentClient = parentWin[SHERPACLIENT];
@@ -355,8 +355,8 @@ export class SherpaClient {
 			// we're in a subframe, recurse upward until we find one
 			let currentwin = this.global.window;
 			while (currentwin.parent !== currentwin) {
-				let currentclient = currentwin[SHERPACLIENT];
-				let currentFrame = currentclient.descriptors.get(
+				const currentclient = currentwin[SHERPACLIENT];
+				const currentFrame = currentclient.descriptors.get(
 					"window.frameElement",
 					currentwin
 				);

@@ -179,7 +179,7 @@ function traverseParsedHtml(
 				attribs.src = attribs.src + "?type=module";
 
 			if (type === "importmap" && node.children[0] !== undefined) {
-				let json = node.children[0].data;
+				const json = node.children[0].data;
 				try {
 					const map = JSON.parse(json);
 					if (map.imports) {

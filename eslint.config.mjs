@@ -36,7 +36,7 @@ export default [
 		rules: {
 			"no-await-in-loop": "warn",
 			"no-unused-labels": "warn",
-			quotes: ["error", "double"],
+			quotes: ["error", "double", { avoidEscape: true }],
 			"getter-return": "error",
 			"newline-before-return": "error",
 			"no-multiple-empty-lines": "error",

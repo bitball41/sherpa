@@ -31,7 +31,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                 ${
 									theme.logo
 										? `logo.src = ${JSON.stringify(theme.logo)}; logo.hidden = false;`
-										: ``
+										: ""
 								}
 
                 document.getElementById('copy-button').addEventListener('click', async () => {

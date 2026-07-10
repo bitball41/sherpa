@@ -306,6 +306,62 @@ fallback, tracker/policy behavior. `pnpm build`, `build:types`,
 `test:package` clean; lint has only pre-existing errors (6, down from 8 on
 main — the rewrite removed two).
 
+### CSS `url()` scanner + first committed unit-test suite
+
+- **CSS `url()` rewriting is now a quote-aware scanner** (new
+  `src/shared/rewriters/cssUrls.ts`, wired into `src/shared/rewriters/css.ts`),
+  retiring the old `url\((['"]?)(.+?)(['"]?)\)` regex. This closes the
+  `KNOWN_ISSUES.md` item that invited exactly this change ("replace the regex
+  with a quote-aware tokenizer ... ship as its own compat change with
+  fixtures"). The old lazy regex stopped at the first `)` even inside a quoted
+  URL, so `url('/logo(1).svg?x=(y)')` was truncated at `/logo(1` and the
+  `.svg?x=(y)` tail leaked into the surrounding declaration; with the default
+  `encodeURIComponent` codec it only self-heals when nothing codec-sensitive
+  (`?`, `=`, `&`, `/`, `#`) follows the paren, and corrupts outright under a
+  custom codec. The scanner walks the sheet once (single linear pass, no
+  backtracking), and is strictly more correct in three additional ways the
+  regex got wrong: it **skips `url(...)` written inside CSS strings**
+  (`content:"url(x)"`) **and comments**, it matches the case-insensitive
+  `URL(`/`Url(` spellings the grammar allows (preserving author casing on
+  output), and it leaves empty `url()`/`url("")` untouched instead of
+  rewriting them to the base URL. `@import "bare.css"` string handling is
+  unchanged (still the separate `Atruleregex` pass, which skips `url()` forms).
+- **Verified** against the fork-point baseline via `bench/verify.mjs`: 10,133
+  equivalent, exactly 3 divergent — all three are the buggy baseline being
+  corrected (`url( "..." )` with spaces, and the string/comment false
+  positives). This is the documented, expected divergence for this compat
+  change, so `bench/`'s equivalence gate is not the right guard for it.
+- **First committed unit tests.** `cssUrls.ts` is deliberately dependency-free
+  so it loads straight from TypeScript under Node's native type stripping;
+  `tests/unit/cssUrls.test.mjs` (16 `node --test` fixtures) pins the tokenizer
+  behavior. New `pnpm test:unit` script (added to `pnpm test` and the CI
+  `package-validation` job). This is the repo's first source-level unit suite —
+  earlier passes used throwaway scratch harnesses; the CSS logic is isolated
+  enough to keep its fixtures in-tree.
+
+### Lint cleanup — `pnpm lint` is now clean (was 6 errors + 36 warnings)
+
+`eslint ./src/` now reports **zero** problems (previously 6 errors and 36
+warnings, all inherited from upstream). No behavior changed — verified
+output-equivalent through `bench/verify.mjs` (still the CSS-only divergences)
+plus `build`/`build:types`/`test:*`. What was done:
+
+- **Errors (6).** Two `newline-before-return`; one `no-constant-condition`
+  (`if (1) return;` in `dbg.time` → a named `TIMING_ENABLED = false` module
+  toggle, same disabled-by-default behavior but self-documenting and
+  re-enablable); one unnecessary empty template literal (`` `` `` → `""`); two
+  `quotes` on font stacks that legitimately contain `"..."` — fixed at the
+  config by adding `{ avoidEscape: true }` to the `quotes` rule (the idiomatic
+  setting: single quotes are the correct choice when the string embeds double
+  quotes), so the source stays as written.
+- **Warnings (36 → 0).** `prefer-const` via `eslint --fix`; unused imports
+  removed; unused trap/handler args prefixed with `_`; two genuinely dead
+  assignments deleted (`realLocalStorage`, and a `before` timestamp whose only
+  consumer was a commented-out `dbg.time`). The single `no-await-in-loop` in
+  `src/worker/fetch.ts` is intentional (Set-Cookie headers must seed the
+  client's synchronous jar in order) — now carries a reasoned
+  `eslint-disable-next-line` instead of standing as a bare warning.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

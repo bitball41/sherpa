@@ -25,7 +25,7 @@ export const htmlRules: HtmlRule[] = [
 	},
 	{
 		fn: (value: string, meta: URLMeta) => {
-			let url = rewriteUrl(value, meta);
+			const url = rewriteUrl(value, meta);
 			// if (meta.topFrameName)
 			// 	url += `?topFrame=${meta.topFrameName}&parentFrame=${meta.parentFrameName}`;
 
@@ -35,7 +35,7 @@ export const htmlRules: HtmlRule[] = [
 	},
 	{
 		// is this a good idea?
-		fn: (value: string, meta: URLMeta) => {
+		fn: (_value: string, _meta: URLMeta) => {
 			return null;
 		},
 		sandbox: ["iframe"],

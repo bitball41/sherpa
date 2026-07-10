@@ -1,4 +1,4 @@
-import type { MessageC2W, MessageW2C } from "@/worker";
+import type { MessageW2C } from "@/worker";
 import { SherpaClient } from "@client/index";
 
 export default function (client: SherpaClient, self: typeof window) {

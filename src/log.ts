@@ -9,6 +9,10 @@ const logfuncs = {
 	info: console.info,
 };
 
+// Per-rewrite timing output is off by default - it runs on the hot path and is
+// only useful when actively profiling. Flip to `true` to re-enable `dbg.time`.
+const TIMING_ENABLED = false;
+
 export default {
 	fmt: function (severity: string, message: string, ...args: any[]) {
 		const old = Error.prepareStackTrace;
@@ -91,7 +95,7 @@ export default {
 		this.fmt("debug", message, ...args);
 	},
 	time(meta: URLMeta, before: number, type: string) {
-		if (1) return;
+		if (!TIMING_ENABLED) return;
 		const after = performance.now();
 		const duration = after - before;
 
