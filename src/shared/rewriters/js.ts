@@ -17,7 +17,7 @@ function rewriteJsWasm(
 	meta: URLMeta,
 	module: boolean
 ): RewriterResult {
-	let [rewriter, ret] = getRewriter(meta);
+	const [rewriter, ret] = getRewriter(meta);
 
 	try {
 		let out: JsRewriterOutput;

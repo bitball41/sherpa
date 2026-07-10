@@ -4,7 +4,7 @@
 
 import { SherpaController } from "@/controller/index";
 import type { SherpaClient } from "@client/index";
-import type { SherpaEvent, SherpaEvents } from "@client/events";
+import type { SherpaEvents } from "@client/events";
 import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
 function createFrameId() {
 	return `${Array(8)

@@ -1,6 +1,5 @@
 import { iswindow } from "@client/entry";
 import { unrewriteUrl } from "@rewriters/url";
-import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 

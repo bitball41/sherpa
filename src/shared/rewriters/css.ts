@@ -1,4 +1,5 @@
 import { URLMeta, rewriteUrl, unrewriteUrl } from "@rewriters/url";
+import { rewriteCssUrls } from "./cssUrls";
 
 export function rewriteCss(css: string, meta: URLMeta) {
 	return handleCss("rewrite", css, meta);
@@ -8,27 +9,20 @@ export function unrewriteCss(css: string) {
 	return handleCss("unrewrite", css);
 }
 
-// regex from vk6 (https://github.com/ading2210), quotes split into capture
-// groups so replacement can rebuild the match without rescanning it
-const urlRegex = /url\((['"]?)(.+?)(['"]?)\)/gm;
+// `@import` can take a bare string (`@import "x.css"`) with no `url()` wrapper;
+// that form is handled here. `url()` tokens - including those inside an
+// `@import url(...)` - are handled by the quote-aware scanner in cssUrls.ts,
+// which the `startsWith("url")` guard below then leaves alone.
 const Atruleregex =
 	/(@import\s+)(url\s*?\(.{0,9999}?\)|['"].{0,9999}?['"]|.{0,9999}?)($|\s|;)/gm;
 const importStatementRegex = /^(url\(['"]?|['"]|)(.+?)(['"]|['"]?\)|)$/gm;
 
 function handleCss(type: "rewrite" | "unrewrite", css: string, meta?: URLMeta) {
-	// String#replace with a callback compiles each regex once (module scope)
-	// and rebuilds every match from its capture groups directly - the old
-	// implementation rescanned each match (`match.replace(url, ...)`), which
-	// was quadratic in match length and corrupted output when the rewritten
-	// URL contained replacement patterns like `$&`.
-	css = css.replace(urlRegex, (_match, open, url, close) => {
-		const encodedUrl =
-			type === "rewrite"
-				? rewriteUrl(url.trim(), meta)
-				: unrewriteUrl(url.trim());
-
-		return `url(${open}${encodedUrl}${close})`;
-	});
+	css = rewriteCssUrls(css, (url) =>
+		type === "rewrite"
+			? rewriteUrl(url.trim(), meta!)
+			: unrewriteUrl(url.trim())
+	);
 	css = css.replace(Atruleregex, (_match, atImport, importStatement, term) => {
 		const rewrittenStatement = importStatement.replace(
 			importStatementRegex,

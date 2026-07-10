@@ -9,7 +9,7 @@ import { SherpaConfig } from "@/types";
 import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
 import { getDB } from "@/shared/security/db";
-import { config, loadCodecs, setConfig } from "@/shared";
+import { setConfig } from "@/shared";
 import { SherpaDownload } from "@client/events";
 export * from "./error";
 export * from "./fetch";

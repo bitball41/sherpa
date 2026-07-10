@@ -67,7 +67,7 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 		enumerable: false,
 	});
 	Object.defineProperty(self, config.globals.cleanrestfn, {
-		value: function (obj) {
+		value: function (_obj) {
 			// TODO
 		},
 		writable: false,

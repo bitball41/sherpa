@@ -84,8 +84,6 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	};
 
-	const realLocalStorage = self.localStorage;
-
 	const localStorageProxy = new Proxy(self.localStorage, handler);
 	const sessionStorageProxy = new Proxy(self.sessionStorage, handler);
 

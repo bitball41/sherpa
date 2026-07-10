@@ -1,7 +1,6 @@
 import BareClient, { BareResponseFetch } from "@mercuryworkshop/bare-mux";
 import { MessageW2C, SherpaServiceWorker } from "@/worker";
 import { renderError } from "@/worker/error";
-import { FakeServiceWorker } from "@/worker/fakesw";
 import { CookieStore } from "@/shared/cookie";
 
 import { getSiteDirective } from "@/shared/security/siteTests";
@@ -534,6 +533,11 @@ async function handleResponse(
 				url: url.href,
 			});
 			if (destination !== "document" && destination !== "iframe") {
+				// awaited in header order on purpose: a subresource response must
+				// not be delivered until each Set-Cookie has been applied to the
+				// client's synchronous jar, and later cookies may override earlier
+				// ones, so these can't be dispatched in parallel.
+				// eslint-disable-next-line no-await-in-loop
 				await promise;
 			}
 		}

@@ -27,7 +27,7 @@ export async function asyncSetWasm() {
 }
 
 export const textDecoder = new TextDecoder();
-let MAGIC = "\0asm".split("").map((x) => x.charCodeAt(0));
+const MAGIC = "\0asm".split("").map((x) => x.charCodeAt(0));
 
 let wasmInitialized = false;
 
@@ -53,19 +53,19 @@ function initWasm() {
 	wasmInitialized = true;
 }
 
-let rewriters = [];
+const rewriters = [];
 export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 	initWasm();
 
 	let obj: { rewriter: Rewriter; inUse: boolean };
-	let index = rewriters.findIndex((x) => !x.inUse);
-	let len = rewriters.length;
+	const index = rewriters.findIndex((x) => !x.inUse);
+	const len = rewriters.length;
 
 	if (index === -1) {
 		if (flagEnabled("rewriterLogs", meta.base))
 			console.log(`creating new rewriter, ${len} rewriters made already`);
 
-		let rewriter = new Rewriter({
+		const rewriter = new Rewriter({
 			config,
 			shared: {
 				rewrite: {
@@ -74,10 +74,11 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 					rewriteCss,
 					rewriteJs,
 					getHtmlInjectCode(cookieStore: CookieStore, foundHead: boolean) {
-						let inject = getInjectScripts(
+						const inject = getInjectScripts(
 							cookieStore,
 							(src) => `<script src="${src}"></script>`
 						).join("");
+
 						return foundHead ? `<head>${inject}</head>` : inject;
 					},
 				},

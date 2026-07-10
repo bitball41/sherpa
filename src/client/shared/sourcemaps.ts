@@ -1,5 +1,4 @@
 import { config, flagEnabled } from "@/shared";
-import { SHERPACLIENT, SHERPACLIENTNAME } from "@/symbols";
 import { ProxyCtx, SherpaClient } from "@client/index";
 
 enum RewriteType {
@@ -80,7 +79,7 @@ function extractTag(fn: string): [string, number, number] | null {
 	// it will look like this:
 	// function name()[possible whitespace]/*scramtag [index] [tag]*/[possible whitespace]{ ... }
 
-	let start = fn.indexOf(SCRAMTAG);
+	const start = fn.indexOf(SCRAMTAG);
 	// no scramtag, probably native function or stolen from sherpa
 	if (start === -1) return null;
 
@@ -90,7 +89,7 @@ function extractTag(fn: string): [string, number, number] | null {
 		throw new Error("unreachable");
 	}
 
-	let tag = fn.substring(start + 2, end).split(" ");
+	const tag = fn.substring(start + 2, end).split(" ");
 
 	if (
 		tag.length !== 3 ||
@@ -177,9 +176,7 @@ export default function (client: SherpaClient, self: Self) {
 	// this can lead to double rewrites which is bad
 	client.Proxy("Function.prototype.toString", {
 		apply(ctx) {
-			const before = performance.now();
 			doUnrewrite(client, ctx);
-			// dbg.time(client.meta, before, `scramtag unrewrite for ${ctx.fn.name}`);
 		},
 	});
 }

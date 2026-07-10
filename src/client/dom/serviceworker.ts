@@ -61,7 +61,7 @@ export default function (client: SherpaClient, _self: Self) {
 	});
 
 	client.Trap("ServiceWorkerContainer.prototype.controller", {
-		get(ctx) {
+		get(_ctx) {
 			return registration?.active;
 		},
 	});

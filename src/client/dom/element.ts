@@ -123,7 +123,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 			return client.url.origin;
 		},
-		set(ctx, v) {
+		set(_ctx, _v) {
 			return false;
 		},
 	});
