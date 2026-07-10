@@ -101,3 +101,18 @@ test("leaves an unterminated url( ... alone", () => {
 test("rewrites url() inside @import url(...)", () => {
 	assert.equal(mark(`@import url("theme.css");`), `@import url("«theme.css»");`);
 });
+
+test("rewrites a url() at the very start of the stylesheet", () => {
+	// exercises the i === 0 identifier-boundary path
+	assert.equal(mark(`url(x.png)`), `url(«x.png»)`);
+	assert.equal(mark(`URL('y.png')`), `URL('«y.png»')`);
+});
+
+test("treats a raw newline (LF, CR, FF) in a quoted url as a bad-string", () => {
+	// a raw newline inside the quotes is a CSS parse error, so it is not a valid
+	// url() token and must be left exactly as-is
+	for (const nl of ["\n", "\r", "\f"]) {
+		const css = `a{background:url("bad${nl}value")}`;
+		assert.equal(mark(css), css);
+	}
+});

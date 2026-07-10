@@ -19,6 +19,14 @@ function isWhitespace(c: number): boolean {
 	return c === 32 || c === 9 || c === 10 || c === 13 || c === 12;
 }
 
+// A raw newline inside a string is a parse error that ends a "bad-string" token
+// per the CSS syntax spec. "Newline" there is LF, CR, or FF (the tokenizer
+// preprocesses CR/CRLF/FF to LF), none of which can appear in a valid string or
+// url() value.
+function isNewline(c: number): boolean {
+	return c === 10 /* \n */ || c === 13 /* \r */ || c === 12 /* \f */;
+}
+
 // Characters that may appear in a CSS identifier. Used to make sure a `url(`
 // match sits on an identifier boundary, so `bgurl(...)` isn't misread as the
 // `url()` function.
@@ -43,7 +51,10 @@ function isUrlFunc(css: string, i: number): boolean {
 	)
 		return false;
 
-	return !isIdentChar(css.charCodeAt(i - 1));
+	// i === 0 is the start of input - a boundary - so `url(` there is valid.
+	// (charCodeAt(-1) would be NaN, which isIdentChar already rejects, but the
+	// explicit check reads clearer than relying on that.)
+	return i === 0 || !isIdentChar(css.charCodeAt(i - 1));
 }
 
 // i points at the opening quote; return the index just past the closing quote
@@ -58,7 +69,7 @@ function skipString(css: string, i: number, quote: number): number {
 			continue;
 		}
 		if (c === quote) return i + 1;
-		if (c === 10 /* \n */) return i; // raw newline ends a bad-string
+		if (isNewline(c)) return i; // raw newline ends a bad-string
 		i++;
 	}
 
@@ -87,7 +98,7 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 				continue;
 			}
 			if (c === q) break;
-			if (c === 10 /* \n */) return null; // bad-string, not a real url()
+			if (isNewline(c)) return null; // bad-string, not a real url()
 			k++;
 		}
 		if (k >= n) return null; // unterminated string
