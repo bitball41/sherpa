@@ -4,9 +4,11 @@ import render from "dom-serializer";
 import { URLMeta, rewriteUrl } from "@rewriters/url";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
+import { rewriteImportMap } from "@rewriters/importMap";
 import { CookieStore } from "@/shared/cookie";
 import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
+import { appendUrlParams } from "@/shared/urlCodec";
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
@@ -132,10 +134,13 @@ export function unrewriteHtml(html: string) {
 
 // i need to add the attributes in during rewriting
 
+type TraversalState = { baseHrefSeen: boolean };
+
 function traverseParsedHtml(
 	node: any,
 	cookieStore: CookieStore,
-	meta: URLMeta
+	meta: URLMeta,
+	state: TraversalState = { baseHrefSeen: false }
 ) {
 	// only element nodes carry attribs; gating on it lets the text/comment
 	// nodes that make up most of a document skip all tag handling below
@@ -143,8 +148,17 @@ function traverseParsedHtml(
 	if (attribs !== undefined) {
 		const name = node.name;
 
-		if (name === "base" && attribs.href !== undefined) {
-			meta.base = new URL(attribs.href, meta.origin);
+		if (name === "base" && attribs.href !== undefined && !state.baseHrefSeen) {
+			// Per HTML, only the first <base href> participates in document URL
+			// resolution. An invalid first value is still first; later elements do
+			// not get to silently replace it.
+			state.baseHrefSeen = true;
+			try {
+				meta.base = new URL(attribs.href, meta.origin);
+			} catch {
+				// Browsers ignore an invalid base URL; it must not abort rewriting
+				// the rest of an otherwise usable document.
+			}
 		}
 
 		const attributes = Object.keys(attribs);
@@ -175,22 +189,15 @@ function traverseParsedHtml(
 			const type = attribs.type;
 			const essence = scriptTypeEssence(type);
 
-			if (essence === "module" && attribs.src)
-				attribs.src = attribs.src + "?type=module";
+			if (essence === "module" && attribs.src) {
+				attribs.src = appendUrlParams(attribs.src, { type: "module" });
+			}
 
-			if (type === "importmap" && node.children[0] !== undefined) {
+			if (essence === "importmap" && node.children[0] !== undefined) {
 				const json = node.children[0].data;
 				try {
 					const map = JSON.parse(json);
-					if (map.imports) {
-						for (const key in map.imports) {
-							let url = map.imports[key];
-							if (typeof url === "string") {
-								url = rewriteUrl(url, meta);
-								map.imports[key] = url;
-							}
-						}
-					}
+					rewriteImportMap(map, (url) => rewriteUrl(url, meta));
 
 					node.children[0].data = JSON.stringify(map);
 				} catch (e) {
@@ -222,7 +229,7 @@ function traverseParsedHtml(
 	if (node.childNodes) {
 		const children = node.childNodes;
 		for (let i = 0; i < children.length; i++) {
-			children[i] = traverseParsedHtml(children[i], cookieStore, meta);
+			children[i] = traverseParsedHtml(children[i], cookieStore, meta, state);
 		}
 	}
 
