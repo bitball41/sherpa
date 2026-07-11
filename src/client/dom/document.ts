@@ -49,7 +49,10 @@ export default function (client: SherpaClient, _self: Self) {
 		},
 	});
 
-	client.Proxy("Document.prototype.parseHTMLUnsafe", {
+	// parseHTMLUnsafe is a *static* method on Document, not on its prototype;
+	// trapping the prototype silently did nothing, so injected markup went
+	// through unrewritten.
+	client.Proxy("Document.parseHTMLUnsafe", {
 		apply(ctx) {
 			if (ctx.args[0])
 				try {

@@ -5,6 +5,7 @@ import { URLMeta, rewriteUrl } from "@rewriters/url";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
+import { rewriteRefresh } from "@rewriters/refresh";
 import { CookieStore } from "@/shared/cookie";
 import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
@@ -242,22 +243,10 @@ function rewriteMetaHttpEquiv(node: any, meta: URLMeta) {
 		// just delete it. this needs to be emulated eventually but like
 		node = new Comment(node.attribs.content);
 	} else if (httpEquiv === "refresh" && node.attribs.content) {
-		// content looks like "<seconds>[; url=<url>]" — the url key is
-		// ASCII case-insensitive and the value may be quoted
-		node.attribs.content = node.attribs.content.replace(
-			/(url\s*=\s*)([\s\S]*)/i,
-			(_, key: string, rest: string) => {
-				const url = rest.trim();
-				const quote = /^['"]/.test(url) ? url[0] : "";
-				if (quote) {
-					const end = url.indexOf(quote, 1);
-					const inner = end === -1 ? url.slice(1) : url.slice(1, end);
-
-					return key + quote + rewriteUrl(inner.trim(), meta) + quote;
-				}
-
-				return key + rewriteUrl(url, meta);
-			}
+		// content looks like "<seconds>[; url=<url>]"; the same directive can
+		// also arrive as the HTTP `Refresh` header, so the parsing is shared.
+		node.attribs.content = rewriteRefresh(node.attribs.content, (url) =>
+			rewriteUrl(url, meta)
 		);
 	}
 
