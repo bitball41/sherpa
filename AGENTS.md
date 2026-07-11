@@ -366,6 +366,13 @@ are fixed:
   Also hardened `setCookies` to drop empty/malformed `Set-Cookie` headers
   instead of storing a `name=undefined` junk entry.
 
+Review hardening (from PR #5 bot review, both points verified real): expiry
+dates are stored as ISO 8601; a non-numeric `Max-Age` (`parseInt` → NaN) or
+unparseable `Expires` is ignored per §5.2.2/§5.2.1 (session cookie) instead of
+storing a never-expiring `"Invalid Date"`; and the domain-match runs whether or
+not the stored domain has its leading dot, so a dotless entry from `load()`ed
+data can't bypass the check and match every host.
+
 Covered by `tests/unit/cookie.test.mjs` (8 `node --test` fixtures; 4 of them
 fail against the pre-fix code). `CookieStore` only pulls in
 `set-cookie-parser`, so like `cssUrls.ts` it loads straight from TypeScript
@@ -383,9 +390,9 @@ plus `build`/`build:types`/`test:*`. What was done:
 - **Errors (6).** Two `newline-before-return`; one `no-constant-condition`
   (`if (1) return;` in `dbg.time` → a named `TIMING_ENABLED = false` module
   toggle, same disabled-by-default behavior but self-documenting and
-  re-enablable); one unnecessary empty template literal (` ` ``→`""`); two
-`quotes`on font stacks that legitimately contain`"..."`— fixed at the
-config by adding`{ avoidEscape: true }`to the`quotes` rule (the idiomatic
+  re-enablable); one unnecessary empty template literal (`` `` `` → `""`); two
+  `quotes` on font stacks that legitimately contain `"..."` — fixed at the
+  config by adding `{ avoidEscape: true }` to the `quotes` rule (the idiomatic
   setting: single quotes are the correct choice when the string embeds double
   quotes), so the source stays as written.
 - **Warnings (36 → 0).** `prefer-const` via `eslint --fix`; unused imports

@@ -139,3 +139,75 @@ test("a malformed Set-Cookie header does not poison the jar", () => {
 	store.setCookies(["real=1; Path=/"], url);
 	assert.equal(store.getCookies(url, false), "real=1");
 });
+
+test("a non-numeric Max-Age is ignored, not stored as an invalid date", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+
+	// NaN Max-Age must not clobber a valid (already-past) Expires
+	store.setCookies(
+		["a=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=abc"],
+		url
+	);
+	assert.equal(store.getCookies(url, false), "");
+
+	// NaN Max-Age alone → plain session cookie, still served
+	store.setCookies(["b=1; Path=/; Max-Age=xyz"], url);
+	assert.equal(store.getCookies(url, false), "b=1");
+});
+
+test("an unparseable Expires falls back to a session cookie", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+
+	store.setCookies(["a=1; Path=/; Expires=banana"], url);
+	assert.equal(store.getCookies(url, false), "a=1");
+
+	// and the junk date is not persisted into the jar
+	const dumped = Object.values(JSON.parse(store.dump()));
+	assert.equal(dumped.length, 1);
+	assert.equal(dumped[0].expires, undefined);
+});
+
+test("expiry dates are stored in timezone-agnostic ISO form", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+
+	store.setCookies(
+		[
+			"a=1; Path=/; Max-Age=3600",
+			"b=1; Path=/; Expires=Fri, 01 Jan 2100 00:00:00 GMT",
+		],
+		url
+	);
+
+	for (const cookie of Object.values(JSON.parse(store.dump()))) {
+		// toISOString round-trips exactly; a locale toString() would not
+		assert.equal(new Date(cookie.expires).toISOString(), cookie.expires);
+	}
+});
+
+test("a dotless domain from loaded data is still domain-checked", () => {
+	const store = new CookieStore();
+	// simulate an externally produced jar entry whose domain lacks the
+	// leading dot setCookies normally adds
+	store.load(
+		JSON.stringify({
+			"example.com@/@a": {
+				name: "a",
+				value: "1",
+				domain: "example.com",
+				path: "/",
+			},
+		})
+	);
+
+	assert.equal(store.getCookies(new URL("https://example.com/"), false), "a=1");
+	assert.equal(
+		store.getCookies(new URL("https://sub.example.com/"), false),
+		"a=1"
+	);
+	// without the guard this leaked to every host
+	assert.equal(store.getCookies(new URL("https://evil.com/"), false), "");
+	assert.equal(store.getCookies(new URL("https://notexample.com/"), false), "");
+});

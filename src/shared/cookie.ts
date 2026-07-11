@@ -35,11 +35,23 @@ export class CookieStore {
 			// (Max-Age=0). getCookies only consults `expires`, so fold Max-Age
 			// into an absolute expiry here — otherwise a Max-Age=0 deletion is
 			// silently ignored and the cookie is served forever, and Max-Age
-			// sessions never expire.
-			if (typeof cookie.maxAge === "number") {
-				cookie.expires = new Date(Date.now() + cookie.maxAge * 1000).toString();
+			// sessions never expire. Stored as ISO 8601 (timezone-agnostic).
+			// A non-numeric Max-Age (parses to NaN) or unparseable Expires is
+			// ignored per §5.2.2/§5.2.1 — the cookie becomes a session cookie —
+			// instead of storing a never-expiring "Invalid Date".
+			if (typeof cookie.maxAge === "number" && Number.isFinite(cookie.maxAge)) {
+				// §5.2.2: delta-seconds <= 0 → the earliest representable date,
+				// so a Max-Age=0 deletion can't race the expiry sweep's `<` within
+				// the same millisecond
+				cookie.expires =
+					cookie.maxAge <= 0
+						? new Date(0).toISOString()
+						: new Date(Date.now() + cookie.maxAge * 1000).toISOString();
 			} else if (cookie.expires) {
-				cookie.expires = cookie.expires.toString();
+				const expires = new Date(cookie.expires);
+				cookie.expires = Number.isNaN(expires.getTime())
+					? undefined
+					: expires.toISOString();
 			}
 
 			const id = `${cookie.domain}@${cookie.path}@${cookie.name}`;
@@ -75,9 +87,13 @@ export class CookieStore {
 			// RFC 6265 §5.1.3 domain-match: the request host must equal the
 			// cookie domain or be a subdomain of it. A bare endsWith wrongly
 			// matched cookie domain ".example.com" against "notexample.com",
-			// leaking cookies to look-alike hosts.
-			if (cookie.domain?.startsWith(".")) {
-				const domain = cookie.domain.slice(1);
+			// leaking cookies to look-alike hosts. The leading dot is optional
+			// here (setCookies always stores one, but load()ed data may not) so
+			// a dotless entry can't bypass the check and match every host.
+			if (cookie.domain) {
+				const domain = cookie.domain.startsWith(".")
+					? cookie.domain.slice(1)
+					: cookie.domain;
 				if (url.hostname !== domain && !url.hostname.endsWith("." + domain))
 					continue;
 			}
