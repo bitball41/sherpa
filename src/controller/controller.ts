@@ -6,14 +6,12 @@ import {
 	setConfig,
 	DEFAULT_ERROR_PAGE,
 } from "@/shared/index";
+import { mergeConfig } from "@/shared/config";
 import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
 import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
 import { openDB, IDBPDatabase } from "idb";
-import {
-	SherpaGlobalDownloadEvent,
-	SherpaGlobalEvents,
-} from "@client/events";
+import { SherpaGlobalDownloadEvent, SherpaGlobalEvents } from "@client/events";
 
 export class SherpaController extends EventTarget {
 	private db: IDBPDatabase<SherpaDB>;
@@ -21,7 +19,7 @@ export class SherpaController extends EventTarget {
 	constructor(config: Partial<SherpaInitConfig>) {
 		super();
 		// sane ish defaults
-		const defaultConfig: SherpaInitConfig = {
+		const defaultConfig: SherpaConfig = {
 			// wisp: "/wisp/",
 			prefix: "/sherpa/",
 			globals: {
@@ -60,33 +58,20 @@ export class SherpaController extends EventTarget {
 			siteFlags: {},
 			errorPage: { ...DEFAULT_ERROR_PAGE },
 			codec: {
-				encode: (url: string) => {
+				encode: ((url: string) => {
 					if (!url) return url;
 
 					return encodeURIComponent(url);
-				},
-				decode: (url: string) => {
+				}).toString(),
+				decode: ((url: string) => {
 					if (!url) return url;
 
 					return decodeURIComponent(url);
-				},
+				}).toString(),
 			},
 		};
 
-		const deepMerge = (target: any, source: any): any => {
-			for (const key in source) {
-				if (source[key] instanceof Object && key in target) {
-					Object.assign(source[key], deepMerge(target[key], source[key]));
-				}
-			}
-
-			return Object.assign(target || {}, source);
-		};
-
-		const newConfig = deepMerge(defaultConfig, config);
-		newConfig.codec.encode = newConfig.codec.encode.toString();
-		newConfig.codec.decode = newConfig.codec.decode.toString();
-		setConfig(newConfig as SherpaConfig);
+		setConfig(mergeConfig(defaultConfig, config));
 	}
 
 	async init(): Promise<void> {
@@ -192,7 +177,7 @@ export class SherpaController extends EventTarget {
 	}
 
 	async modifyConfig(newconfig: Partial<SherpaInitConfig>) {
-		setConfig(Object.assign({}, config, newconfig));
+		setConfig(mergeConfig(config, newconfig));
 		loadCodecs();
 
 		await this.#saveConfig();
