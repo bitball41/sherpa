@@ -1,6 +1,7 @@
 import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
+import { appendUrlParams } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient, self: Self) {
 	const boundimport = client.natives.call(
@@ -21,7 +22,11 @@ export default function (client: SherpaClient, self: Self) {
 				url.startsWith("..")
 			) {
 				// this is a url
-				return boundimport(`${rewriteUrl(resolved, client.meta)}?type=module`);
+				return boundimport(
+					appendUrlParams(rewriteUrl(resolved, client.meta), {
+						type: "module",
+					})
+				);
 			} else {
 				// this is a specifier handled by importmaps
 				return boundimport(url);

@@ -1,15 +1,15 @@
 import { BareMuxConnection } from "@mercuryworkshop/bare-mux";
 import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
+import { appendUrlParams } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient, _self: typeof globalThis) {
 	client.Proxy("Worker", {
 		construct(ctx) {
-			ctx.args[0] = rewriteUrl(ctx.args[0], client.meta) + "?dest=worker";
-
-			if (ctx.args[1] && ctx.args[1].type === "module") {
-				ctx.args[0] += "&type=module";
-			}
+			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
+				dest: "worker",
+				type: ctx.args[1]?.type === "module" ? "module" : undefined,
+			});
 
 			const worker = ctx.call();
 			const conn = new BareMuxConnection();
@@ -32,19 +32,23 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 	// sharedworkers can only be constructed from window
 	client.Proxy("SharedWorker", {
 		construct(ctx) {
-			ctx.args[0] = rewriteUrl(ctx.args[0], client.meta) + "?dest=sharedworker";
+			const options = ctx.args[1];
+			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
+				dest: "sharedworker",
+				type:
+					typeof options === "object" && options?.type === "module"
+						? "module"
+						: undefined,
+			});
 
-			if (ctx.args[1] && typeof ctx.args[1] === "string")
-				ctx.args[1] = `${client.url.origin}@${ctx.args[1]}`;
+			if (options && typeof options === "string")
+				ctx.args[1] = `${client.url.origin}@${options}`;
 
-			if (ctx.args[1] && typeof ctx.args[1] === "object") {
-				if (ctx.args[1].type === "module") {
-					ctx.args[0] += "&type=module";
-				}
-
-				if (ctx.args[1].name) {
-					ctx.args[1].name = `${client.url.origin}@${ctx.args[1].name}`;
-				}
+			if (options && typeof options === "object" && options.name) {
+				ctx.args[1] = {
+					...options,
+					name: `${client.url.origin}@${options.name}`,
+				};
 			}
 
 			const worker = ctx.call();
@@ -68,7 +72,9 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 	client.Proxy("Worklet.prototype.addModule", {
 		apply(ctx) {
 			if (ctx.args[0])
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta) + "?dest=worklet";
+				ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
+					dest: "worklet",
+				});
 		},
 	});
 }

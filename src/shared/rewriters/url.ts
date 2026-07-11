@@ -1,6 +1,7 @@
 import { codecDecode, codecEncode } from "@/shared";
 import { config } from "@/shared";
 import { rewriteJs } from "@rewriters/js";
+import { decodeProxyUrl, encodeProxyUrl } from "@/shared/urlCodec";
 
 export type URLMeta = {
 	origin: URL;
@@ -49,34 +50,27 @@ function proxyBase(): string {
 export function rewriteUrl(url: string | URL, meta: URLMeta) {
 	if (url instanceof URL) url = url.toString();
 
-	// every special-cased scheme starts with j/b/d/m/a - gate the startsWith
-	// chain on the first character so the dominant http(s)/relative case
-	// skips it entirely
-	const first = url.charCodeAt(0);
-	if (
-		first === 106 /* j */ ||
-		first === 98 /* b */ ||
-		first === 100 /* d */ ||
-		first === 109 /* m */ ||
-		first === 97 /* a */
-	) {
-		if (url.startsWith("javascript:")) {
-			return (
-				"javascript:" +
-				rewriteJs(url.slice("javascript:".length), "(javascript: url)", meta)
-			);
-		} else if (url.startsWith("blob:") || url.startsWith("data:")) {
-			return proxyBase() + url;
-		} else if (url.startsWith("mailto:") || url.startsWith("about:")) {
-			return url;
-		}
-	}
-
 	let base = meta.base.href;
 
 	if (base.startsWith("about:")) base = unrewriteUrl(self.location.href); // jank!!!!! weird jank!!!
 	const realUrl = tryCanParseURL(url, base);
 	if (!realUrl) return url;
+
+	// URL schemes are ASCII case-insensitive, and the URL parser also accepts
+	// surrounding C0 whitespace. Branch on the parsed protocol so variants like
+	// `JavaScript:` cannot bypass rewriting.
+	if (realUrl.protocol === "javascript:") {
+		const colonIndex = url.indexOf(":");
+		const source = colonIndex === -1 ? "" : url.slice(colonIndex + 1);
+
+		return "javascript:" + rewriteJs(source, "(javascript: url)", meta);
+	}
+	if (realUrl.protocol === "blob:" || realUrl.protocol === "data:") {
+		return proxyBase() + realUrl.href;
+	}
+	if (realUrl.protocol === "mailto:" || realUrl.protocol === "about:") {
+		return url;
+	}
 
 	// Only http(s) URLs are ever proxied. If this resolved to some other
 	// scheme (tel:, sms:, intent:, magnet:, ftp:, ws:, ...) it's handled by
@@ -86,16 +80,7 @@ export function rewriteUrl(url: string | URL, meta: URLMeta) {
 		return url;
 	}
 
-	// the fragment (if any) is codec-encoded separately from the rest of the
-	// URL; slicing href avoids the extra serialization the hash setter costs
-	const href = realUrl.href;
-	const hashIndex = href.indexOf("#");
-	if (hashIndex === -1) return proxyBase() + codecEncode(href);
-
-	const encodedHash = codecEncode(href.slice(hashIndex + 1));
-	const realHash = encodedHash ? "#" + encodedHash : "";
-
-	return proxyBase() + codecEncode(href.slice(0, hashIndex)) + realHash;
+	return encodeProxyUrl(realUrl, proxyBase(), codecEncode);
 }
 
 export function unrewriteUrl(url: string | URL) {
@@ -115,21 +100,5 @@ export function unrewriteUrl(url: string | URL) {
 	// js rewrite isn't losslessly reversible.)
 	if (!url.startsWith(prefixed)) return url;
 
-	const rest = url.substring(prefixed.length);
-	if (rest.startsWith("blob:") || rest.startsWith("data:")) return rest;
-
-	const realUrl = tryCanParseURL(url);
-	if (!realUrl) return url;
-
-	// slicing href instead of clearing realUrl.hash skips both the hash
-	// setter's re-serialization and a codecDecode of the empty string on the
-	// (dominant) fragment-less case
-	const href = realUrl.href;
-	const hashIndex = href.indexOf("#");
-	if (hashIndex === -1) return codecDecode(href.slice(prefixed.length));
-
-	const decodedHash = codecDecode(href.slice(hashIndex + 1));
-	const realHash = decodedHash ? "#" + decodedHash : "";
-
-	return codecDecode(href.slice(prefixed.length, hashIndex) + realHash);
+	return decodeProxyUrl(url, prefixed, codecDecode);
 }
