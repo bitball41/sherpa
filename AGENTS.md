@@ -403,6 +403,44 @@ plus `build`/`build:types`/`test:*`. What was done:
   client's synchronous jar in order) — now carries a reasoned
   `eslint-disable-next-line` instead of standing as a bare warning.
 
+### `Refresh` header + reflected-getter compat pass
+
+Five fixes, all closing paths where a proxied page saw the real (un-rewritten)
+origin. Verified `build` (rspack) + `build:types` (rslib typecheck) + `lint`
+clean and the full `test:unit` suite green (60 assertions, 6 new).
+
+- **HTTP `Refresh` response header is now rewritten** (`src/shared/rewriters/`).
+  Browsers honor `Refresh: <seconds>; url=<url>` exactly like
+  `<meta http-equiv=refresh>`, but only the meta form was being rewritten — a
+  server-sent `Refresh` header navigated the document straight to the real,
+  un-proxied target (absolute URL → full proxy escape; relative URL → resolved
+  against the proxied doc URL and 404/escaped). The `<seconds>[; url=<url>]`
+  parsing is now a shared, dependency-free `rewriteRefresh()` in the new
+  `refresh.ts`, consumed by both `html.ts` (meta) and `headers.ts` (header). The
+  extraction is byte-for-byte equivalent to the old inline meta logic (checked
+  across 14 inputs incl. quoted/case-variant/relative/trailing-junk), and
+  `tests/unit/refresh.test.mjs` pins it.
+- **`Document.parseHTMLUnsafe` was trapped on the wrong object**
+  (`src/client/dom/document.ts`). It's a *static* method on `Document`, not on
+  `Document.prototype`; the prototype trap silently no-op'd (the proxy helper
+  bails when `Reflect.has` is false), so HTML injected via
+  `Document.parseHTMLUnsafe(...)` ran completely unrewritten. Now traps the
+  static. (Swept for sibling misplaced-static traps — this was the only one;
+  `CSSStyleValue.parse` and `DOMParser.prototype.parseFromString` were already
+  correct.)
+- **Reflected URL getters realigned with `htmlRules`**
+  (`src/client/dom/element.ts`). `htmlRules` rewrites `src` on `<input
+  type=image>` and `<track>` and `href` on `<area>`, but the page-facing
+  property getters that unrewrite those back omitted `HTMLInputElement`,
+  `HTMLTrackElement`, and `HTMLAreaElement` — so reading `el.src` / `area.href`
+  handed the page the proxied URL. Added them, and guarded the getter-install
+  loop against an absent constructor / getter-less descriptor (skip instead of
+  throwing from the getter later and breaking the whole `hook()`).
+- **`<style>.innerHTML` getter now unrewrites CSS.** The setter rewrites CSS
+  through `innerHTML`, but the getter returned the rewritten text verbatim
+  (proxied `url()`s leaking to the page) — asymmetric with both its own setter
+  and the neighboring `textContent` trap. Now `unrewriteCss`, matching them.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

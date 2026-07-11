@@ -28,8 +28,14 @@ export default function (client: SherpaClient, self: typeof window) {
 			self.HTMLEmbedElement,
 			self.HTMLScriptElement,
 			self.HTMLSourceElement,
+			// htmlRules rewrites src on <input type=image> and <track>, so their
+			// reflected .src getters must unrewrite it back too.
+			self.HTMLInputElement,
+			self.HTMLTrackElement,
 		],
-		href: [self.HTMLAnchorElement, self.HTMLLinkElement],
+		// <area href> reflects a resolved URL just like <a>/<link>; without it
+		// areaElement.href hands the page back the proxied URL.
+		href: [self.HTMLAnchorElement, self.HTMLLinkElement, self.HTMLAreaElement],
 		data: [self.HTMLObjectElement],
 		action: [self.HTMLFormElement],
 		formaction: [self.HTMLButtonElement, self.HTMLInputElement],
@@ -61,12 +67,16 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	for (const attr of attrs) {
 		for (const element of attrObject[attr]) {
+			// A constructor may be absent (older engines) or not carry the attr;
+			// skip rather than throwing from the getter later and breaking hook().
+			if (!element) continue;
 			const descriptor = client.natives.call(
 				"Object.getOwnPropertyDescriptor",
 				null,
 				element.prototype,
 				attr
 			);
+			if (!descriptor?.get) continue;
 			Object.defineProperty(element.prototype, attr, {
 				get() {
 					if (["src", "data", "href", "action", "formaction"].includes(attr)) {
@@ -345,7 +355,9 @@ export default function (client: SherpaClient, self: typeof window) {
 				return ctx.get();
 			}
 			if (ctx.this instanceof self.HTMLStyleElement) {
-				return ctx.get();
+				// the setter rewrites CSS through innerHTML, so the getter must
+				// unrewrite it (mirrors the textContent trap below)
+				return unrewriteCss(ctx.get() as string);
 			}
 
 			return unrewriteHtml(ctx.get());

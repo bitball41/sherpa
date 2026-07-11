@@ -5,6 +5,7 @@ import type {
 import { rewriteUrl, type URLMeta } from "@rewriters/url";
 import { getSiteDirective } from "@/shared/security/siteTests";
 import { rewriteLinkHeader } from "@rewriters/linkHeader";
+import { rewriteRefresh } from "@rewriters/refresh";
 
 interface StoredReferrerPolicies {
 	get(url: string): Promise<{ policy: string; referrer: string } | null>;
@@ -79,6 +80,20 @@ export async function rewriteHeaders(
 	} else if (Array.isArray(headers["link"])) {
 		headers["link"] = headers["link"].map((link) =>
 			rewriteLinkHeader(link, (url) => rewriteUrl(url, meta))
+		);
+	}
+
+	// The `Refresh` response header is the HTTP equivalent of
+	// `<meta http-equiv=refresh>` and is honored by browsers the same way, so a
+	// URL left un-rewritten here navigates the document straight out of the
+	// proxy. Same `<seconds>[; url=<url>]` grammar as the meta tag.
+	if (typeof headers["refresh"] === "string") {
+		headers["refresh"] = rewriteRefresh(headers["refresh"], (url) =>
+			rewriteUrl(url, meta)
+		);
+	} else if (Array.isArray(headers["refresh"])) {
+		headers["refresh"] = headers["refresh"].map((refresh) =>
+			rewriteRefresh(refresh, (url) => rewriteUrl(url, meta))
 		);
 	}
 
