@@ -1,73 +1,73 @@
 import { SherpaClient } from "@client/index";
+import {
+	storageKeys,
+	storagePrefix,
+	unprefixStorageKey,
+} from "@/shared/storage";
 
 export default function (client: SherpaClient, self: typeof window) {
+	const prefix = storagePrefix(client.url.host);
+
 	const handler: ProxyHandler<Storage> = {
 		get(target, prop) {
 			switch (prop) {
 				case "getItem":
 					return (key: string) => {
-						return target.getItem(client.url.host + "@" + key);
+						return target.getItem(prefix + key);
 					};
 
 				case "setItem":
 					return (key: string, value: string) => {
-						return target.setItem(client.url.host + "@" + key, value);
+						return target.setItem(prefix + key, value);
 					};
 
 				case "removeItem":
 					return (key: string) => {
-						return target.removeItem(client.url.host + "@" + key);
+						return target.removeItem(prefix + key);
 					};
 
 				case "clear":
 					return () => {
-						for (const key in Object.keys(target)) {
-							if (key.startsWith(client.url.host)) {
-								target.removeItem(key);
-							}
-						}
+						for (const key of storageKeys(target, client.url.host))
+							target.removeItem(key);
 					};
 
 				case "key":
 					return (index: number) => {
-						const keys = Object.keys(target).filter((key) =>
-							key.startsWith(client.url.host)
-						);
+						const key = storageKeys(target, client.url.host)[index];
 
-						return target.getItem(keys[index]);
+						return key === undefined
+							? null
+							: unprefixStorageKey(key, client.url.host);
 					};
 
 				case "length":
-					return Object.keys(target).filter((key) =>
-						key.startsWith(client.url.host)
-					).length;
+					return storageKeys(target, client.url.host).length;
 
 				default:
 					if (prop in Object.prototype || typeof prop === "symbol") {
 						return Reflect.get(target, prop);
 					}
 
-					return target.getItem(client.url.host + "@" + (prop as string));
+					return target.getItem(prefix + (prop as string));
 			}
 		},
 
 		set(target, prop, value) {
-			target.setItem(client.url.host + "@" + (prop as string), value);
+			target.setItem(prefix + (prop as string), value);
 
 			return true;
 		},
 
 		ownKeys(target) {
-			return Reflect.ownKeys(target)
-				.filter((f) => typeof f === "string" && f.startsWith(client.url.host))
-				.map((f) =>
-					typeof f === "string" ? f.substring(client.url.host.length + 1) : f
-				);
+			return storageKeys(target, client.url.host).map((key) =>
+				unprefixStorageKey(key, client.url.host)
+			);
 		},
 
 		getOwnPropertyDescriptor(target, property) {
 			return {
-				value: target.getItem(client.url.host + "@" + (property as string)),
+				value: target.getItem(prefix + (property as string)),
 				enumerable: true,
 				configurable: true,
 				writable: true,
@@ -75,10 +75,7 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 
 		defineProperty(target, property, attributes) {
-			target.setItem(
-				client.url.host + "@" + (property as string),
-				attributes.value
-			);
+			target.setItem(prefix + (property as string), attributes.value);
 
 			return true;
 		},
