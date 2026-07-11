@@ -7,6 +7,7 @@ import {
 	DEFAULT_ERROR_PAGE,
 } from "@/shared/index";
 import { mergeConfig } from "@/shared/config";
+import { decodeProxyUrl, encodeProxyUrl } from "@/shared/urlCodec";
 import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
 import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
@@ -105,22 +106,17 @@ export class SherpaController extends EventTarget {
 	encodeUrl(url: string | URL): string {
 		if (typeof url === "string") url = new URL(url);
 
-		if (url.protocol != "http:" && url.protocol != "https:") {
-			return url.href;
-		}
-
-		const encodedHash = codecEncode(url.hash.slice(1));
-		const realHash = encodedHash ? "#" + encodedHash : "";
-		url.hash = "";
-
-		return config.prefix + codecEncode(url.href) + realHash;
+		return encodeProxyUrl(url, config.prefix, codecEncode);
 	}
 
-	decodeUrl(url: string | URL) {
+	decodeUrl(url: string | URL): string {
 		if (url instanceof URL) url = url.toString();
 		const prefixed = location.origin + config.prefix;
+		if (url.startsWith(prefixed)) {
+			return decodeProxyUrl(url, prefixed, codecDecode);
+		}
 
-		return codecDecode(url.slice(prefixed.length));
+		return decodeProxyUrl(url, config.prefix, codecDecode);
 	}
 
 	/**

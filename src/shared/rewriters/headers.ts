@@ -4,6 +4,7 @@ import type {
 } from "@mercuryworkshop/bare-mux";
 import { rewriteUrl, type URLMeta } from "@rewriters/url";
 import { getSiteDirective } from "@/shared/security/siteTests";
+import { rewriteLinkHeader } from "@rewriters/linkHeader";
 
 interface StoredReferrerPolicies {
 	get(url: string): Promise<{ policy: string; referrer: string } | null>;
@@ -40,10 +41,6 @@ const SEC_HEADERS = new Set([
  */
 const URL_HEADERS = new Set(["location", "content-location", "referer"]);
 
-function rewriteLinkHeader(link: string, meta: URLMeta) {
-	return link.replace(/<(.*)>/gi, (match) => rewriteUrl(match, meta));
-}
-
 /**
  * Rewrites response headers
  * @param rawHeaders Headers before they were rewritten
@@ -76,10 +73,12 @@ export async function rewriteHeaders(
 	}
 
 	if (typeof headers["link"] === "string") {
-		headers["link"] = rewriteLinkHeader(headers["link"], meta);
+		headers["link"] = rewriteLinkHeader(headers["link"], (url) =>
+			rewriteUrl(url, meta)
+		);
 	} else if (Array.isArray(headers["link"])) {
 		headers["link"] = headers["link"].map((link) =>
-			rewriteLinkHeader(link, meta)
+			rewriteLinkHeader(link, (url) => rewriteUrl(url, meta))
 		);
 	}
 

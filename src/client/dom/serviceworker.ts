@@ -2,6 +2,7 @@ import { SherpaClient } from "@client/index";
 import { type MessageC2W } from "@/worker";
 import { flagEnabled } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
+import { appendUrlParams } from "@/shared/urlCodec";
 
 // we need a late order because we're mangling with addEventListener at a higher level
 export const order = 2;
@@ -83,13 +84,11 @@ export default function (client: SherpaClient, _self: Self) {
 				? new URL(explicitScope, client.url.href).pathname
 				: new URL(".", scriptURL).pathname;
 
-			let url =
-				rewriteUrl(ctx.args[0], client.meta) +
-				"?dest=serviceworker&scope=" +
-				encodeURIComponent(scope);
-			if (ctx.args[1] && ctx.args[1].type === "module") {
-				url += "&type=module";
-			}
+			const url = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
+				dest: "serviceworker",
+				scope,
+				type: ctx.args[1]?.type === "module" ? "module" : undefined,
+			});
 
 			const worker = client.natives.construct("SharedWorker", url);
 			const handle = worker.port;
