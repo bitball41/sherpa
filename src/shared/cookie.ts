@@ -8,15 +8,39 @@ export type Cookie = {
 	expires?: string;
 	maxAge?: number;
 	domain?: string;
+	hostOnly?: boolean;
 	secure?: boolean;
 	httpOnly?: boolean;
 	sameSite?: "strict" | "lax" | "none";
 };
 
-export class CookieStore {
-	private cookies: Record<string, Cookie> = {};
+export type CookieAccessContext = {
+	sameSite: boolean;
+	topLevelNavigation: boolean;
+	method: string;
+};
 
-	setCookies(cookies: string[], url: URL) {
+const MAX_DATE_MS = 8.64e15;
+
+function domainMatches(hostname: string, domain: string): boolean {
+	return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function defaultCookiePath(pathname: string): string {
+	if (!pathname.startsWith("/")) return "/";
+	const lastSlash = pathname.lastIndexOf("/");
+
+	return lastSlash <= 0 ? "/" : pathname.slice(0, lastSlash);
+}
+
+export class CookieStore {
+	private cookies: Record<string, Cookie> = Object.create(null);
+
+	private cookieId(cookie: Cookie): string {
+		return `${cookie.domain}@${cookie.path}@${cookie.name}`;
+	}
+
+	setCookies(cookies: string[], url: URL, fromJs = false) {
 		for (const str of cookies) {
 			const parsed = parse(str)[0];
 			// an empty or malformed Set-Cookie header yields nothing usable;
@@ -24,11 +48,27 @@ export class CookieStore {
 			if (!parsed || !parsed.name) continue;
 
 			const cookie: Cookie = { ...parsed };
+			if (fromJs && cookie.httpOnly) continue;
+			if (cookie.secure && url.protocol !== "https:") continue;
 
-			if (!cookie.domain) cookie.domain = "." + url.hostname;
-			if (!cookie.domain.startsWith(".")) cookie.domain = "." + cookie.domain;
-			if (!cookie.path) cookie.path = "/";
-			if (!cookie.sameSite) cookie.sameSite = "lax";
+			const requestHost = url.hostname.toLowerCase();
+			if (cookie.domain) {
+				const domain = cookie.domain.replace(/^\.+/, "").toLowerCase();
+				// A response may only set a Domain cookie for its own host or a
+				// parent domain. Silently reject attempts to plant cookies elsewhere.
+				if (!domain || !domainMatches(requestHost, domain)) continue;
+				cookie.domain = domain;
+				cookie.hostOnly = false;
+			} else {
+				cookie.domain = requestHost;
+				cookie.hostOnly = true;
+			}
+			if (!cookie.path || !cookie.path.startsWith("/"))
+				cookie.path = defaultCookiePath(url.pathname);
+			cookie.sameSite = cookie.sameSite?.toLowerCase() as Cookie["sameSite"];
+			if (!(["strict", "lax", "none"] as string[]).includes(cookie.sameSite))
+				cookie.sameSite = "lax";
+			if (cookie.sameSite === "none" && !cookie.secure) continue;
 
 			// Max-Age takes precedence over Expires (RFC 6265 §4.1.2.2) and is
 			// how sites both set session lifetimes and *delete* cookies
@@ -46,7 +86,9 @@ export class CookieStore {
 				cookie.expires =
 					cookie.maxAge <= 0
 						? new Date(0).toISOString()
-						: new Date(Date.now() + cookie.maxAge * 1000).toISOString();
+						: new Date(
+								Math.min(Date.now() + cookie.maxAge * 1000, MAX_DATE_MS)
+							).toISOString();
 			} else if (cookie.expires) {
 				const expires = new Date(cookie.expires);
 				cookie.expires = Number.isNaN(expires.getTime())
@@ -54,12 +96,13 @@ export class CookieStore {
 					: expires.toISOString();
 			}
 
-			const id = `${cookie.domain}@${cookie.path}@${cookie.name}`;
+			const id = this.cookieId(cookie);
+			if (fromJs && this.cookies[id]?.httpOnly) continue;
 			this.cookies[id] = cookie;
 		}
 	}
 
-	getCookies(url: URL, fromJs: boolean): string {
+	getCookies(url: URL, fromJs: boolean, context?: CookieAccessContext): string {
 		const now = new Date();
 		const cookies = Object.values(this.cookies);
 
@@ -67,12 +110,23 @@ export class CookieStore {
 
 		for (const cookie of cookies) {
 			if (cookie.expires && new Date(cookie.expires) < now) {
-				delete this.cookies[`${cookie.domain}@${cookie.path}@${cookie.name}`];
+				delete this.cookies[this.cookieId(cookie)];
 				continue;
 			}
 
 			if (cookie.secure && url.protocol !== "https:") continue;
 			if (cookie.httpOnly && fromJs) continue;
+			if (context && !context.sameSite) {
+				if (cookie.sameSite === "strict") continue;
+				if (
+					cookie.sameSite === "lax" &&
+					(!context.topLevelNavigation ||
+						!["GET", "HEAD", "OPTIONS", "TRACE"].includes(
+							context.method.toUpperCase()
+						))
+				)
+					continue;
+			}
 
 			// RFC 6265 §5.1.4 path-match: the cookie's path must equal the
 			// request path, or be a prefix of it that ends on a "/" boundary.
@@ -91,17 +145,20 @@ export class CookieStore {
 			// here (setCookies always stores one, but load()ed data may not) so
 			// a dotless entry can't bypass the check and match every host.
 			if (cookie.domain) {
-				const domain = cookie.domain.startsWith(".")
-					? cookie.domain.slice(1)
-					: cookie.domain;
-				if (url.hostname !== domain && !url.hostname.endsWith("." + domain))
+				const domain = cookie.domain.replace(/^\.+/, "").toLowerCase();
+				const hostname = url.hostname.toLowerCase();
+				if (cookie.hostOnly) {
+					if (hostname !== domain) continue;
+				} else if (!domainMatches(hostname, domain)) {
 					continue;
+				}
 			}
 
 			validCookies.push(cookie);
 		}
 
 		return validCookies
+			.sort((a, b) => (b.path?.length || 1) - (a.path?.length || 1))
 			.map((cookie) => `${cookie.name}=${cookie.value}`)
 			.join("; ");
 	}
@@ -114,7 +171,23 @@ export class CookieStore {
 		// branch returned the object without ever assigning it, so the worker's
 		// persisted cookies were silently dropped on every service-worker
 		// restart (session logins didn't survive until the site re-set them).
-		this.cookies = typeof cookies === "string" ? JSON.parse(cookies) : cookies;
+		const loaded: Record<string, Cookie> =
+			typeof cookies === "string" ? JSON.parse(cookies) : cookies;
+		const normalized: Record<string, Cookie> = Object.create(null);
+		for (const cookie of Object.values(loaded || {})) {
+			if (!cookie || !cookie.name || !cookie.domain) continue;
+			cookie.domain = cookie.domain.replace(/^\.+/, "").toLowerCase();
+			cookie.path ||= "/";
+			cookie.hostOnly ??= false;
+			cookie.sameSite = cookie.sameSite?.toLowerCase() as Cookie["sameSite"];
+			if (
+				!(["strict", "lax", "none"] as string[]).includes(cookie.sameSite) ||
+				(cookie.sameSite === "none" && !cookie.secure)
+			)
+				cookie.sameSite = "lax";
+			normalized[this.cookieId(cookie)] = cookie;
+		}
+		this.cookies = normalized;
 	}
 
 	dump(): string {
