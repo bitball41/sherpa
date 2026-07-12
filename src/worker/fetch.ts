@@ -4,6 +4,7 @@ import { renderError } from "@/worker/error";
 import { CookieStore } from "@/shared/cookie";
 
 import { getSiteDirective } from "@/shared/security/siteTests";
+import { isSameSiteContext } from "@/shared/security/siteContext";
 import {
 	initializeTracker,
 	updateTracker,
@@ -376,8 +377,10 @@ export async function handleFetch(
 
 		const cookies = shouldSendCookies(requestContext)
 			? this.cookieStore.getCookies(url, false, {
-					sameSite:
-						siteDirective === "same-origin" || siteDirective === "same-site",
+					// A "none" directive (address bar / bookmark / stripped referrer)
+					// is a first-party context for the target, so Strict cookies must
+					// flow; only "cross-site" restricts SameSite cookies.
+					sameSite: isSameSiteContext(siteDirective),
 					topLevelNavigation:
 						request.destination === "document" || isTopLevelProxyNavigation,
 					method: requestContext.method,
