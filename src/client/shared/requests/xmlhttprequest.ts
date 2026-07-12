@@ -22,8 +22,15 @@ export default function (client: SherpaClient, self: Self) {
 
 	client.Proxy("XMLHttpRequest.prototype.setRequestHeader", {
 		apply(ctx) {
-			const headers = ctx.this[HEADERS] || (ctx.this[HEADERS] = {});
-			headers[ctx.args[0]] = ctx.args[1];
+			// Let the browser validate the header name/value first. Recording before
+			// the native call allowed a caught forbidden-header exception to smuggle
+			// that header into the helper worker.
+			ctx.call();
+			const headers =
+				ctx.this[HEADERS] || (ctx.this[HEADERS] = Object.create(null));
+			const name = String(ctx.args[0]).toLowerCase();
+			const value = String(ctx.args[1]);
+			headers[name] = headers[name] ? `${headers[name]}, ${value}` : value;
 		},
 	});
 
@@ -69,6 +76,15 @@ export default function (client: SherpaClient, self: Self) {
 			const headersab = new Uint8Array(headersLength);
 			headersab.set(new Uint8Array(sab.slice(7, 7 + headersLength)));
 			const headers = new TextDecoder().decode(headersab);
+			const parsedHeaders = new Map<string, string>();
+			for (const line of headers.split(/\r?\n/)) {
+				const colon = line.indexOf(":");
+				if (colon <= 0) continue;
+				const name = line.slice(0, colon).trim().toLowerCase();
+				const value = line.slice(colon + 1).trim();
+				const previous = parsedHeaders.get(name);
+				parsedHeaders.set(name, previous ? `${previous}, ${value}` : value);
+			}
 
 			const bodyLength = view.getUint32(7 + headersLength);
 			const bodyab = new Uint8Array(bodyLength);
@@ -112,10 +128,7 @@ export default function (client: SherpaClient, self: Self) {
 			client.RawTrap(ctx.this, "getResponseHeader", {
 				get() {
 					return (header: string) => {
-						const re = new RegExp(`^${header}: (.*)$`, "m");
-						const match = re.exec(headers);
-
-						return match ? match[1] : null;
+						return parsedHeaders.get(String(header).toLowerCase()) ?? null;
 					};
 				},
 			});
