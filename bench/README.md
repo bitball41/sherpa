@@ -1,5 +1,11 @@
 # Sherpa vs Scramjet — performance benchmarks
 
+> Looking for _what bottlenecks Sherpa itself_ rather than how it compares
+> to upstream? See [`bottleneck/`](bottleneck/README.md) — phase attribution
+> for full proxied page loads (direct-vs-proxied, per-request SW timing,
+> client boot cost, shaped-network and repeat-visit runs) with a ranked
+> list of the remaining structural costs.
+
 Reproducible benchmarks comparing Sherpa against **upstream Scramjet 1.x**,
 the engine Sherpa forked from. Two baselines are used, and they are the same
 code (upstream's v1 line is frozen):
