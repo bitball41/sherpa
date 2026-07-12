@@ -67,11 +67,13 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 	if (["document", "iframe"].includes(destination)) {
 		const header = responseHeaders["content-disposition"];
 		if (header) {
-			if (header === "inline") {
-				return false; // force it to show in browser
-			} else {
-				return true;
-			}
+			// Content-Disposition is `<type>[; params]`; only the leading type
+			// token decides inline vs. attachment. Comparing the whole header to
+			// "inline" missed the common `inline; filename="..."` form (e.g. a PDF
+			// a server wants shown in-browser) and forced it into a download.
+			const dispositionType = header.split(";")[0].trim().toLowerCase();
+
+			return dispositionType !== "inline";
 		} else {
 			// check mime type as fallback
 			const contentType = responseHeaders["content-type"]

@@ -79,7 +79,16 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (!descriptor?.get) continue;
 			Object.defineProperty(element.prototype, attr, {
 				get() {
-					if (["src", "data", "href", "action", "formaction"].includes(attr)) {
+					// These all reflect a single resolved (absolute) URL, so the
+					// page-facing getter must unrewrite it back. `poster` (on
+					// <video>) is rewritten by htmlRules just like the rest but was
+					// missing here, so reading `video.poster` handed back the proxied
+					// URL instead of the real one.
+					if (
+						["src", "data", "href", "action", "formaction", "poster"].includes(
+							attr
+						)
+					) {
 						return unrewriteUrl(descriptor.get.call(this));
 					}
 

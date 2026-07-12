@@ -187,6 +187,37 @@ test("expiry dates are stored in timezone-agnostic ISO form", () => {
 	}
 });
 
+test("load() restores a jar from an already-parsed object (SW/IndexedDB path)", () => {
+	// The service worker persists the jar to IndexedDB and restores it as a
+	// structured-cloned object (not a string). load() must accept that shape;
+	// the old early return on objects silently dropped the whole jar, so
+	// cookies did not survive a service-worker restart.
+	const source = new CookieStore();
+	source.setCookies(["a=1; Path=/", "b=2; Path=/"], new URL("https://example.com/"));
+	const persisted = JSON.parse(source.dump()); // what db.get() hands back
+
+	const restored = new CookieStore();
+	restored.load(persisted);
+
+	assert.equal(
+		restored.getCookies(new URL("https://example.com/"), false),
+		"a=1; b=2"
+	);
+});
+
+test("dump()/load() round-trips through a JSON string (client path)", () => {
+	const source = new CookieStore();
+	source.setCookies(["sess=xyz; Path=/"], new URL("https://example.com/"));
+
+	const restored = new CookieStore();
+	restored.load(source.dump()); // a string, as injected via self.COOKIE
+
+	assert.equal(
+		restored.getCookies(new URL("https://example.com/"), false),
+		"sess=xyz"
+	);
+});
+
 test("a dotless domain from loaded data is still domain-checked", () => {
 	const store = new CookieStore();
 	// simulate an externally produced jar entry whose domain lacks the

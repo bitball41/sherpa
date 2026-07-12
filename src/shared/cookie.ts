@@ -106,9 +106,15 @@ export class CookieStore {
 			.join("; ");
 	}
 
-	load(cookies: string) {
-		if (typeof cookies === "object") return cookies;
-		this.cookies = JSON.parse(cookies);
+	load(cookies: string | Record<string, Cookie>) {
+		// The jar is persisted two different ways: the client injects it as a
+		// JSON string (`self.COOKIE`), while the service worker restores it from
+		// IndexedDB, where it round-trips back as an already-structured object.
+		// Both have to land in `this.cookies` — the old `typeof === "object"`
+		// branch returned the object without ever assigning it, so the worker's
+		// persisted cookies were silently dropped on every service-worker
+		// restart (session logins didn't survive until the site re-set them).
+		this.cookies = typeof cookies === "string" ? JSON.parse(cookies) : cookies;
 	}
 
 	dump(): string {
