@@ -29,6 +29,33 @@ use crate::{
 // maybe move this out of this lib?
 const UNSAFE_GLOBALS: &[&str] = &["parent", "top", "location", "eval"];
 
+fn is_url_like_specifier(specifier: &str) -> bool {
+	if specifier.starts_with('/')
+		|| specifier.starts_with("./")
+		|| specifier.starts_with("../")
+	{
+		return true;
+	}
+
+	let mut bytes = specifier.bytes();
+	let Some(first) = bytes.next() else {
+		return false;
+	};
+	if !first.is_ascii_alphabetic() {
+		return false;
+	}
+	for byte in bytes {
+		if byte == b':' {
+			return true;
+		}
+		if !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')) {
+			return false;
+		}
+	}
+
+	false
+}
+
 pub struct Visitor<'alloc, 'data, E>
 where
 	E: UrlRewriter,
@@ -515,12 +542,7 @@ where
 	}
 
 	fn visit_import_declaration(&mut self, it: &ImportDeclaration<'data>) {
-		let str = it.source.to_string();
-		if str.contains(":")
-			|| str.starts_with("/")
-			|| str.starts_with(".")
-			|| str.starts_with("..")
-		{
+		if is_url_like_specifier(it.source.value.as_str()) {
 			self.rewrite_url(&it.source, true);
 		}
 		walk::walk_import_declaration(self, it);
@@ -534,11 +556,15 @@ where
 	}
 
 	fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'data>) {
-		self.rewrite_url(&it.source, true);
+		if is_url_like_specifier(it.source.value.as_str()) {
+			self.rewrite_url(&it.source, true);
+		}
 	}
 	fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'data>) {
 		if let Some(source) = &it.source {
-			self.rewrite_url(source, true);
+			if is_url_like_specifier(source.value.as_str()) {
+				self.rewrite_url(source, true);
+			}
 		}
 		// do not walk further, we don't want to rewrite the identifiers
 	}
@@ -883,5 +909,27 @@ where
 			_ => {}
 		}
 		walk::walk_expression(self, &it.right);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::is_url_like_specifier;
+
+	#[test]
+	fn distinguishes_urls_from_bare_module_specifiers() {
+		for specifier in [
+			"/app.js",
+			"./app.js",
+			"../app.js",
+			"https://cdn.test/app.js",
+			"data:text/javascript,export default 1",
+		] {
+			assert!(is_url_like_specifier(specifier), "{specifier}");
+		}
+
+		for specifier in ["react", "@scope/pkg", "pkg/name:part", "1bad:value"] {
+			assert!(!is_url_like_specifier(specifier), "{specifier}");
+		}
 	}
 }
