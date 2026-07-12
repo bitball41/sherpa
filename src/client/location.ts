@@ -56,7 +56,9 @@ export function createLocationProxy(
 						return;
 					}
 					if (prop === "hash") {
-						self.location.hash = args[0];
+						const url = new URL(client.url.href);
+						url.hash = args[0];
+						client.url = url;
 						const ev = new UrlChangeEvent(client.url.href);
 						if (!client.isSubframe) client.frame?.dispatchEvent(ev);
 
