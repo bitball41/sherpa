@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { rewriteImportMap } from "../../src/shared/rewriters/importMap.ts";
+import {
+	isUrlLikeSpecifier,
+	rewriteImportMap,
+} from "../../src/shared/rewriters/importMap.ts";
 
 const mark = (url) => `proxy:${url}`;
 
@@ -17,13 +20,34 @@ test("rewrites top-level imports while preserving null and invalid entries", () 
 
 	assert.equal(rewriteImportMap(map, mark), map);
 	assert.deepEqual(map, {
-		imports: {
+		imports: Object.assign(Object.create(null), {
 			app: "proxy:/app.js",
 			blocked: null,
 			invalid: 42,
-		},
+		}),
 		custom: { untouched: true },
 	});
+	assert.equal(Object.getPrototypeOf(map.imports), null);
+});
+
+test("rewrites URL-like specifier keys but preserves bare keys", () => {
+	const map = {
+		imports: {
+			react: "/vendor/react.js",
+			"/legacy/": "/modern/",
+			"https://cdn.test/old.js": "https://cdn.test/new.js",
+		},
+	};
+
+	rewriteImportMap(map, mark);
+	assert.deepEqual(
+		{ ...map.imports },
+		{
+			react: "proxy:/vendor/react.js",
+			"proxy:/legacy/": "proxy:/modern/",
+			"proxy:https://cdn.test/old.js": "proxy:https://cdn.test/new.js",
+		}
+	);
 });
 
 test("rewrites scope prefixes and every scoped target", () => {
@@ -36,7 +60,12 @@ test("rewrites scope prefixes and every scoped target", () => {
 
 	rewriteImportMap(map, mark);
 	assert.deepEqual(
-		{ ...map.scopes },
+		Object.fromEntries(
+			Object.entries(map.scopes).map(([scope, specifiers]) => [
+				scope,
+				{ ...specifiers },
+			])
+		),
 		{
 			"proxy:/app/": { lib: "proxy:./lib-v2.js", blocked: null },
 			"proxy:https://cdn.test/": { lib: "proxy:https://cdn.test/lib.js" },
@@ -66,4 +95,13 @@ test("ignores non-object import-map sections and non-object roots", () => {
 	assert.equal(rewriteImportMap(map, mark), map);
 	assert.deepEqual(map, { imports: [], scopes: null, integrity: "invalid" });
 	assert.equal(rewriteImportMap(null, mark), null);
+});
+
+test("classifies only path and valid-scheme specifiers as URLs", () => {
+	for (const value of ["/x", "./x", "../x", "https://x.test", "node:fs"]) {
+		assert.equal(isUrlLikeSpecifier(value), true, value);
+	}
+	for (const value of ["react", "@scope/pkg", "pkg/name:part", "1bad:x"]) {
+		assert.equal(isUrlLikeSpecifier(value), false, value);
+	}
 });
