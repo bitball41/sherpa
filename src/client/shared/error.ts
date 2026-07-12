@@ -15,11 +15,17 @@ export default function (client: SherpaClient, _self: Self) {
 
 			try {
 				if (url.endsWith(config.files.all)) {
-					// strip stack frames including sherpa handlers from the trace
+					// strip stack frames including sherpa handlers from the trace.
+					// `Array.prototype.find` returns the matching line *string*, and
+					// `splice(<string>, 1)` coerces it to NaN → 0, so this used to
+					// delete the first stack line (usually the error message) and
+					// leave the sherpa frame in place. Match by index instead.
 					const lines = newstack.split("\n");
-					const line = lines.find((l) => l.includes(url));
-					lines.splice(line, 1);
-					newstack = lines.join("\n");
+					const idx = lines.findIndex((l) => l.includes(url));
+					if (idx !== -1) {
+						lines.splice(idx, 1);
+						newstack = lines.join("\n");
+					}
 					continue;
 				}
 			} catch {}

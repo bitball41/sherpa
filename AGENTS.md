@@ -441,6 +441,57 @@ clean and the full `test:unit` suite green (60 assertions, 6 new).
   (proxied `url()`s leaking to the page) — asymmetric with both its own setter
   and the neighboring `textContent` trap. Now `unrewriteCss`, matching them.
 
+### Correctness sweep — cookie persistence, reflected getters, small fixes
+
+A full read-through of `src/` (every file) turned up a handful of concrete
+defects, each fixed. Verified `build` (rspack) + `build:types` (rslib
+typecheck) + `lint` clean and `test:unit` green (62 assertions, 2 new). The
+env has no Rust toolchain, so the `rewriter/wasm/out/` glue was reconstructed
+from `dist/sherpa.bundle.js.map`'s `sourcesContent` (per the note under "What's
+NOT done yet" / Environment) plus a hand-written `wasm.d.ts`; the committed
+`.wasm` is unchanged (no Rust touched).
+
+- **Cookie persistence across service-worker restarts was silently broken**
+  (`src/shared/cookie.ts`). `CookieStore.load()` did `if (typeof cookies ===
+"object") return cookies;` — returning the object **without ever assigning
+  `this.cookies`**. The client injects the jar as a JSON *string* (works), but
+  the service worker restores it from IndexedDB where it comes back as a
+  structured-cloned *object*, so the worker's persisted jar was dropped on
+  every SW restart (a session-cookie login didn't survive until the site
+  re-set it). Now assigns for both shapes. Covered by two new
+  `tests/unit/cookie.test.mjs` fixtures (the object/SW path and the
+  string/client round-trip); the existing suite only ever exercised the string
+  path, which is why this slipped through.
+- **`video.poster` handed the page a proxied URL**
+  (`src/client/dom/element.ts`). `htmlRules` rewrites `poster` on `<video>`,
+  and the reflected-getter install loop covers it, but the getter only
+  unrewrote `src`/`data`/`href`/`action`/`formaction` — so reading
+  `video.poster` returned the proxied absolute URL. Added `poster` to the
+  unrewrite set (same class of fix as the `input`/`track`/`area` pass above).
+- **`cleanErrors` stack scrubbing deleted the wrong line**
+  (`src/client/shared/error.ts`). It did `const line = lines.find(...);
+lines.splice(line, 1)` — `find` returns the matched *string*, and
+  `splice("<string>", 1)` coerces the index to `NaN → 0`, so it removed the
+  first stack line (usually the error message) and left the Sherpa frame in
+  place. Now uses `findIndex` with an `idx !== -1` guard. (Behind the
+  `cleanErrors` flag, off by default.)
+- **`navigator.serviceWorker.getRegistrations()` returned `[undefined]`**
+  (`src/client/dom/serviceworker.ts`) when nothing was registered, so a site
+  iterating the result threw on `undefined.scope`. Now resolves `[]` in that
+  case (spec returns an array of registrations).
+- **`Content-Disposition: inline; filename="…"` was force-downloaded**
+  (`src/worker/fetch.ts`). `isDownload` compared the whole header to the string
+  `"inline"`, so only a bare `inline` showed in-browser; the common
+  `inline; filename="doc.pdf"` form (a server asking for in-browser display)
+  fell through to the download path. Now parses the leading disposition *type*
+  token, so `inline`/`inline; …` display and `attachment`/anything-else
+  download, matching the grammar.
+- **Removed a rebrand-straggler console warning** (`src/controller/index.ts`)
+  that told every Sherpa user "you are using the last version of sherpa v1 …
+  please upgrade to v2" — Sherpa deliberately forks the 1.x line and there is
+  no Sherpa v2, so the message was actively misleading on every controller
+  load.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

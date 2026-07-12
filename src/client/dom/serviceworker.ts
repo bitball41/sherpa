@@ -51,7 +51,10 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("ServiceWorkerContainer.prototype.getRegistrations", {
 		apply(ctx) {
-			ctx.return(new Promise((resolve) => resolve([registration])));
+			// Resolve to an empty list when nothing is registered rather than
+			// `[undefined]` — the spec returns an array of registrations, and a
+			// site iterating the result would otherwise throw on `undefined.scope`.
+			ctx.return(Promise.resolve(registration ? [registration] : []));
 		},
 	});
 
