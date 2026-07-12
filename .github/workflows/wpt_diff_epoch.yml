@@ -85,16 +85,13 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rewriter"
-          cache-all-crates: true
           env-vars: "CARGO CC CFLAGS CXX CMAKE RUST WASM_BINDGEN"
-          cache-targets: true
-          cache-bin: true
 
       - name: Setup Rust toolchain
         run: |
@@ -184,7 +181,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Checkout WPT-diff
         uses: actions/checkout@v4
