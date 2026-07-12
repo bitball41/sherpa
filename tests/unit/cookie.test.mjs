@@ -82,6 +82,48 @@ test("domain-match does not leak a cookie onto a look-alike host", () => {
 	assert.equal(store.getCookies(new URL("https://notexample.com/"), false), "");
 });
 
+test("a cookie without Domain is host-only", () => {
+	const store = new CookieStore();
+	store.setCookies(["a=1"], new URL("https://example.com/account/login"));
+
+	assert.equal(
+		store.getCookies(new URL("https://example.com/account/home"), false),
+		"a=1"
+	);
+	assert.equal(
+		store.getCookies(new URL("https://sub.example.com/account/home"), false),
+		""
+	);
+});
+
+test("rejects a Domain attribute unrelated to the response host", () => {
+	const store = new CookieStore();
+	store.setCookies(
+		["poison=1; Domain=evil.test; Path=/"],
+		new URL("https://example.com/")
+	);
+
+	assert.equal(store.getCookies(new URL("https://evil.test/"), false), "");
+	assert.equal(store.dump(), "{}");
+});
+
+test("normalizes Domain case and applies the RFC default path", () => {
+	const store = new CookieStore();
+	store.setCookies(
+		["a=1; Domain=EXAMPLE.COM"],
+		new URL("https://example.com/docs/page.html")
+	);
+
+	assert.equal(
+		store.getCookies(new URL("https://sub.example.com/docs/next"), false),
+		"a=1"
+	);
+	assert.equal(
+		store.getCookies(new URL("https://example.com/other"), false),
+		""
+	);
+});
+
 test("Max-Age=0 deletes a cookie instead of serving it forever", () => {
 	const store = new CookieStore();
 	const url = new URL("https://example.com/");
@@ -99,6 +141,16 @@ test("a positive Max-Age keeps the cookie valid (and overrides it)", () => {
 	const url = new URL("https://example.com/");
 
 	store.setCookies(["a=1; Path=/; Max-Age=3600"], url);
+	assert.equal(store.getCookies(url, false), "a=1");
+});
+
+test("a very large finite Max-Age is clamped to a valid date", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+
+	assert.doesNotThrow(() =>
+		store.setCookies(["a=1; Path=/; Max-Age=1e300"], url)
+	);
 	assert.equal(store.getCookies(url, false), "a=1");
 });
 
@@ -127,6 +179,76 @@ test("secure cookies are withheld from http and httpOnly from JS reads", () => {
 		cookieNames(store.getCookies(new URL("https://example.com/"), true)),
 		["s"]
 	);
+});
+
+test("rejects Secure cookies received over an insecure connection", () => {
+	const store = new CookieStore();
+	store.setCookies(["s=1; Path=/; Secure"], new URL("http://example.com/"));
+
+	assert.equal(store.getCookies(new URL("https://example.com/"), false), "");
+});
+
+test("document.cookie cannot create or overwrite HttpOnly cookies", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+	store.setCookies(["secret=server; Path=/; HttpOnly"], url);
+	store.setCookies(["created=js; Path=/; HttpOnly"], url, true);
+	store.setCookies(["secret=overwritten; Path=/"], url, true);
+
+	assert.equal(store.getCookies(url, true), "");
+	assert.equal(store.getCookies(url, false), "secret=server");
+});
+
+test("SameSite cookies are filtered for cross-site subresources and navigations", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+	store.setCookies(
+		[
+			"strict=1; Path=/; SameSite=Strict",
+			"lax=1; Path=/; SameSite=Lax",
+			"none=1; Path=/; SameSite=None; Secure",
+		],
+		url
+	);
+
+	assert.deepEqual(
+		cookieNames(
+			store.getCookies(url, false, {
+				sameSite: false,
+				topLevelNavigation: false,
+				method: "GET",
+			})
+		),
+		["none"]
+	);
+	assert.deepEqual(
+		cookieNames(
+			store.getCookies(url, false, {
+				sameSite: false,
+				topLevelNavigation: true,
+				method: "GET",
+			})
+		),
+		["lax", "none"]
+	);
+	assert.deepEqual(
+		cookieNames(
+			store.getCookies(url, false, {
+				sameSite: false,
+				topLevelNavigation: true,
+				method: "POST",
+			})
+		),
+		["none"]
+	);
+});
+
+test("SameSite=None without Secure is rejected", () => {
+	const store = new CookieStore();
+	const url = new URL("https://example.com/");
+	store.setCookies(["bad=1; SameSite=None"], url);
+
+	assert.equal(store.getCookies(url, false), "");
 });
 
 test("a malformed Set-Cookie header does not poison the jar", () => {
@@ -193,7 +315,10 @@ test("load() restores a jar from an already-parsed object (SW/IndexedDB path)", 
 	// the old early return on objects silently dropped the whole jar, so
 	// cookies did not survive a service-worker restart.
 	const source = new CookieStore();
-	source.setCookies(["a=1; Path=/", "b=2; Path=/"], new URL("https://example.com/"));
+	source.setCookies(
+		["a=1; Path=/", "b=2; Path=/"],
+		new URL("https://example.com/")
+	);
 	const persisted = JSON.parse(source.dump()); // what db.get() hands back
 
 	const restored = new CookieStore();
@@ -241,4 +366,21 @@ test("a dotless domain from loaded data is still domain-checked", () => {
 	// without the guard this leaked to every host
 	assert.equal(store.getCookies(new URL("https://evil.com/"), false), "");
 	assert.equal(store.getCookies(new URL("https://notexample.com/"), false), "");
+});
+
+test("load normalizes legacy dotted-domain keys before later replacement", () => {
+	const url = new URL("https://example.com/");
+	const store = new CookieStore();
+	store.load({
+		".example.com@/@a": {
+			name: "a",
+			value: "old",
+			domain: ".EXAMPLE.COM",
+			path: "/",
+		},
+	});
+
+	store.setCookies(["a=new; Domain=example.com; Path=/"], url);
+	assert.equal(store.getCookies(url, false), "a=new");
+	assert.equal(Object.keys(JSON.parse(store.dump())).length, 1);
 });
