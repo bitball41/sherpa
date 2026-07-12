@@ -1,9 +1,9 @@
-export function storagePrefix(host: string): string {
-	return `${host}@`;
+export function storagePrefix(origin: string): string {
+	return `${origin}@`;
 }
 
-export function storageKeys(storage: Storage, host: string): string[] {
-	const prefix = storagePrefix(host);
+export function storageKeys(storage: Storage, origin: string): string[] {
+	const prefix = storagePrefix(origin);
 	const keys: string[] = [];
 
 	for (let index = 0; index < storage.length; index++) {
@@ -14,6 +14,11 @@ export function storageKeys(storage: Storage, host: string): string[] {
 	return keys;
 }
 
-export function unprefixStorageKey(key: string, host: string): string {
-	return key.slice(storagePrefix(host).length);
+export function unprefixStorageKey(key: string, origin: string): string {
+	return key.slice(storagePrefix(origin).length);
+}
+
+/** A collision-free, filesystem-safe OPFS directory for one virtual origin. */
+export function storageDirectoryName(origin: string): string {
+	return `sherpa-${encodeURIComponent(origin)}`;
 }
