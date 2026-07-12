@@ -1,16 +1,19 @@
 import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
+import { storagePrefix, unprefixStorageKey } from "@/shared/storage";
 
 export default function (client: SherpaClient, _self: Self) {
+	const prefix = storagePrefix(client.url.origin);
+
 	client.Proxy("CacheStorage.prototype.open", {
 		apply(ctx) {
-			ctx.args[0] = `${client.url.origin}@${ctx.args[0]}`;
+			ctx.args[0] = prefix + ctx.args[0];
 		},
 	});
 
 	client.Proxy("CacheStorage.prototype.has", {
 		apply(ctx) {
-			ctx.args[0] = `${client.url.origin}@${ctx.args[0]}`;
+			ctx.args[0] = prefix + ctx.args[0];
 		},
 	});
 
@@ -24,7 +27,20 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("CacheStorage.prototype.delete", {
 		apply(ctx) {
-			ctx.args[0] = `${client.url.origin}@${ctx.args[0]}`;
+			ctx.args[0] = prefix + ctx.args[0];
+		},
+	});
+
+	client.Proxy("CacheStorage.prototype.keys", {
+		apply(ctx) {
+			const result = ctx.call() as Promise<string[]>;
+			ctx.return(
+				result.then((names) =>
+					names
+						.filter((name) => name.startsWith(prefix))
+						.map((name) => unprefixStorageKey(name, client.url.origin))
+				)
+			);
 		},
 	});
 

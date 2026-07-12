@@ -6,7 +6,6 @@ import fastifyStatic from "@fastify/static";
 import { join } from "node:path";
 import rspackConfig from "./rspack.config.js";
 import { rspack } from "@rspack/core";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { server as wisp } from "@mercuryworkshop/wisp-js/server";
 
@@ -15,7 +14,7 @@ import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
-import { chmodSync, mkdirSync, writeFileSync } from "fs";
+import { chmodSync, writeFileSync } from "fs";
 
 const bare = createBareServer("/bare/", {
 	logErrors: true,
@@ -84,15 +83,16 @@ fastify.register(fastifyStatic, {
 });
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) || 1337 : 1337;
-
-fastify.listen({
-	port: PORT,
-	host: "0.0.0.0",
-});
+const HOST = process.env.HOST || "0.0.0.0";
 
 fastify.setNotFoundHandler((request, reply) => {
 	console.error("PAGE PUNCHED THROUGH SW - " + request.url);
 	reply.code(593).send("punch through");
+});
+
+await fastify.listen({
+	port: PORT,
+	host: HOST,
 });
 console.log(`Listening on http://localhost:${PORT}/`);
 if (!process.env.CI) {

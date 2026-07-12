@@ -5,6 +5,7 @@ import type {
 	BareResponseFetch,
 } from "@mercuryworkshop/bare-mux";
 import { getDB } from "@/shared/security/db";
+import { isIpAddress } from "@/shared/security/siteDomain";
 
 // Cache every hour
 const CACHE_DURATION_MINUTES = 60;
@@ -123,6 +124,10 @@ export async function isSameSite(
 	url2: URL,
 	client: BareClient
 ): Promise<boolean> {
+	// Modern site computation is schemeful: http://example.com and
+	// https://example.com are cross-site even though they share an eTLD+1.
+	if (url1.protocol !== url2.protocol) return false;
+
 	const registrableDomain1 = await getRegistrableDomain(url1, client);
 	const registrableDomain2 = await getRegistrableDomain(url2, client);
 
@@ -164,6 +169,8 @@ function computeRegistrableDomain(
 	hostname: string,
 	index: SuffixIndex | null
 ): string {
+	if (isIpAddress(hostname)) return hostname;
+
 	const labels = hostname.split(".");
 	if (!index) return labels.slice(-2).join(".");
 
@@ -256,6 +263,14 @@ async function fetchPublicSuffixList(client: BareClient): Promise<string[]> {
 		);
 	} catch (err) {
 		throw new Error(`Failed to fetch public suffix list: ${err}`);
+	}
+	if (
+		publicSuffixesResponse.status < 200 ||
+		publicSuffixesResponse.status >= 300
+	) {
+		throw new Error(
+			`Public suffix list returned HTTP ${publicSuffixesResponse.status}`
+		);
 	}
 	const publicSuffixesRaw = await publicSuffixesResponse.text();
 

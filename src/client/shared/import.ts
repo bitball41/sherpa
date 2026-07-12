@@ -2,6 +2,7 @@ import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { isUrlLikeSpecifier } from "@rewriters/importMap";
 
 export default function (client: SherpaClient, self: Self) {
 	const boundimport = client.natives.call(
@@ -15,12 +16,7 @@ export default function (client: SherpaClient, self: Self) {
 		value: function (base: string, url: string) {
 			const resolved = new URL(url, base).href;
 
-			if (
-				url.includes(":") ||
-				url.startsWith("/") ||
-				url.startsWith(".") ||
-				url.startsWith("..")
-			) {
+			if (isUrlLikeSpecifier(url)) {
 				// this is a url
 				return boundimport(
 					appendUrlParams(rewriteUrl(resolved, client.meta), {

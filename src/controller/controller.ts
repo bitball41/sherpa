@@ -11,8 +11,9 @@ import { decodeProxyUrl, encodeProxyUrl } from "@/shared/urlCodec";
 import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
 import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
-import { openDB, IDBPDatabase } from "idb";
+import { IDBPDatabase } from "idb";
 import { SherpaGlobalDownloadEvent, SherpaGlobalEvents } from "@client/events";
+import { getDB } from "@/shared/security/db";
 
 export class SherpaController extends EventTarget {
 	private db: IDBPDatabase<SherpaDB>;
@@ -86,7 +87,12 @@ export class SherpaController extends EventTarget {
 		dbg.log("config loaded");
 
 		navigator.serviceWorker.addEventListener("message", (e) => {
-			if (!("sherpa$type" in e.data)) return;
+			if (
+				typeof e.data !== "object" ||
+				e.data === null ||
+				!("sherpa$type" in e.data)
+			)
+				return;
 			const data: MessageW2C = e.data;
 
 			if (data.sherpa$type === "download") {
@@ -137,25 +143,7 @@ export class SherpaController extends EventTarget {
 	}
 
 	async openIDB(): Promise<IDBPDatabase<SherpaDB>> {
-		const db = await openDB<SherpaDB>("$sherpa", 1, {
-			upgrade(db) {
-				if (!db.objectStoreNames.contains("config")) {
-					db.createObjectStore("config");
-				}
-				if (!db.objectStoreNames.contains("cookies")) {
-					db.createObjectStore("cookies");
-				}
-				if (!db.objectStoreNames.contains("redirectTrackers")) {
-					db.createObjectStore("redirectTrackers");
-				}
-				if (!db.objectStoreNames.contains("referrerPolicies")) {
-					db.createObjectStore("referrerPolicies");
-				}
-				if (!db.objectStoreNames.contains("publicSuffixList")) {
-					db.createObjectStore("publicSuffixList");
-				}
-			},
-		});
+		const db = await getDB();
 
 		this.db = db;
 		await this.#saveConfig();

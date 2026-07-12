@@ -12,7 +12,11 @@ export class FakeServiceWorker {
 		public scope: string
 	) {
 		this.messageChannel.port1.addEventListener("message", (event) => {
-			if ("sherpa$type" in event.data) {
+			if (
+				typeof event.data === "object" &&
+				event.data !== null &&
+				"sherpa$type" in event.data
+			) {
 				if (event.data.sherpa$type === "init") {
 					this.connected = true;
 				} else {
@@ -41,29 +45,35 @@ export class FakeServiceWorker {
 
 	async fetch(request: Request): Promise<Response | false> {
 		const token = this.syncToken++;
+		// Transferring a stream detaches it. Transfer a clone so falling through to
+		// the normal transport still has the original request body available.
+		const clonedRequest = request.clone();
 
 		const message: MessageW2R = {
 			sherpa$type: "fetch",
 			sherpa$token: token,
 			sherpa$request: {
-				url: request.url,
-				body: request.body,
-				headers: Array.from(request.headers.entries()),
-				method: request.method,
-				mode: request.mode,
-				destinitation: request.destination,
+				url: clonedRequest.url,
+				body: clonedRequest.body,
+				headers: Array.from(clonedRequest.headers.entries()),
+				method: clonedRequest.method,
+				mode: clonedRequest.mode,
+				destinitation: clonedRequest.destination,
 			},
 		};
 
-		const transfer = request.body ? [request.body] : [];
-
+		const response = new Promise<MessageR2W>((resolve) => {
+			this.promises[token] = resolve;
+		});
+		const transfer = clonedRequest.body ? [clonedRequest.body] : [];
 		this.handle.postMessage(message, transfer);
 
-		const { sherpa$response: r } = (await new Promise((resolve) => {
-			this.promises[token] = resolve;
-		})) as MessageR2W;
+		const { sherpa$response: r } = await response;
 
 		if (!r) return false;
+		if ("error" in r) {
+			throw new Error(`nested service worker response failed: ${r.error}`);
+		}
 
 		return new Response(r.body, {
 			headers: r.headers,

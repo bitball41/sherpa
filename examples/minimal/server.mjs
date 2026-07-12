@@ -65,5 +65,6 @@ fastify.register(fastifyStatic, {
 });
 
 const PORT = Number(process.env.PORT) || 8989;
-fastify.listen({ port: PORT, host: "0.0.0.0" });
+const HOST = process.env.HOST || "0.0.0.0";
+await fastify.listen({ port: PORT, host: HOST });
 console.log(`Sherpa minimal example → http://localhost:${PORT}/`);

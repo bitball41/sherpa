@@ -5,7 +5,8 @@ export default function (client: SherpaClient, self: typeof window) {
 	client.serviceWorker.addEventListener(
 		"message",
 		({ data }: { data: MessageW2C }) => {
-			if (!("sherpa$type" in data)) return;
+			if (typeof data !== "object" || data === null || !("sherpa$type" in data))
+				return;
 
 			if (data.sherpa$type === "cookie") {
 				client.cookieStore.setCookies([data.cookie], new URL(data.url));
@@ -23,7 +24,7 @@ export default function (client: SherpaClient, self: typeof window) {
 			return client.cookieStore.getCookies(client.url, true);
 		},
 		set(ctx, value: string) {
-			client.cookieStore.setCookies([value], client.url);
+			client.cookieStore.setCookies([value], client.url, true);
 			const controller = client.descriptors.get(
 				"ServiceWorkerContainer.prototype.controller",
 				client.serviceWorker
@@ -33,6 +34,7 @@ export default function (client: SherpaClient, self: typeof window) {
 					sherpa$type: "cookie",
 					cookie: value,
 					url: client.url.href,
+					fromJs: true,
 				});
 			}
 		},

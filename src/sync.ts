@@ -26,19 +26,21 @@ addEventListener(
 
 		xhr.onload = () => {
 			let cursor = 1; // first byte is the lock
+			const encoder = new TextEncoder();
 
 			view.setUint16(cursor, xhr.status);
 			cursor += 2;
 
 			// next write the header string
 			const headers = xhr.getAllResponseHeaders();
-			view.setUint32(cursor, headers.length);
+			const encodedHeaders = encoder.encode(headers);
+			view.setUint32(cursor, encodedHeaders.byteLength);
 			cursor += 4;
 
-			if (sab.byteLength < cursor + headers.length)
-				sab.grow(cursor + headers.length);
-			u8view.set(new TextEncoder().encode(headers), cursor);
-			cursor += headers.length;
+			if (sab.byteLength < cursor + encodedHeaders.byteLength)
+				sab.grow(cursor + encodedHeaders.byteLength);
+			u8view.set(encodedHeaders, cursor);
+			cursor += encodedHeaders.byteLength;
 
 			view.setUint32(cursor, xhr.response.byteLength);
 			cursor += 4;

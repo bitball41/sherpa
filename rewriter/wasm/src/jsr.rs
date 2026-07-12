@@ -66,6 +66,16 @@ fn get_config(sherpa: &Object) -> Result<Config> {
 
 pub struct WasmUrlRewriter(Function);
 
+fn append_module_param(url: &mut String) {
+	let fragment = url.find('#').unwrap_or(url.len());
+	let separator = if url[..fragment].contains('?') {
+		"&type=module"
+	} else {
+		"?type=module"
+	};
+	url.insert_str(fragment, separator);
+}
+
 impl UrlRewriter for WasmUrlRewriter {
 	fn rewrite(
 		&self,
@@ -87,12 +97,31 @@ impl UrlRewriter for WasmUrlRewriter {
 			.ok_or_else(|| RewriterError::not_str("url rewriter output"))?;
 
 		if module {
-			rewritten.push_str("?type=module");
+			append_module_param(&mut rewritten);
 		}
 
 		builder.push_str(&rewritten);
 
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::append_module_param;
+
+	#[test]
+	fn module_param_precedes_fragments_and_preserves_queries() {
+		let mut plain = String::from("/proxy/encoded#fragment");
+		append_module_param(&mut plain);
+		assert_eq!(plain, "/proxy/encoded?type=module#fragment");
+
+		let mut queried = String::from("/proxy/encoded?dest=script#fragment");
+		append_module_param(&mut queried);
+		assert_eq!(
+			queried,
+			"/proxy/encoded?dest=script&type=module#fragment"
+		);
 	}
 }
 

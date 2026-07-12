@@ -1,18 +1,25 @@
 import { findHtmlRule } from "@/shared/htmlRules";
 import { rewriteCss, unrewriteCss } from "@rewriters/css";
-import { rewriteHtml, unrewriteHtml } from "@rewriters/html";
+import { isEventAttribute, rewriteHtml, unrewriteHtml } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
 function bytesToBase64(bytes: Uint8Array) {
 	const binString = Array.from(bytes, (byte) =>
 		String.fromCodePoint(byte)
 	).join("");
 
 	return btoa(binString);
+}
+function base64ToString(value: string): string {
+	return decoder.decode(
+		Uint8Array.from(atob(value), (char) => char.charCodeAt(0))
+	);
 }
 export default function (client: SherpaClient, self: typeof window) {
 	const attrObject = {
@@ -38,10 +45,15 @@ export default function (client: SherpaClient, self: typeof window) {
 		href: [self.HTMLAnchorElement, self.HTMLLinkElement, self.HTMLAreaElement],
 		data: [self.HTMLObjectElement],
 		action: [self.HTMLFormElement],
-		formaction: [self.HTMLButtonElement, self.HTMLInputElement],
+		formAction: [self.HTMLButtonElement, self.HTMLInputElement],
 		srcdoc: [self.HTMLIFrameElement],
 		poster: [self.HTMLVideoElement],
-		imagesrcset: [self.HTMLLinkElement],
+		imageSrcset: [self.HTMLLinkElement],
+		srcset: [self.HTMLImageElement, self.HTMLSourceElement],
+	};
+	const propertyAttributes = {
+		formAction: "formaction",
+		imageSrcset: "imagesrcset",
 	};
 
 	const urlinterfaces = [
@@ -65,8 +77,9 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	const attrs = Object.keys(attrObject);
 
-	for (const attr of attrs) {
-		for (const element of attrObject[attr]) {
+	for (const prop of attrs) {
+		const attribute = propertyAttributes[prop] || prop;
+		for (const element of attrObject[prop]) {
 			// A constructor may be absent (older engines) or not carry the attr;
 			// skip rather than throwing from the getter later and breaking hook().
 			if (!element) continue;
@@ -74,10 +87,10 @@ export default function (client: SherpaClient, self: typeof window) {
 				"Object.getOwnPropertyDescriptor",
 				null,
 				element.prototype,
-				attr
+				prop
 			);
 			if (!descriptor?.get) continue;
-			Object.defineProperty(element.prototype, attr, {
+			Object.defineProperty(element.prototype, prop, {
 				get() {
 					// These all reflect a single resolved (absolute) URL, so the
 					// page-facing getter must unrewrite it back. `poster` (on
@@ -85,18 +98,30 @@ export default function (client: SherpaClient, self: typeof window) {
 					// missing here, so reading `video.poster` handed back the proxied
 					// URL instead of the real one.
 					if (
-						["src", "data", "href", "action", "formaction", "poster"].includes(
-							attr
+						["src", "data", "href", "action", "formAction", "poster"].includes(
+							prop
 						)
 					) {
 						return unrewriteUrl(descriptor.get.call(this));
+					}
+					const shadow = `${SHADOW_ATTRIBUTE_PREFIX}${attribute}`;
+					if (
+						client.natives.call("Element.prototype.hasAttribute", this, shadow)
+					) {
+						if (prop === "credentialless") return true;
+
+						return client.natives.call(
+							"Element.prototype.getAttribute",
+							this,
+							shadow
+						);
 					}
 
 					return descriptor.get.call(this);
 				},
 
 				set(value) {
-					return this.setAttribute(attr, value);
+					return this.setAttribute(attribute, value);
 				},
 			});
 		}
@@ -137,10 +162,10 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (node instanceof Document) base = node.querySelector("base");
 
 			if (base) {
-				return new URL(base.href, client.url.origin).href;
+				return new URL(base.href, client.url.href).href;
 			}
 
-			return client.url.origin;
+			return client.url.href;
 		},
 		set(_ctx, _v) {
 			return false;
@@ -149,9 +174,9 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.getAttribute", {
 		apply(ctx) {
-			const [name] = ctx.args;
+			const name = String(ctx.args[0]);
 
-			if (name.startsWith("sherpa-attr")) {
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
 				return ctx.return(null);
 			}
 
@@ -159,10 +184,13 @@ export default function (client: SherpaClient, self: typeof window) {
 				client.natives.call(
 					"Element.prototype.hasAttribute",
 					ctx.this,
-					`sherpa-attr-${name}`
+					`${SHADOW_ATTRIBUTE_PREFIX}${name}`
 				)
 			) {
-				const attrib = ctx.fn.call(ctx.this, `sherpa-attr-${name}`);
+				const attrib = ctx.fn.call(
+					ctx.this,
+					`${SHADOW_ATTRIBUTE_PREFIX}${name}`
+				);
 				if (attrib === null) return ctx.return("");
 
 				return ctx.return(attrib);
@@ -174,7 +202,7 @@ export default function (client: SherpaClient, self: typeof window) {
 		apply(ctx) {
 			const attrNames = ctx.call() as string[];
 			const cleaned = attrNames.filter(
-				(attr) => !attr.startsWith("sherpa-attr")
+				(attr) => !attr.startsWith(SHADOW_ATTRIBUTE_PREFIX)
 			);
 
 			ctx.return(cleaned);
@@ -183,25 +211,52 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.getAttributeNode", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(null);
+			if (String(ctx.args[0]).startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(null);
 		},
 	});
 
 	client.Proxy("Element.prototype.hasAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(false);
+			const name = String(ctx.args[0]);
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) return ctx.return(false);
+			if (
+				client.natives.call(
+					"Element.prototype.hasAttribute",
+					ctx.this,
+					`${SHADOW_ATTRIBUTE_PREFIX}${name}`
+				)
+			) {
+				return ctx.return(true);
+			}
 		},
 	});
 
 	client.Proxy("Element.prototype.setAttribute", {
 		apply(ctx) {
-			const [name, value] = ctx.args;
+			const rawName = String(ctx.args[0]);
+			const name =
+				ctx.this.namespaceURI === "http://www.w3.org/1999/xhtml"
+					? rawName.toLowerCase()
+					: rawName;
+			const value = String(ctx.args[1]);
+			if (isEventAttribute(name)) {
+				ctx.args[1] = rewriteJs(
+					value,
+					`(inline ${name} on element)`,
+					client.meta
+				);
+				ctx.fn.call(ctx.this, `${SHADOW_ATTRIBUTE_PREFIX}${name}`, value);
+
+				return;
+			}
 
 			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
 
 			if (ruleList) {
 				const ret = ruleList.fn(value, client.meta, client.cookieStore);
 				if (ret == null) {
+					ctx.fn.call(ctx.this, `${SHADOW_ATTRIBUTE_PREFIX}${name}`, value);
 					client.natives.call(
 						"Element.prototype.removeAttribute",
 						ctx.this,
@@ -212,7 +267,7 @@ export default function (client: SherpaClient, self: typeof window) {
 					return;
 				}
 				ctx.args[1] = ret;
-				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`, value);
+				ctx.fn.call(ctx.this, `${SHADOW_ATTRIBUTE_PREFIX}${name}`, value);
 			}
 		},
 	});
@@ -258,18 +313,46 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.setAttributeNS", {
 		apply(ctx) {
-			const [_namespace, name, value] = ctx.args;
+			const [namespace, rawName, rawValue] = ctx.args;
+			const name = String(rawName);
+			const value = String(rawValue);
+			if (namespace == null && isEventAttribute(name)) {
+				ctx.args[2] = rewriteJs(
+					value,
+					`(inline ${name} on element)`,
+					client.meta
+				);
+				client.natives.call(
+					"Element.prototype.setAttribute",
+					ctx.this,
+					`${SHADOW_ATTRIBUTE_PREFIX}${name}`,
+					value
+				);
+
+				return;
+			}
 
 			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
 
 			if (ruleList) {
-				ctx.args[2] = ruleList.fn(value, client.meta, client.cookieStore);
+				const rewritten = ruleList.fn(value, client.meta, client.cookieStore);
 				client.natives.call(
 					"Element.prototype.setAttribute",
 					ctx.this,
-					`sherpa-attr-${ctx.args[1]}`,
+					`${SHADOW_ATTRIBUTE_PREFIX}${name}`,
 					value
 				);
+				if (rewritten == null) {
+					client.natives.call(
+						"Element.prototype.removeAttributeNS",
+						ctx.this,
+						ctx.args[0],
+						name
+					);
+
+					return ctx.return(undefined);
+				}
+				ctx.args[2] = rewritten;
 			}
 		},
 	});
@@ -298,31 +381,40 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.removeAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(undefined);
-			if (
-				client.natives.call(
-					"Element.prototype.hasAttribute",
-					ctx.this,
-					ctx.args[0]
-				)
-			) {
-				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`);
-			}
+			const name = String(ctx.args[0]);
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(undefined);
+			ctx.fn.call(ctx.this, `${SHADOW_ATTRIBUTE_PREFIX}${name}`);
 		},
 	});
 
 	client.Proxy("Element.prototype.toggleAttribute", {
 		apply(ctx) {
-			if (ctx.args[0].startsWith("sherpa-attr")) return ctx.return(false);
-			if (
+			const name = String(ctx.args[0]);
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) return ctx.return(false);
+			const shadow = `${SHADOW_ATTRIBUTE_PREFIX}${name}`;
+			const present =
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, name) ||
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, shadow);
+			const shouldHave = ctx.args.length > 1 ? Boolean(ctx.args[1]) : !present;
+			if (!shouldHave) {
 				client.natives.call(
-					"Element.prototype.hasAttribute",
+					"Element.prototype.removeAttribute",
 					ctx.this,
-					ctx.args[0]
-				)
-			) {
-				ctx.fn.call(ctx.this, `sherpa-attr-${ctx.args[0]}`);
+					name
+				);
+				client.natives.call(
+					"Element.prototype.removeAttribute",
+					ctx.this,
+					shadow
+				);
+
+				return ctx.return(false);
 			}
+			if (!present)
+				self.Element.prototype.setAttribute.call(ctx.this, name, "");
+
+			return ctx.return(true);
 		},
 	});
 
@@ -335,7 +427,7 @@ export default function (client: SherpaClient, self: typeof window) {
 					"Element.prototype.setAttribute",
 					ctx.this,
 					"sherpa-attr-script-source-src",
-					bytesToBase64(encoder.encode(newval))
+					bytesToBase64(encoder.encode(value))
 				);
 			} else if (ctx.this instanceof self.HTMLStyleElement) {
 				newval = rewriteCss(value, client.meta);
@@ -358,7 +450,7 @@ export default function (client: SherpaClient, self: typeof window) {
 				);
 
 				if (scriptSource) {
-					return atob(scriptSource);
+					return base64ToString(scriptSource);
 				}
 
 				return ctx.get();
@@ -386,7 +478,7 @@ export default function (client: SherpaClient, self: typeof window) {
 					"Element.prototype.setAttribute",
 					ctx.this,
 					"sherpa-attr-script-source-src",
-					bytesToBase64(encoder.encode(newval))
+					bytesToBase64(encoder.encode(value))
 				);
 
 				return ctx.set(newval);
@@ -405,7 +497,7 @@ export default function (client: SherpaClient, self: typeof window) {
 				);
 
 				if (scriptSource) {
-					return atob(scriptSource);
+					return base64ToString(scriptSource);
 				}
 
 				return ctx.get();

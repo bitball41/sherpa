@@ -78,9 +78,13 @@ export const htmlRules: HtmlRule[] = [
 				value,
 				cookieStore,
 				{
-					// for srcdoc origin is the origin of the page that the iframe is on. base and path get dropped
-					origin: new URL(meta.origin.origin),
-					base: new URL(meta.origin.origin),
+					// about:srcdoc inherits the embedding document's fallback base URL.
+					// Clone the URLs because a <base> inside the srcdoc may mutate its
+					// rewrite metadata and must not change the parent document's base.
+					origin: new URL(meta.origin),
+					base: new URL(meta.base),
+					topFrameName: meta.topFrameName,
+					parentFrameName: meta.parentFrameName,
 				},
 				true
 			),

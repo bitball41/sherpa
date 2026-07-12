@@ -6,7 +6,8 @@ import {
 } from "@/shared/storage";
 
 export default function (client: SherpaClient, self: typeof window) {
-	const prefix = storagePrefix(client.url.host);
+	const namespace = client.url.origin;
+	const prefix = storagePrefix(namespace);
 
 	const handler: ProxyHandler<Storage> = {
 		get(target, prop) {
@@ -28,21 +29,21 @@ export default function (client: SherpaClient, self: typeof window) {
 
 				case "clear":
 					return () => {
-						for (const key of storageKeys(target, client.url.host))
+						for (const key of storageKeys(target, namespace))
 							target.removeItem(key);
 					};
 
 				case "key":
 					return (index: number) => {
-						const key = storageKeys(target, client.url.host)[index];
+						const key = storageKeys(target, namespace)[index];
 
 						return key === undefined
 							? null
-							: unprefixStorageKey(key, client.url.host);
+							: unprefixStorageKey(key, namespace);
 					};
 
 				case "length":
-					return storageKeys(target, client.url.host).length;
+					return storageKeys(target, namespace).length;
 
 				default:
 					if (prop in Object.prototype || typeof prop === "symbol") {
@@ -60,8 +61,8 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 
 		ownKeys(target) {
-			return storageKeys(target, client.url.host).map((key) =>
-				unprefixStorageKey(key, client.url.host)
+			return storageKeys(target, namespace).map((key) =>
+				unprefixStorageKey(key, namespace)
 			);
 		},
 

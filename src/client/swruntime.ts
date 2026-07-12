@@ -1,5 +1,5 @@
-import { unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
+import { appendUrlParams } from "@/shared/urlCodec";
 
 export class SherpaServiceWorkerRuntime {
 	recvport: MessagePort;
@@ -11,7 +11,11 @@ export class SherpaServiceWorkerRuntime {
 
 			port.addEventListener("message", (event) => {
 				console.log("sw", event.data);
-				if ("sherpa$type" in event.data) {
+				if (
+					typeof event.data === "object" &&
+					event.data !== null &&
+					"sherpa$type" in event.data
+				) {
 					if (event.data.sherpa$type === "init") {
 						this.recvport = event.data.sherpa$port;
 						this.recvport.postMessage({ sherpa$type: "init" });
@@ -76,59 +80,91 @@ function handleMessage(
 
 	if (type === "fetch") {
 		dbg.log("ee", data);
-		const fetchhandlers = handlers.filter((event) => event.event === "fetch");
-		if (!fetchhandlers) return;
+		const fetchhandlers = (handlers || []).filter(
+			(event) => event.event === "fetch"
+		);
+		const request = data.sherpa$request;
+		const Request = client.natives["Request"];
+		const init: RequestInit = {
+			headers: new Headers(request.headers),
+			method: request.method,
+			mode: "same-origin",
+		};
+		if (request.body) {
+			init.body = request.body;
+			// Chromium requires duplex when a RequestInit body is a ReadableStream.
+			(init as RequestInit & { duplex: "half" }).duplex = "half";
+		}
 
+		// Keep the native request pointed at Sherpa so fetch(event.request) stays
+		// proxied. The Request.url trap exposes the unrewritten URL to site code.
+		const fakeRequest = new Request(
+			appendUrlParams(request.url, { from: "swruntime" }),
+			init
+		);
+
+		Object.defineProperty(fakeRequest, "destination", {
+			value: request.destinitation,
+		});
+
+		const fakeFetchEvent: any = new Event("fetch");
+		fakeFetchEvent.request = fakeRequest;
+		let responsePromise: Promise<Response> | null = null;
+		fakeFetchEvent.respondWith = (response: Response | Promise<Response>) => {
+			if (responsePromise) {
+				throw new DOMException(
+					"respondWith() has already been called",
+					"InvalidStateError"
+				);
+			}
+			responsePromise = Promise.resolve(response);
+		};
+
+		dbg.log("to fn", fakeFetchEvent);
 		for (const handler of fetchhandlers) {
-			const request = data.sherpa$request;
+			try {
+				handler.proxiedCallback(trustEvent(fakeFetchEvent));
+			} catch (error) {
+				console.error("fake service worker fetch handler failed", error);
+			}
+		}
 
-			const Request = client.natives["Request"];
-			const fakeRequest = new Request(unrewriteUrl(request.url), {
-				body: request.body,
-				headers: new Headers(request.headers),
-				method: request.method,
-				mode: "same-origin",
+		if (!responsePromise) {
+			port.postMessage({
+				sherpa$type: "fetch",
+				sherpa$token: token,
+				sherpa$response: false,
 			});
 
-			Object.defineProperty(fakeRequest, "destination", {
-				value: request.destinitation,
-			});
+			return;
+		}
 
-			// TODO: clean up, maybe put into a class
-			const fakeFetchEvent: any = new Event("fetch");
-			fakeFetchEvent.request = fakeRequest;
-			let responded = false;
-			fakeFetchEvent.respondWith = (response: Response | Promise<Response>) => {
-				responded = true;
-				(async () => {
-					response = await response;
-					const message: MessageR2W = {
-						sherpa$type: "fetch",
-						sherpa$token: token,
-						sherpa$response: {
-							body: response.body,
-							headers: Array.from(response.headers.entries()),
-							status: response.status,
-							statusText: response.statusText,
-						},
-					};
-
-					dbg.log("sw", "responding", message);
-					port.postMessage(message, [response.body]);
-				})();
-			};
-
-			dbg.log("to fn", fakeFetchEvent);
-			handler.proxiedCallback(trustEvent(fakeFetchEvent));
-			if (!responded) {
-				console.log("sw", "no response");
+		responsePromise
+			.then((response) => {
+				const message: MessageR2W = {
+					sherpa$type: "fetch",
+					sherpa$token: token,
+					sherpa$response: {
+						body: response.body,
+						headers: Array.from(response.headers.entries()),
+						status: response.status,
+						statusText: response.statusText,
+					},
+				};
+				const transfer = response.body ? [response.body] : [];
+				dbg.log("sw", "responding", message);
+				port.postMessage(message, transfer);
+			})
+			.catch((error) => {
+				console.error("fake service worker response failed", error);
 				port.postMessage({
 					sherpa$type: "fetch",
 					sherpa$token: token,
-					sherpa$response: false,
+					sherpa$response: {
+						error: error instanceof Error ? error.message : String(error),
+					},
 				});
-			}
-		}
+			});
 	}
 }
 
@@ -143,14 +179,16 @@ function trustEvent(event: Event): Event {
 }
 
 export type TransferrableResponse = {
-	body: ReadableStream;
+	body: ReadableStream | null;
 	headers: [string, string][];
 	status: number;
 	statusText: string;
 };
 
+export type TransferrableResponseError = { error: string };
+
 export type TransferrableRequest = {
-	body: ReadableStream;
+	body: ReadableStream | null;
 	headers: [string, string][];
 	destinitation: RequestDestination;
 	method: Request["method"];
@@ -160,7 +198,7 @@ export type TransferrableRequest = {
 
 type FetchResponseMessage = {
 	sherpa$type: "fetch";
-	sherpa$response: TransferrableResponse;
+	sherpa$response: TransferrableResponse | TransferrableResponseError | false;
 };
 
 type FetchRequestMessage = {

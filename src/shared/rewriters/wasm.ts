@@ -53,11 +53,25 @@ function initWasm() {
 	wasmInitialized = true;
 }
 
-const rewriters = [];
+type PooledRewriter = { rewriter: Rewriter; inUse: boolean };
+const rewriters: PooledRewriter[] = [];
+let poolConfig = config;
+
 export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 	initWasm();
 
-	let obj: { rewriter: Rewriter; inUse: boolean };
+	// A WASM Rewriter snapshots the prefix, global names, and codec callback in
+	// its constructor. setConfig() replaces the config object, so cached
+	// instances must not survive a runtime configuration update.
+	if (poolConfig !== config) {
+		for (const obj of rewriters) {
+			if (!obj.inUse) obj.rewriter.free();
+		}
+		rewriters.length = 0;
+		poolConfig = config;
+	}
+
+	let obj: PooledRewriter;
 	const index = rewriters.findIndex((x) => !x.inUse);
 	const len = rewriters.length;
 

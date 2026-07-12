@@ -1,4 +1,5 @@
 import { SherpaClient } from "@client/index";
+import { storageDirectoryName } from "@/shared/storage";
 
 export default function (client: SherpaClient) {
 	client.Proxy("StorageManager.prototype.getDirectory", {
@@ -8,7 +9,7 @@ export default function (client: SherpaClient) {
 				(async () => {
 					const root = await rootPromise;
 					const directory = await root.getDirectoryHandle(
-						`${client.url.origin.replace(/\/|\s|\./g, "-")}`,
+						storageDirectoryName(client.url.origin),
 						{
 							create: true,
 						}

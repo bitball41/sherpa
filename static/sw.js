@@ -27,7 +27,7 @@ self.addEventListener("fetch", (event) => {
 
 let playgroundData;
 self.addEventListener("message", ({ data }) => {
-	if (data.type === "playgroundData") {
+	if (data && typeof data === "object" && data.type === "playgroundData") {
 		playgroundData = data;
 	}
 });

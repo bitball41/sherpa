@@ -4,7 +4,7 @@ mkdir -p existing-typedoc existing-typedoc-dev
 declare -A versions
 found_versions=()
 
-git log --oneline --follow -- package.json | while read commit_hash commit_msg; do
+while read -r commit_hash commit_msg; do
     version=$(git show "$commit_hash:package.json" | jq -r '.version')
     
     if [ -n "$version" ] && [ "$version" != "null" ] && [ -z "${versions[$version]}" ]; then
@@ -13,30 +13,35 @@ git log --oneline --follow -- package.json | while read commit_hash commit_msg; 
         runs=$(gh run list --commit="$commit_hash" --json databaseId,status,conclusion --jq '.[] | select(.status == "completed" and .conclusion == "success") | .databaseId')
         
         for run_id in $runs; do
-            artifacts=$(gh run view "$run_id" --json artifacts --jq '.artifacts[] | select(.name | test("typedoc-.*\\.tar\\.gz")) | .name')
-            
-            for artifact_name in $artifacts; do
-                case "$artifact_name" in
-                    "typedoc-$version.tar.gz")
-                        gh run download "$run_id" --name "$artifact_name" --dir temp
-                        mkdir -p "existing-typedoc/v$version"
-                        tar -xzf "temp/$artifact_name" -C "existing-typedoc/v$version"
-                        rm -rf temp
-                        found_versions+=("v$version")
-                        ;;
-                    "typedoc-$version.tar.gz-dev")
-                        gh run download "$run_id" --name "$artifact_name" --dir temp
-                        mkdir -p "existing-typedoc-dev/v$version"
-                        tar -xzf "temp/$artifact_name" -C "existing-typedoc-dev/v$version"
-                        rm -rf temp
-                        ;;
-                esac
-            done
+        artifacts=$(gh run view "$run_id" --json artifacts --jq '.artifacts[].name')
+
+        if grep -qx "typedoc-current" <<< "$artifacts"; then
+            rm -rf temp
+            gh run download "$run_id" --name typedoc-current --dir temp
+            archive=$(find temp -name "typedoc-$version.tar.gz" -print -quit)
+            if [ -n "$archive" ]; then
+                mkdir -p "existing-typedoc/v$version"
+                tar -xzf "$archive" -C "existing-typedoc/v$version"
+                found_versions+=("v$version")
+            fi
+        fi
+
+        if grep -qx "typedoc-current-dev" <<< "$artifacts"; then
+            rm -rf temp-dev
+            gh run download "$run_id" --name typedoc-current-dev --dir temp-dev
+            archive_dev=$(find temp-dev -name "typedoc-$version.tar.gz-dev" -print -quit)
+            if [ -n "$archive_dev" ]; then
+                mkdir -p "existing-typedoc-dev/v$version"
+                tar -xzf "$archive_dev" -C "existing-typedoc-dev/v$version"
+            fi
+        fi
+
+        rm -rf temp temp-dev
             
             [ ${#found_versions[@]} -gt 0 ] && break
         done
     fi
-done
+done < <(git log --oneline --follow -- package.json)
 
 if [ ${#found_versions[@]} -gt 0 ]; then
     printf '%s\n' "${found_versions[@]}" | jq -R . | jq -s '{"versions": .}' > existing-typedoc/.typedoc-plugin-versions

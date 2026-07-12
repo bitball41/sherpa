@@ -41,6 +41,7 @@ export class SherpaServiceWorker extends EventTarget {
 	 * Sherpa's cookie jar for cookie emulation through other storage means, connected to a client.
 	 */
 	cookieStore = new CookieStore();
+	private cookieStoreReady: Promise<void>;
 
 	/**
 	 * Fake service worker registrations, so that some sites don't complain.
@@ -55,22 +56,27 @@ export class SherpaServiceWorker extends EventTarget {
 		super();
 		this.client = new BareClient();
 
-		(async () => {
+		this.cookieStoreReady = (async () => {
 			const db = await getDB();
 			const cookies = await db.get("cookies", "cookies");
 			if (cookies) {
 				this.cookieStore.load(cookies);
 			}
-		})();
+		})().catch((error) => {
+			// IndexedDB can be unavailable in private/storage-restricted contexts.
+			// Continue with an in-memory jar instead of making every fetch fail.
+			console.error("failed to restore Sherpa cookies", error);
+		});
 
 		addEventListener("message", async ({ data }: { data: MessageC2W }) => {
-			if (!("sherpa$type" in data)) return;
+			if (typeof data !== "object" || data === null || !("sherpa$type" in data))
+				return;
 
 			if ("sherpa$token" in data) {
 				// (ack message)
 				const cb = this.syncPool[data.sherpa$token];
 				delete this.syncPool[data.sherpa$token];
-				cb(data);
+				if (cb) cb(data);
 
 				return;
 			}
@@ -84,7 +90,12 @@ export class SherpaServiceWorker extends EventTarget {
 			}
 
 			if (data.sherpa$type === "cookie") {
-				this.cookieStore.setCookies([data.cookie], new URL(data.url));
+				await this.cookieStoreReady;
+				this.cookieStore.setCookies(
+					[data.cookie],
+					new URL(data.url),
+					data.fromJs
+				);
 				const db = await getDB();
 				await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
 			}
@@ -174,6 +185,7 @@ export class SherpaServiceWorker extends EventTarget {
 	 */
 	async fetch({ request, clientId }: FetchEvent) {
 		if (!this.config) await this.loadConfig();
+		await this.cookieStoreReady;
 
 		const client = await self.clients.get(clientId);
 
@@ -200,6 +212,7 @@ type CookieMessage = {
 	sherpa$type: "cookie";
 	cookie: string;
 	url: string;
+	fromJs?: boolean;
 };
 
 /**

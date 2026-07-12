@@ -175,7 +175,7 @@ function traverseParsedHtml(
 			attribs[`sherpa-attr-${attr}`] = value;
 		}
 		for (const attr of attributes) {
-			if (eventAttributes.has(attr)) {
+			if (isEventAttribute(attr)) {
 				const value = attribs[attr];
 				attribs[`sherpa-attr-${attr}`] = value;
 				attribs[attr] = rewriteJs(value, `(inline ${attr} on element)`, meta);
@@ -209,12 +209,11 @@ function traverseParsedHtml(
 				(essence === "module" || jsMimeEssences.test(essence)) &&
 				node.children[0] !== undefined
 			) {
-				let js = node.children[0].data;
+				const js = node.children[0].data;
 				const module = essence === "module";
 				attribs["sherpa-attr-script-source-src"] = bytesToBase64(
 					encoder.encode(js)
 				);
-				js = js.replace(htmlComment, "");
 				node.children[0].data = rewriteJs(
 					js,
 					"(inline script element)",
@@ -333,8 +332,6 @@ const jsMimeEssences =
 // 	return Uint8Array.from(binString, (m) => m.codePointAt(0));
 // }
 
-const htmlComment = /<!--[\s\S]*?-->/g;
-
 export function bytesToBase64(bytes: Uint8Array) {
 	// chunked String.fromCharCode.apply builds the binary string thousands of
 	// times faster than one string object per byte; 8k args stays comfortably
@@ -350,11 +347,14 @@ export function bytesToBase64(bytes: Uint8Array) {
 	return btoa(binString);
 }
 const eventAttributes = new Set([
+	"onafterprint",
 	"onbeforexrselect",
 	"onabort",
 	"onbeforeinput",
 	"onbeforematch",
+	"onbeforeprint",
 	"onbeforetoggle",
+	"onbeforeunload",
 	"onblur",
 	"oncancel",
 	"oncanplay",
@@ -381,6 +381,9 @@ const eventAttributes = new Set([
 	"onerror",
 	"onfocus",
 	"onformdata",
+	"onfullscreenchange",
+	"onfullscreenerror",
+	"onhashchange",
 	"oninput",
 	"oninvalid",
 	"onkeydown",
@@ -390,6 +393,9 @@ const eventAttributes = new Set([
 	"onloadeddata",
 	"onloadedmetadata",
 	"onloadstart",
+	"onlanguagechange",
+	"onmessage",
+	"onmessageerror",
 	"onmousedown",
 	"onmouseenter",
 	"onmouseleave",
@@ -398,11 +404,20 @@ const eventAttributes = new Set([
 	"onmouseover",
 	"onmouseup",
 	"onmousewheel",
+	"onoffline",
+	"ononline",
+	"onpagehide",
+	"onpageshow",
 	"onpause",
 	"onplay",
 	"onplaying",
 	"onprogress",
+	"onpopstate",
+	"onpointerlockchange",
+	"onpointerlockerror",
 	"onratechange",
+	"onreadystatechange",
+	"onrejectionhandled",
 	"onreset",
 	"onresize",
 	"onscroll",
@@ -412,10 +427,14 @@ const eventAttributes = new Set([
 	"onselect",
 	"onslotchange",
 	"onstalled",
+	"onstorage",
 	"onsubmit",
 	"onsuspend",
 	"ontimeupdate",
 	"ontoggle",
+	"onunhandledrejection",
+	"onunload",
+	"onvisibilitychange",
 	"onvolumechange",
 	"onwaiting",
 	"onwebkitanimationend",
@@ -451,3 +470,7 @@ const eventAttributes = new Set([
 	"onscrollsnapchange",
 	"onscrollsnapchanging",
 ]);
+
+export function isEventAttribute(name: string): boolean {
+	return eventAttributes.has(name.toLowerCase());
+}

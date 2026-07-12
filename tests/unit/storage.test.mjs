@@ -4,6 +4,7 @@ import test from "node:test";
 import {
 	storageKeys,
 	storagePrefix,
+	storageDirectoryName,
 	unprefixStorageKey,
 } from "../../src/shared/storage.ts";
 
@@ -18,36 +19,51 @@ function fakeStorage(keys) {
 	};
 }
 
-test("storagePrefix separates the host from user-controlled keys", () => {
-	assert.equal(storagePrefix("example.com"), "example.com@");
+test("storagePrefix separates the full origin from user-controlled keys", () => {
+	assert.equal(storagePrefix("https://example.com"), "https://example.com@");
 });
 
-test("storageKeys only returns keys in the exact host namespace", () => {
+test("storageDirectoryName cannot collide on punctuation", () => {
+	assert.notEqual(
+		storageDirectoryName("https://a.b"),
+		storageDirectoryName("https://a-b")
+	);
+	assert.notEqual(
+		storageDirectoryName("http://example.com"),
+		storageDirectoryName("https://example.com")
+	);
+});
+
+test("storageKeys only returns keys in the exact origin namespace", () => {
 	const storage = fakeStorage([
-		"example.com@theme",
-		"example.com.evil@token",
-		"sub.example.com@theme",
-		"example.com@",
+		"https://example.com@theme",
+		"http://example.com@token",
+		"https://sub.example.com@theme",
+		"https://example.com@",
 	]);
 
-	assert.deepEqual(storageKeys(storage, "example.com"), [
-		"example.com@theme",
-		"example.com@",
+	assert.deepEqual(storageKeys(storage, "https://example.com"), [
+		"https://example.com@theme",
+		"https://example.com@",
 	]);
 });
 
 test("storageKeys ignores null slots and preserves storage order", () => {
-	const storage = fakeStorage(["example.com@first", null, "example.com@last"]);
+	const storage = fakeStorage([
+		"https://example.com@first",
+		null,
+		"https://example.com@last",
+	]);
 
-	assert.deepEqual(storageKeys(storage, "example.com"), [
-		"example.com@first",
-		"example.com@last",
+	assert.deepEqual(storageKeys(storage, "https://example.com"), [
+		"https://example.com@first",
+		"https://example.com@last",
 	]);
 });
 
 test("unprefixStorageKey returns the page-facing key", () => {
 	assert.equal(
-		unprefixStorageKey("example.com@settings", "example.com"),
+		unprefixStorageKey("https://example.com@settings", "https://example.com"),
 		"settings"
 	);
 });

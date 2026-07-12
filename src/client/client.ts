@@ -72,13 +72,13 @@ export class SherpaClient {
 
 	eventcallbacks: Map<
 		any,
-		[
-			{
-				event: string;
-				originalCallback: AnyFunction;
-				proxiedCallback: AnyFunction;
-			},
-		]
+		Array<{
+			event: string;
+			originalCallback: AnyFunction;
+			proxiedCallback: AnyFunction;
+			capture: boolean;
+			once: boolean;
+		}>
 	> = new Map();
 
 	meta: URLMeta;
@@ -245,7 +245,7 @@ export class SherpaClient {
 						url = url.substring(0, frag === -1 ? undefined : frag);
 						if (!url) return client.url;
 
-						return new URL(url, client.url.origin);
+						return new URL(url, client.url.href);
 					}
 				}
 
@@ -463,6 +463,7 @@ export class SherpaClient {
 		if (!prop) return;
 		if (!Reflect.has(target, prop)) return;
 
+		const originalDescriptor = Reflect.getOwnPropertyDescriptor(target, prop);
 		const value = Reflect.get(target, prop);
 		delete target[prop];
 
@@ -538,25 +539,27 @@ export class SherpaClient {
 				};
 
 				try {
-					handler.apply(ctx);
-				} catch (err) {
-					if (err instanceof Error) {
-						if ((err.stack as any) instanceof Object) {
-							//@ts-expect-error i'm not going to explain this
-							err.stack = err.stack.stack;
-							console.error("ERROR FROM SHERPA INTERNALS", err);
-							if (!flagEnabled("allowFailedIntercepts", this.url)) {
+					try {
+						handler.apply(ctx);
+					} catch (err) {
+						if (err instanceof Error) {
+							if ((err.stack as any) instanceof Object) {
+								//@ts-expect-error i'm not going to explain this
+								err.stack = err.stack.stack;
+								console.error("ERROR FROM SHERPA INTERNALS", err);
+								if (!flagEnabled("allowFailedIntercepts", this.url)) {
+									throw err;
+								}
+							} else {
 								throw err;
 							}
 						} else {
 							throw err;
 						}
-					} else {
-						throw err;
 					}
+				} finally {
+					Error.prepareStackTrace = pst;
 				}
-
-				Error.prepareStackTrace = pst;
 
 				if (earlyreturn) {
 					return returnValue;
@@ -567,7 +570,20 @@ export class SherpaClient {
 		}
 
 		h.getOwnPropertyDescriptor = getOwnPropertyDescriptorHandler;
-		target[prop] = new Proxy(value, h);
+		const proxied = new Proxy(value, h);
+		if (originalDescriptor && "value" in originalDescriptor) {
+			Object.defineProperty(target, prop, {
+				...originalDescriptor,
+				value: proxied,
+			});
+		} else {
+			Object.defineProperty(target, prop, {
+				value: proxied,
+				writable: true,
+				configurable: true,
+				enumerable: false,
+			});
+		}
 	}
 	Trap<T>(name: string | string[], descriptor: Trap<T>): PropertyDescriptor {
 		if (Array.isArray(name)) {
