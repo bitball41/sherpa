@@ -2,14 +2,17 @@ import { iswindow } from "@client/entry";
 import { unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
-
-const realOnEvent = Symbol.for("sherpa original onevent function");
+import { storagePrefix } from "@/shared/storage";
 
 export default function (client: SherpaClient, self: Self) {
 	const handlers = {
 		message: {
 			_init() {
-				if (typeof this.data === "object" && "$sherpa$type" in this.data) {
+				if (
+					typeof this.data === "object" &&
+					this.data !== null &&
+					"$sherpa$type" in this.data
+				) {
 					// this is a ctl message
 					return false;
 				}
@@ -30,13 +33,21 @@ export default function (client: SherpaClient, self: Self) {
 				return this.source;
 			},
 			origin() {
-				if (typeof this.data === "object" && "$sherpa$origin" in this.data)
+				if (
+					typeof this.data === "object" &&
+					this.data !== null &&
+					"$sherpa$origin" in this.data
+				)
 					return this.data.$sherpa$origin;
 
 				return client.url.origin;
 			},
 			data() {
-				if (typeof this.data === "object" && "$sherpa$data" in this.data)
+				if (
+					typeof this.data === "object" &&
+					this.data !== null &&
+					"$sherpa$data" in this.data
+				)
 					return this.data.$sherpa$data;
 
 				return this.data;
@@ -52,10 +63,20 @@ export default function (client: SherpaClient, self: Self) {
 		},
 		storage: {
 			_init() {
-				return this.key.startsWith(client.url.host + "@");
+				if (this.key === null) {
+					try {
+						return new URL(unrewriteUrl(this.url)).origin === client.url.origin;
+					} catch {
+						return false;
+					}
+				}
+
+				return this.key.startsWith(storagePrefix(client.url.origin));
 			},
 			key() {
-				return this.key.substring(this.key.indexOf("@") + 1);
+				return this.key === null
+					? null
+					: this.key.slice(storagePrefix(client.url.origin).length);
 			},
 			url() {
 				return unrewriteUrl(this.url);
@@ -127,18 +148,65 @@ export default function (client: SherpaClient, self: Self) {
 			if (typeof ctx.args[1] !== "function") return;
 
 			const origlistener = ctx.args[1];
-			const proxylistener = wraplistener(origlistener);
+			const options = ctx.args[2];
+			const capture =
+				typeof options === "boolean" ? options : Boolean(options?.capture);
+			const once = typeof options === "object" && Boolean(options?.once);
+			const signal = typeof options === "object" ? options?.signal : undefined;
+			if (signal?.aborted) return ctx.return(undefined);
+			let arr = client.eventcallbacks.get(ctx.this);
+			arr ||= [];
+			if (
+				arr.some(
+					(entry) =>
+						entry.event === ctx.args[0] &&
+						entry.originalCallback === origlistener &&
+						entry.capture === capture
+				)
+			) {
+				return ctx.return(undefined);
+			}
+			let proxylistener = wraplistener(origlistener);
+			if (once) {
+				const wrapped = proxylistener;
+				proxylistener = new Proxy(wrapped, {
+					apply(target, that, args) {
+						try {
+							return Reflect.apply(target, that, args);
+						} finally {
+							const callbacks = client.eventcallbacks.get(ctx.this);
+							const index = callbacks?.findIndex(
+								(entry) => entry.proxiedCallback === proxylistener
+							);
+							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+						}
+					},
+				});
+			}
 
 			ctx.args[1] = proxylistener;
-
-			let arr = client.eventcallbacks.get(ctx.this);
-			arr ||= [] as any;
 			arr.push({
 				event: ctx.args[0] as string,
 				originalCallback: origlistener,
 				proxiedCallback: proxylistener,
+				capture,
+				once,
 			});
 			client.eventcallbacks.set(ctx.this, arr);
+			if (signal) {
+				ctx.fn.call(
+					signal,
+					"abort",
+					() => {
+						const callbacks = client.eventcallbacks.get(ctx.this);
+						const index = callbacks?.findIndex(
+							(entry) => entry.proxiedCallback === proxylistener
+						);
+						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+					},
+					{ once: true }
+				);
+			}
 		},
 	});
 
@@ -148,9 +216,15 @@ export default function (client: SherpaClient, self: Self) {
 
 			const arr = client.eventcallbacks.get(ctx.this);
 			if (!arr) return;
+			const options = ctx.args[2];
+			const capture =
+				typeof options === "boolean" ? options : Boolean(options?.capture);
 
 			const i = arr.findIndex(
-				(e) => e.event === ctx.args[0] && e.originalCallback === ctx.args[1]
+				(e) =>
+					e.event === ctx.args[0] &&
+					e.originalCallback === ctx.args[1] &&
+					e.capture === capture
 			);
 			if (i === -1) return;
 
@@ -174,6 +248,7 @@ export default function (client: SherpaClient, self: Self) {
 				key.startsWith("on") &&
 				handlers[key.slice(2)]
 			) {
+				const realOnEvent = Symbol(`sherpa original ${key} function`);
 				const descriptor = client.natives.call(
 					"Object.getOwnPropertyDescriptor",
 					null,
@@ -186,7 +261,7 @@ export default function (client: SherpaClient, self: Self) {
 				// these are the `onmessage`, `onclick`, etc. properties
 				client.RawTrap(target, key, {
 					get(ctx) {
-						if (this[realOnEvent]) return this[realOnEvent];
+						if (realOnEvent in this) return this[realOnEvent];
 
 						return ctx.get();
 					},
