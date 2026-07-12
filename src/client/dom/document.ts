@@ -1,5 +1,6 @@
 import { rewriteHtml } from "@rewriters/html";
 import { SherpaClient } from "@client/index";
+import { unrewriteUrl } from "@rewriters/url";
 
 export default function (client: SherpaClient, _self: Self) {
 	const tostring = String;
@@ -30,8 +31,8 @@ export default function (client: SherpaClient, _self: Self) {
 	});
 
 	client.Trap("Document.prototype.referrer", {
-		get() {
-			return client.url.toString();
+		get(ctx) {
+			return unrewriteUrl(ctx.get() as string);
 		},
 	});
 
