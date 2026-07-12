@@ -29,6 +29,12 @@ import {
 	shouldSendCookies,
 } from "@/worker/request";
 import { retryTransientHttp2Request } from "@/worker/retry";
+import { getDB } from "@/shared/security/db";
+import {
+	isHtmlContentType,
+	isRedirectStatus,
+	normalizeHtmlContentType,
+} from "@/worker/response";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -40,10 +46,6 @@ async function fetchWithTransientRetry(
 		init.method || "GET",
 		init.body != null
 	);
-}
-
-function isRedirect(response: BareResponseFetch) {
-	return response.status >= 300 && response.status < 400;
 }
 
 let cachedWasmPayload: Promise<string> | null = null;
@@ -65,7 +67,8 @@ const displayableMimes = [
 
 function isDownload(responseHeaders: object, destination: string): boolean {
 	if (["document", "iframe"].includes(destination)) {
-		const header = responseHeaders["content-disposition"];
+		const disposition = responseHeaders["content-disposition"];
+		const header = Array.isArray(disposition) ? disposition[0] : disposition;
 		if (header) {
 			// Content-Disposition is `<type>[; params]`; only the leading type
 			// token decides inline vs. attachment. Comparing the whole header to
@@ -76,7 +79,10 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 			return dispositionType !== "inline";
 		} else {
 			// check mime type as fallback
-			const contentType = responseHeaders["content-type"]
+			const rawContentType = responseHeaders["content-type"];
+			const contentType = (
+				Array.isArray(rawContentType) ? rawContentType[0] : rawContentType
+			)
 				?.split(";")[0]
 				.trim()
 				.toLowerCase();
@@ -86,7 +92,8 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 				!contentType.startsWith("text") &&
 				!contentType.startsWith("image") &&
 				!contentType.startsWith("font") &&
-				!contentType.startsWith("video")
+				!contentType.startsWith("video") &&
+				!contentType.startsWith("audio")
 			) {
 				return true;
 			}
@@ -151,6 +158,7 @@ export async function handleFetch(
 		let scriptType = "";
 		let topFrameName;
 		let parentFrameName;
+		let fromServiceWorkerRuntime = false;
 
 		const extraParams: Record<string, string> = {};
 		for (const [param, value] of [...requestUrl.searchParams.entries()]) {
@@ -161,6 +169,9 @@ export async function handleFetch(
 				case "dest":
 					break;
 				case "scope":
+					break;
+				case "from":
+					fromServiceWorkerRuntime = value === "swruntime";
 					break;
 				case "topFrame":
 					topFrameName = value;
@@ -242,7 +253,7 @@ export async function handleFetch(
 			(a, b) => b.scope.length - a.scope.length
 		)[0];
 
-		if (activeWorker && requestUrl.searchParams.get("from") !== "swruntime") {
+		if (activeWorker && !fromServiceWorkerRuntime) {
 			const r = await activeWorker.fetch(request);
 			if (r) {
 				// A fake-SW response is a fresh navigable/subresource the worker
@@ -283,20 +294,15 @@ export async function handleFetch(
 		const requestContext = createVirtualRequestContext(request, client, url);
 		headers.delete("Referer");
 		headers.delete("Origin");
+		// Never forward ambient cookies belonging to the proxy origin. The
+		// virtual cookie jar below is the only source of upstream Cookie headers.
+		headers.delete("Cookie");
 
 		const referer = createRefererHeader(requestContext);
 		if (referer) headers.set("Referer", referer);
 
 		const origin = createOriginHeader(requestContext);
 		if (origin) headers.set("Origin", origin);
-
-		const cookies = shouldSendCookies(requestContext)
-			? this.cookieStore.getCookies(url, false)
-			: "";
-
-		if (cookies.length) {
-			headers.set("Cookie", cookies);
-		}
 
 		// Check if we should emulate a top-level navigation
 		let isTopLevelProxyNavigation = false;
@@ -360,13 +366,25 @@ export async function handleFetch(
 		}
 
 		let siteDirective = "none";
-		if (requestContext.referrerUrl) {
+		if (requestContext.initiatorUrl) {
 			siteDirective = await getSiteDirective(
 				meta,
-				requestContext.referrerUrl,
+				requestContext.initiatorUrl,
 				this.client
 			);
 		}
+
+		const cookies = shouldSendCookies(requestContext)
+			? this.cookieStore.getCookies(url, false, {
+					sameSite:
+						siteDirective === "same-origin" || siteDirective === "same-site",
+					topLevelNavigation:
+						request.destination === "document" || isTopLevelProxyNavigation,
+					method: requestContext.method,
+				})
+			: "";
+
+		if (cookies.length) headers.set("Cookie", cookies);
 
 		await initializeTracker(
 			url.toString(),
@@ -486,6 +504,10 @@ async function handleResponse(
 		bareClient,
 		{ get: getReferrerPolicy, set: storeReferrerPolicy }
 	);
+	const isRedirectResponse =
+		isRedirectStatus(response.status) &&
+		typeof responseHeaders["location"] === "string" &&
+		responseHeaders["location"].length > 0;
 
 	// Store referrer policy from navigation responses for Force Referrer
 	if (isNavigationRequest && responseHeaders["referrer-policy"] && referrer) {
@@ -496,7 +518,7 @@ async function handleResponse(
 		);
 	}
 
-	if (isRedirect(response)) {
+	if (isRedirectResponse) {
 		const redirectUrl = new URL(unrewriteUrl(responseHeaders["location"]));
 
 		await updateTracker(
@@ -528,7 +550,9 @@ async function handleResponse(
 	const setCookies =
 		maybeHeaders instanceof Array ? maybeHeaders : [maybeHeaders];
 	for (const cookie of setCookies) {
-		if (client) {
+		// Only window realms install the synchronous document-cookie listener.
+		// Waiting for an acknowledgement from a worker client would never resolve.
+		if (client?.type === "window") {
 			const promise = swtarget.dispatch(client, {
 				sherpa$type: "cookie",
 				cookie,
@@ -546,6 +570,10 @@ async function handleResponse(
 	}
 
 	await cookieStore.setCookies(setCookies, url);
+	if (setCookies.length) {
+		const db = await getDB();
+		await db.put("cookies", JSON.parse(cookieStore.dump()), "cookies");
+	}
 
 	for (const header in responseHeaders) {
 		// flatten everything past here
@@ -553,7 +581,7 @@ async function handleResponse(
 			responseHeaders[header] = responseHeaders[header][0];
 	}
 
-	if (isDownload(responseHeaders, destination) && !isRedirect(response)) {
+	if (isDownload(responseHeaders, destination) && !isRedirectResponse) {
 		if (flagEnabled("interceptDownloads", url)) {
 			if (!client) {
 				throw new Error("cant find client");
@@ -591,7 +619,7 @@ async function handleResponse(
 					sherpa$type: "download",
 					download,
 				} as MessageW2C,
-				[response.body]
+				response.body ? [response.body] : []
 			);
 
 			// endless vortex reference
@@ -617,7 +645,7 @@ async function handleResponse(
 		}
 	}
 
-	if (response.body && !isRedirect(response)) {
+	if (response.body && !isRedirectResponse) {
 		responseBody = await rewriteBody(
 			response,
 			meta,
@@ -626,6 +654,8 @@ async function handleResponse(
 			cookieStore,
 			responseHeaders
 		);
+		if (responseBody !== response.body)
+			delete responseHeaders["content-length"];
 	}
 
 	if (responseHeaders["accept"] === "text/event-stream") {
@@ -663,7 +693,7 @@ async function handleResponse(
 	swtarget.dispatchEvent(ev);
 
 	// Clean up tracker if not a redirect
-	if (!isRedirect(response)) {
+	if (!isRedirectResponse) {
 		await cleanTracker(url.toString());
 	}
 
@@ -734,7 +764,7 @@ async function rewriteBody(
 	switch (destination) {
 		case "iframe":
 		case "document":
-			if (response.headers.get("content-type")?.startsWith("text/html")) {
+			if (isHtmlContentType(response.headers.get("content-type"))) {
 				const buf = await response.arrayBuffer();
 				const charset = detectHtmlCharset(
 					buf,
@@ -747,14 +777,9 @@ async function rewriteBody(
 				// header must say so - an explicit HTTP charset takes priority
 				// over any now-stale in-document <meta charset> declaration,
 				// so this alone is enough to stop the browser re-mojibake-ing it.
-				responseHeaders["content-type"] = /charset=/i.test(
-					responseHeaders["content-type"] || ""
-				)
-					? responseHeaders["content-type"].replace(
-							/charset=[\w-]+/i,
-							"charset=utf-8"
-						)
-					: `${responseHeaders["content-type"] || "text/html"}; charset=utf-8`;
+				responseHeaders["content-type"] = normalizeHtmlContentType(
+					responseHeaders["content-type"]
+				);
 
 				return rewriteHtml(htmlContent, cookieStore, meta, true);
 			} else {
