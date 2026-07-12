@@ -67,11 +67,15 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 			};
 
 			function fakeEventSend(fakeev: Event) {
-				state["on" + fakeev.type]?.(trustEvent(fakeev));
+				const handler = state["on" + fakeev.type];
+				if (handler)
+					Reflect.apply(handler, fakeWebSocket, [trustEvent(fakeev)]);
 				fakeWebSocket.dispatchEvent(fakeev);
 			}
 
 			barews.addEventListener("open", () => {
+				state.protocol =
+					typeof barews.protocols === "string" ? barews.protocols : "";
 				fakeEventSend(new Event("open"));
 			});
 			barews.addEventListener("close", (ev) => {
