@@ -7,6 +7,22 @@ import { openDB, IDBPDatabase } from "idb";
 // terminates it abnormally.
 let dbPromise: Promise<IDBPDatabase<SherpaDB>> | null = null;
 
+// Version 1 could be created by the service worker without an upgrade callback,
+// leaving a permanently empty database. Version 2 repairs those installations
+// and keeps every context on the same schema initializer.
+const DB_VERSION = 2;
+
+function createStores(db: IDBPDatabase<SherpaDB>): void {
+	if (!db.objectStoreNames.contains("config")) db.createObjectStore("config");
+	if (!db.objectStoreNames.contains("cookies")) db.createObjectStore("cookies");
+	if (!db.objectStoreNames.contains("redirectTrackers"))
+		db.createObjectStore("redirectTrackers");
+	if (!db.objectStoreNames.contains("referrerPolicies"))
+		db.createObjectStore("referrerPolicies");
+	if (!db.objectStoreNames.contains("publicSuffixList"))
+		db.createObjectStore("publicSuffixList");
+}
+
 /**
  * Gets a (cached) connection to the IndexedDB database
  *
@@ -14,7 +30,10 @@ let dbPromise: Promise<IDBPDatabase<SherpaDB>> | null = null;
  */
 export function getDB(): Promise<IDBPDatabase<SherpaDB>> {
 	if (!dbPromise) {
-		dbPromise = openDB<SherpaDB>("$sherpa", 1, {
+		dbPromise = openDB<SherpaDB>("$sherpa", DB_VERSION, {
+			upgrade(db) {
+				createStores(db);
+			},
 			terminated() {
 				dbPromise = null;
 			},
