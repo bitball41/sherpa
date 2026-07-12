@@ -4,16 +4,35 @@ function isRecord(value: unknown): value is JsonRecord {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isUrlLikeSpecifier(specifier: string): boolean {
+	if (
+		specifier.startsWith("/") ||
+		specifier.startsWith("./") ||
+		specifier.startsWith("../")
+	) {
+		return true;
+	}
+
+	// URL schemes are ASCII alpha followed by alpha/digit/+/-/. and a colon.
+	// A colon elsewhere (for example `pkg/name:part`) does not make a bare
+	// import-map specifier into a URL.
+	return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(specifier);
+}
+
 function rewriteSpecifierMap(
 	map: unknown,
 	rewrite: (url: string) => string
-): void {
-	if (!isRecord(map)) return;
+): unknown {
+	if (!isRecord(map)) return map;
 
-	for (const key of Object.keys(map)) {
-		const target = map[key];
-		if (typeof target === "string") map[key] = rewrite(target);
+	const specifiers: JsonRecord = Object.create(null);
+	for (const [key, target] of Object.entries(map)) {
+		const rewrittenKey = isUrlLikeSpecifier(key) ? rewrite(key) : key;
+		specifiers[rewrittenKey] =
+			typeof target === "string" ? rewrite(target) : target;
 	}
+
+	return specifiers;
 }
 
 /**
@@ -29,13 +48,12 @@ export function rewriteImportMap(
 ): unknown {
 	if (!isRecord(map)) return map;
 
-	rewriteSpecifierMap(map.imports, rewrite);
+	map.imports = rewriteSpecifierMap(map.imports, rewrite);
 
 	if (isRecord(map.scopes)) {
 		const scopes: JsonRecord = Object.create(null);
 		for (const [scope, specifiers] of Object.entries(map.scopes)) {
-			rewriteSpecifierMap(specifiers, rewrite);
-			scopes[rewrite(scope)] = specifiers;
+			scopes[rewrite(scope)] = rewriteSpecifierMap(specifiers, rewrite);
 		}
 		map.scopes = scopes;
 	}
