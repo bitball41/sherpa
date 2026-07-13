@@ -9,6 +9,7 @@ pub use smallvec as vecimpl;
 
 pub enum TransformElement<'a> {
 	Str(&'a str),
+	Owned(String),
 	U32(u32),
 }
 
@@ -16,6 +17,10 @@ impl TransformElement<'_> {
 	fn eval(&self, itoa: &mut itoa::Buffer, buffer: &mut Vec<'_, u8>) -> usize {
 		match self {
 			TransformElement::Str(x) => {
+				buffer.extend_from_slice(x.as_bytes());
+				x.len()
+			}
+			TransformElement::Owned(x) => {
 				buffer.extend_from_slice(x.as_bytes());
 				x.len()
 			}
@@ -43,6 +48,12 @@ impl<'a> From<&&'a str> for TransformElement<'a> {
 impl<'a> From<&'a String> for TransformElement<'a> {
 	fn from(value: &'a String) -> Self {
 		Self::Str(value)
+	}
+}
+
+impl<'a> From<String> for TransformElement<'a> {
+	fn from(value: String) -> Self {
+		Self::Owned(value)
 	}
 }
 

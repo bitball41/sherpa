@@ -31,7 +31,6 @@
 	"plugin": [
 		"@8hobbies/typedoc-plugin-plausible",
 		"@shipgirl/typedoc-plugin-versions",
-		"@giancosta86/typedoc-readonly",
 		"typedoc-plugin-include-example",
 		"typedoc-plugin-mdn-links"
 	],

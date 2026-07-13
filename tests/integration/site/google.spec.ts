@@ -5,11 +5,9 @@ test.describe("Google", () => {
 	test("The front page can load.", async ({ page }) => {
 		const frame = await setupPage(page, "https://www.google.com/");
 
-		const search = await frame
-			.locator("textarea[Title='Search']")
-			.first()
-			.waitFor({ state: "visible" });
-		expect(search).not.toBeNull();
+		await expect(
+			frame.locator("textarea[Title='Search']").first()
+		).toBeVisible();
 	});
 
 	test("The Google Apps menu opens and content is visible.", async ({
@@ -17,7 +15,7 @@ test.describe("Google", () => {
 	}) => {
 		const frame = await setupPage(page, "https://www.google.com/");
 
-		frame.locator("a[aria-label='Google apps']").first().click();
+		await frame.locator("a[aria-label='Google apps']").first().click();
 
 		const appsMenuFrame = frame.locator("iframe[name='app']");
 		await appsMenuFrame.waitFor({ state: "visible" });

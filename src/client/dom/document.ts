@@ -4,6 +4,18 @@ import { unrewriteUrl } from "@rewriters/url";
 
 export default function (client: SherpaClient, _self: Self) {
 	const tostring = String;
+	const rewriteDocumentArguments = (args: unknown[]) => {
+		for (let index = 0; index < args.length; index++) {
+			try {
+				args[index] = rewriteHtml(
+					tostring(args[index]),
+					client.cookieStore,
+					client.meta,
+					false
+				);
+			} catch {}
+		}
+	};
 	client.Proxy(
 		["Document.prototype.querySelector", "Document.prototype.querySelectorAll"],
 		{
@@ -18,15 +30,7 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("Document.prototype.write", {
 		apply(ctx) {
-			if (ctx.args[0])
-				try {
-					ctx.args[0] = rewriteHtml(
-						ctx.args[0],
-						client.cookieStore,
-						client.meta,
-						false
-					);
-				} catch {}
+			rewriteDocumentArguments(ctx.args);
 		},
 	});
 
@@ -38,15 +42,7 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("Document.prototype.writeln", {
 		apply(ctx) {
-			if (ctx.args[0])
-				try {
-					ctx.args[0] = rewriteHtml(
-						ctx.args[0],
-						client.cookieStore,
-						client.meta,
-						false
-					);
-				} catch {}
+			rewriteDocumentArguments(ctx.args);
 		},
 	});
 

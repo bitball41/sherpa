@@ -177,8 +177,7 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 						&cfg.trysetfn, &cfg.templocid, &cfg.templocid
 					));
 				}
-				let steps: &'static str = Box::leak(steps.into_boxed_str());
-				LL::insert(transforms!["((t)=>(", &steps, "t))("])
+				LL::insert(transforms!["((t)=>(", steps, "t))("])
 			}
 			Ty::CleanFunction {
 				restids,
@@ -198,8 +197,7 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 							&cfg.trysetfn, &cfg.templocid, &cfg.templocid
 						));
 					}
-					let steps: &'static str = Box::leak(steps.into_boxed_str());
-					LL::insert(transforms!["(", &steps])
+					LL::insert(transforms!["(", steps])
 				} else {
 					for id in restids {
 						steps.push_str(&format!("{}({});", &cfg.cleanrestfn, id.as_str()));
@@ -210,11 +208,10 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 							&cfg.trysetfn, &cfg.templocid, &cfg.templocid
 						));
 					}
-					let steps: &'static str = Box::leak(steps.into_boxed_str());
 					if wrap {
-						LL::insert(transforms!["{", &steps])
+						LL::insert(transforms!["{", steps])
 					} else {
-						LL::insert(transforms![";", &steps])
+						LL::insert(transforms![";", steps])
 					}
 				}
 			}
@@ -232,8 +229,7 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 						&cfg.trysetfn, &cfg.templocid, &cfg.templocid
 					));
 				}
-				let steps: &'static str = Box::leak(steps.into_boxed_str());
-				LL::insert(transforms![",", &cfg.tempunusedid, "=(", &steps, "0)"])
+				LL::insert(transforms![",", &cfg.tempunusedid, "=(", steps, "0)"])
 			}
 			Ty::SetRealmFn => LL::insert(transforms![&cfg.setrealmfn, "({})."]),
 			Ty::ScramErrFn { ident } => LL::insert(transforms!["$scramerr(", ident, ");"]),

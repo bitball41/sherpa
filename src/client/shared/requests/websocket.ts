@@ -248,7 +248,7 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 					Origin: client.url.origin,
 				}
 			);
-			ctx.args[1]?.signal.addEventListener("abort", () => {
+			ctx.args[1]?.signal?.addEventListener("abort", () => {
 				barews.close(1000, "");
 			});
 			let openResolver, closeResolver;

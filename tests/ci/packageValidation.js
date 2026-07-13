@@ -6,7 +6,7 @@
 
 import test from "ava";
 import { glob } from "glob";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 /**
  * Expected distribution files for Sherpa's bundles.
@@ -70,6 +70,18 @@ test("All required JS bundles have corresponding source maps", async (t) => {
 		[],
 		`Missing source map files: ${missingMaps.join(", ")}`
 	);
+});
+
+test("Build metadata is valid when Git metadata is unavailable", (t) => {
+	for (const jsFile of EXPECTED_DIST_FILES.filter((file) =>
+		file.endsWith(".js")
+	)) {
+		const source = readFileSync(jsFile, "utf8");
+		t.false(
+			/\bbuild:unknown\b/.test(source),
+			`${jsFile} contains an unquoted build identifier`
+		);
+	}
 });
 
 /**

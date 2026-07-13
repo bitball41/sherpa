@@ -112,7 +112,7 @@ export type { SherpaServiceWorker } from "./worker";
  *
  * const frame = sherpa.createFrame();
  * document.body.appendChild(frame.frame);
- * frame.navigate("https://example.com");
+ * frame.go("https://example.com");
  * ```
  *
  * @category Window Context
