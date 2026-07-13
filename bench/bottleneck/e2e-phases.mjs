@@ -23,7 +23,7 @@
 //
 // Results land in results/bottleneck-*.json; a summary prints to stdout.
 import { createServer } from "node:http";
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -99,12 +99,26 @@ window.benchReady = Promise.resolve(true);
 </script></body></html>`;
 
 function shapedSend(res, status, headers, body, shape) {
+	// a harness navigation timeout/retry can abort mid-transfer; stop pacing
+	// when the connection goes away instead of writing into a dead stream
+	let iv = null;
+	let delay = null;
+	res.on("close", () => {
+		clearInterval(iv);
+		clearTimeout(delay);
+	});
 	const start = () => {
+		if (res.destroyed) return;
 		res.writeHead(status, headers);
 		if (!shape?.bps) return res.end(body);
 		const chunk = Math.max(2048, Math.round(shape.bps * 0.016));
 		let i = 0;
-		const iv = setInterval(() => {
+		iv = setInterval(() => {
+			if (res.destroyed) {
+				clearInterval(iv);
+
+				return;
+			}
 			const end = Math.min(body.length, i + chunk);
 			res.write(body.subarray(i, end));
 			i = end;
@@ -114,7 +128,7 @@ function shapedSend(res, status, headers, body, shape) {
 			}
 		}, 16);
 	};
-	if (shape?.latencyMs) setTimeout(start, shape.latencyMs);
+	if (shape?.latencyMs) delay = setTimeout(start, shape.latencyMs);
 	else start();
 }
 
@@ -428,8 +442,15 @@ const servers = [
 ];
 
 const browser = await chromium.launch({
+	// Prefer, in order: an explicit override; Playwright's own managed browser
+	// where it exists (normal dev machines); the environment-pinned Chromium
+	// (managed environments that block Playwright's browser download).
 	executablePath:
-		process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? "/opt/pw-browsers/chromium",
+		process.env.PLAYWRIGHT_EXECUTABLE_PATH ??
+		(existsSync("/opt/pw-browsers/chromium") &&
+		!existsSync(chromium.executablePath())
+			? "/opt/pw-browsers/chromium"
+			: undefined),
 	args: ["--enable-features=SharedArrayBuffer"],
 });
 
