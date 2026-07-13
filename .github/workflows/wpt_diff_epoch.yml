@@ -255,7 +255,7 @@ jobs:
 
       - name: Start Sherpa demo server
         run: |
-          pnpm start &
+          pnpm run dev &
           DEMO_PID="$!"
           echo "DEMO_PID=$DEMO_PID" >> "$GITHUB_ENV"
 
@@ -291,9 +291,13 @@ jobs:
         env:
           CI: true
           SHARD_COUNT: ${{ github.event.inputs.shard_count || '2' }}
-          MAX_TESTS_ARG: ${{ github.event.inputs.max_tests != '' && format('--max-tests {0}', github.event.inputs.max_tests) || '' }}
+          MAX_TESTS: ${{ github.event.inputs.max_tests || '' }}
         run: |
-          xvfb-run --auto-servernum pnpm start --report "wpt-report.json" --output-failed "failed-tests.json" --shard "${{ matrix.shard }}" --total-shards "$SHARD_COUNT" "$MAX_TESTS_ARG"
+          EXTRA_ARGS=()
+          if [ -n "$MAX_TESTS" ]; then
+            EXTRA_ARGS+=(--max-tests "$MAX_TESTS")
+          fi
+          xvfb-run --auto-servernum pnpm start --report "wpt-report.json" --output-failed "failed-tests.json" --shard "${{ matrix.shard }}" --total-shards "$SHARD_COUNT" "${EXTRA_ARGS[@]}"
 
       - name: Stop Sherpa demo server
         if: always()

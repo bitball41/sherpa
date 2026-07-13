@@ -78,7 +78,7 @@ await sherpa.init();
 
 const frame = sherpa.createFrame();
 document.body.appendChild(frame.frame);
-frame.navigate("https://example.com");
+frame.go("https://example.com");
 ```
 
 In your Service Worker:

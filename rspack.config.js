@@ -79,12 +79,13 @@ const iifeConfig = defineConfig({
 					const hash = JSON.stringify(
 						execSync("git rev-parse --short HEAD", {
 							encoding: "utf-8",
+							stdio: ["ignore", "pipe", "ignore"],
 						}).replace(/\r?\n|\r/g, "")
 					);
 
 					return hash;
 				} catch {
-					return "unknown";
+					return JSON.stringify("unknown");
 				}
 			})(),
 		}),
@@ -186,12 +187,13 @@ const moduleConfig = defineConfig({
 					const hash = JSON.stringify(
 						execSync("git rev-parse --short HEAD", {
 							encoding: "utf-8",
+							stdio: ["ignore", "pipe", "ignore"],
 						}).replace(/\r?\n|\r/g, "")
 					);
 
 					return hash;
 				} catch {
-					return "unknown";
+					return JSON.stringify("unknown");
 				}
 			})(),
 		}),

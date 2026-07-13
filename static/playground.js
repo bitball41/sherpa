@@ -74,9 +74,8 @@ function PlaygroundApp() {
 
 	this.fakeorigin = "https://sandboxedorigin.com";
 	this.mount = async () => {
-		const monaco = await import(
-			"https://cdn.jsdelivr.net/npm/monaco-editor/+esm"
-		);
+		const monaco =
+			await import("https://cdn.jsdelivr.net/npm/monaco-editor/+esm");
 
 		const dedent = (await import("https://cdn.jsdelivr.net/npm/dedent/+esm"))
 			.default;

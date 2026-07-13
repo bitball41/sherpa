@@ -17,6 +17,19 @@ import { getDB } from "@/shared/security/db";
 
 export class SherpaController extends EventTarget {
 	private db: IDBPDatabase<SherpaDB>;
+	private listeningForWorkerMessages = false;
+	private readonly handleWorkerMessage = (e: MessageEvent<MessageW2C>) => {
+		if (
+			typeof e.data !== "object" ||
+			e.data === null ||
+			!("sherpa$type" in e.data)
+		)
+			return;
+
+		if (e.data.sherpa$type === "download") {
+			this.dispatchEvent(new SherpaGlobalDownloadEvent(e.data.download));
+		}
+	};
 
 	constructor(config: Partial<SherpaInitConfig>) {
 		super();
@@ -86,19 +99,13 @@ export class SherpaController extends EventTarget {
 		});
 		dbg.log("config loaded");
 
-		navigator.serviceWorker.addEventListener("message", (e) => {
-			if (
-				typeof e.data !== "object" ||
-				e.data === null ||
-				!("sherpa$type" in e.data)
-			)
-				return;
-			const data: MessageW2C = e.data;
-
-			if (data.sherpa$type === "download") {
-				this.dispatchEvent(new SherpaGlobalDownloadEvent(data.download));
-			}
-		});
+		if (!this.listeningForWorkerMessages) {
+			navigator.serviceWorker.addEventListener(
+				"message",
+				this.handleWorkerMessage
+			);
+			this.listeningForWorkerMessages = true;
+		}
 	}
 
 	createFrame(frame?: HTMLIFrameElement): SherpaFrame {
@@ -127,7 +134,7 @@ export class SherpaController extends EventTarget {
 
 	/**
 	 * A URL that renders a live preview of Sherpa's error page using your
-	 * current {@link SherpaErrorPageConfig | `errorPage`} theme, with a sample
+	 * current `errorPage` theme, with a sample
 	 * trace filled in. Point a frame (or any navigation) at it to see your
 	 * customization without having to trigger a real fetch failure.
 	 *

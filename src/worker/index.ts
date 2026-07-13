@@ -245,9 +245,7 @@ type MessageCommon = {
  * These are routed by their `sherpa$type` to identify the messages apart from each other.
  */
 type MessageTypeC2W =
-	| RegisterServiceWorkerMessage
-	| CookieMessage
-	| ConfigMessage;
+	RegisterServiceWorkerMessage | CookieMessage | ConfigMessage;
 /**
  * w2c (types): Message types sent from the Service Worker to the client.
  */

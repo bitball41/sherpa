@@ -14,24 +14,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { rewriteCssUrls } = await import(
-	"../../src/shared/rewriters/cssUrls.ts"
-);
+const { rewriteCssUrls } =
+	await import("../../src/shared/rewriters/cssUrls.ts");
 
 // Wrap each matched URL in guillemets so both the boundaries and the preserved
 // quote characters are visible in the output.
 const mark = (css) => rewriteCssUrls(css, (u) => `«${u}»`);
 
 test("preserves an inner ) inside a single-quoted url (the core bug)", () => {
-	assert.equal(mark(`a{background:url('/a(b).png')}`), `a{background:url('«/a(b).png»')}`);
+	assert.equal(
+		mark(`a{background:url('/a(b).png')}`),
+		`a{background:url('«/a(b).png»')}`
+	);
 });
 
 test("preserves an inner ) inside a double-quoted url", () => {
-	assert.equal(mark(`a{background:url("/x(y)z.png")}`), `a{background:url("«/x(y)z.png»")}`);
+	assert.equal(
+		mark(`a{background:url("/x(y)z.png")}`),
+		`a{background:url("«/x(y)z.png»")}`
+	);
 });
 
 test("rewrites a bare unquoted url", () => {
-	assert.equal(mark(`a{background:url(pic.png)}`), `a{background:url(«pic.png»)}`);
+	assert.equal(
+		mark(`a{background:url(pic.png)}`),
+		`a{background:url(«pic.png»)}`
+	);
 });
 
 test("rewrites every candidate in a multi-value declaration", () => {
@@ -42,7 +50,10 @@ test("rewrites every candidate in a multi-value declaration", () => {
 });
 
 test("does not rewrite url(...) written inside a string value", () => {
-	assert.equal(mark(`.q{content:"url(not-a-url.png)"}`), `.q{content:"url(not-a-url.png)"}`);
+	assert.equal(
+		mark(`.q{content:"url(not-a-url.png)"}`),
+		`.q{content:"url(not-a-url.png)"}`
+	);
 });
 
 test("does not rewrite url(...) written inside a comment", () => {
@@ -53,15 +64,24 @@ test("does not rewrite url(...) written inside a comment", () => {
 });
 
 test("matches the case-insensitive URL( spelling", () => {
-	assert.equal(mark(`a{background:URL(pic.png)}`), `a{background:URL(«pic.png»)}`);
-	assert.equal(mark(`a{background:Url('p.png')}`), `a{background:Url('«p.png»')}`);
+	assert.equal(
+		mark(`a{background:URL(pic.png)}`),
+		`a{background:URL(«pic.png»)}`
+	);
+	assert.equal(
+		mark(`a{background:Url('p.png')}`),
+		`a{background:Url('«p.png»')}`
+	);
 });
 
 test("does not treat an identifier ending in 'url' as the url() function", () => {
-	assert.equal(mark(`a{--myurl:1;background:myurl(x)}`), `a{--myurl:1;background:myurl(x)}`);
+	assert.equal(
+		mark(`a{--myurl:1;background:myurl(x)}`),
+		`a{--myurl:1;background:myurl(x)}`
+	);
 });
 
-test("leaves empty url() and url(\"\") untouched", () => {
+test('leaves empty url() and url("") untouched', () => {
 	assert.equal(mark(`a{background:url()}`), `a{background:url()}`);
 	assert.equal(mark(`a{background:url("")}`), `a{background:url("")}`);
 	assert.equal(mark(`a{background:url(   )}`), `a{background:url(   )}`);
@@ -69,7 +89,9 @@ test("leaves empty url() and url(\"\") untouched", () => {
 
 test("handles a data: URI with embedded commas and parens", () => {
 	assert.equal(
-		mark(`.x{background:url(data:image/svg+xml,<svg viewBox='0 0 1 1'><a(/></svg>)}`),
+		mark(
+			`.x{background:url(data:image/svg+xml,<svg viewBox='0 0 1 1'><a(/></svg>)}`
+		),
 		`.x{background:url(«data:image/svg+xml,<svg viewBox='0 0 1 1'><a(/></svg>»)}`
 	);
 });
@@ -82,11 +104,17 @@ test("does not mistake a following format() for a url()", () => {
 });
 
 test("normalizes whitespace around a quoted value", () => {
-	assert.equal(mark(`a{background:url(  "p.png"  )}`), `a{background:url("«p.png»")}`);
+	assert.equal(
+		mark(`a{background:url(  "p.png"  )}`),
+		`a{background:url("«p.png»")}`
+	);
 });
 
 test("keeps an escaped ) inside an unquoted url", () => {
-	assert.equal(mark(`a{background:url(a\\)b.png)}`), `a{background:url(«a\\)b.png»)}`);
+	assert.equal(
+		mark(`a{background:url(a\\)b.png)}`),
+		`a{background:url(«a\\)b.png»)}`
+	);
 });
 
 test("returns the original string unchanged when there is nothing to rewrite", () => {
@@ -95,11 +123,17 @@ test("returns the original string unchanged when there is nothing to rewrite", (
 });
 
 test("leaves an unterminated url( ... alone", () => {
-	assert.equal(mark(`a{background:url('unclosed`), `a{background:url('unclosed`);
+	assert.equal(
+		mark(`a{background:url('unclosed`),
+		`a{background:url('unclosed`
+	);
 });
 
 test("rewrites url() inside @import url(...)", () => {
-	assert.equal(mark(`@import url("theme.css");`), `@import url("«theme.css»");`);
+	assert.equal(
+		mark(`@import url("theme.css");`),
+		`@import url("«theme.css»");`
+	);
 });
 
 test("rewrites a url() at the very start of the stylesheet", () => {

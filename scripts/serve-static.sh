@@ -4,8 +4,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 cleanup() {
-    if [ ! -z "$SERVER_PID" ]; then
-        kill $SERVER_PID 2>/dev/null || true
+	if [ -n "${SERVER_PID:-}" ]; then
+		kill "$SERVER_PID" 2>/dev/null || true
     fi
     exit 0
 }
@@ -25,11 +25,21 @@ bash ci/download-existing-docs.sh
 bash ci/build-docs.sh
 bash ci/build-static.sh
 
+replace_docs_url() {
+	local file="$1"
+	local replacement="$2"
+	if sed --version >/dev/null 2>&1; then
+		sed -i "s|url=dev/|url=${replacement}|g" "$file"
+	else
+		sed -i '' "s|url=dev/|url=${replacement}|g" "$file"
+	fi
+}
+
 if [ -f "staticbuild/typedoc/index.html" ]; then
-    sed -i '' 's|url=dev/|url=/typedoc/dev/|g' staticbuild/typedoc/index.html
+	replace_docs_url "staticbuild/typedoc/index.html" "/typedoc/dev/"
 fi
 if [ -f "staticbuild/typedoc-dev/index.html" ]; then
-    sed -i '' 's|url=dev/|url=/typedoc-dev/dev/|g' staticbuild/typedoc-dev/index.html
+	replace_docs_url "staticbuild/typedoc-dev/index.html" "/typedoc-dev/dev/"
 fi
 
 cd staticbuild
@@ -38,4 +48,4 @@ echo "TypeDoc available at http://localhost:3000/typedoc"
 npx serve -l 3000 &
 SERVER_PID=$!
 
-wait $SERVER_PID
+wait "$SERVER_PID"

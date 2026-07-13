@@ -11,7 +11,7 @@ export default function (client: SherpaClient, self: Self) {
 				if (
 					typeof this.data === "object" &&
 					this.data !== null &&
-					"$sherpa$type" in this.data
+					("$sherpa$type" in this.data || "sherpa$type" in this.data)
 				) {
 					// this is a ctl message
 					return false;

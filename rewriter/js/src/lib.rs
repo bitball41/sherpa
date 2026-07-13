@@ -104,6 +104,25 @@ impl<E: UrlRewriter> Rewriter<E> {
 		}
 	}
 
+	fn discard_changes<'alloc: 'data, 'data>(
+		&'data self,
+		mut changes: JsChanges<'alloc, 'data>,
+	) -> Result<(), RewriterError> {
+		changes.take_alloc()?;
+
+		let mut slot = self
+			.changes
+			.try_borrow_mut()
+			.map_err(|_| RewriterError::AlreadyRewriting)?;
+
+		if slot.is_some() {
+			Err(RewriterError::NotRewriting)
+		} else {
+			slot.replace(JsChanges::new());
+			Ok(())
+		}
+	}
+
 	pub fn new(cfg: Config, url_rewriter: E) -> Self {
 		Self {
 			cfg,
@@ -150,14 +169,22 @@ impl<E: UrlRewriter> Rewriter<E> {
 			config: &self.cfg,
 			rewriter: &self.url,
 			flags,
+			shorthand_identifiers: std::vec::Vec::new(),
 		};
 		visitor.visit_program(&parsed.program);
-		if let Some(error) = visitor.error {
+		if let Some(error) = visitor.error.take() {
+			self.discard_changes(visitor.jschanges)?;
 			return Err(RewriterError::Url(error));
 		}
 		let mut jschanges = visitor.jschanges;
 
-		let changed = jschanges.perform(js, &self.cfg, &visitor.flags)?;
+		let changed = match jschanges.perform(js, &self.cfg, &visitor.flags) {
+			Ok(changed) => changed,
+			Err(error) => {
+				self.discard_changes(jschanges)?;
+				return Err(error);
+			}
+		};
 
 		self.put_changes(jschanges)?;
 

@@ -34,6 +34,7 @@ fi
 
 (
 	export RUSTFLAGS='-Zlocation-detail=none -Zfmt-debug=none'
+	STD_FEATURES=""
 	if [ "${OPTIMIZE_FOR_SIZE:-0}" = "1" ]; then
 		export RUSTFLAGS="${RUSTFLAGS} -C opt-level=z"
 	fi
