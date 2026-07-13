@@ -47,7 +47,7 @@ const URL_HEADERS = new Set(["location", "content-location", "referer"]);
  * @param rawHeaders Headers before they were rewritten
  * @param meta Parsed Proxy URL
  * @param client `BareClient` instance used for fetching
- * @param isNavigationRequest Whether the request is a navigation request
+ * @param storedReferrerPolicies Referrer policies remembered for proxied origins
  */
 export async function rewriteHeaders(
 	rawHeaders: BareHeaders,

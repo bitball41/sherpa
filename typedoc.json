@@ -24,11 +24,9 @@
 	"plugin": [
 		"@8hobbies/typedoc-plugin-plausible",
 		"@shipgirl/typedoc-plugin-versions",
-		"@8hobbies/typedoc-plugin-404",
-		"@giancosta86/typedoc-readonly",
 		"typedoc-plugin-markdown",
 		"typedoc-plugin-frontmatter",
-		"typedoc-plugin-copy-doc",
+		"@reside-ic/typedoc-plugin-copy-doc",
 		"typedoc-plugin-dt-links",
 		"typedoc-plugin-include-example",
 		"typedoc-plugin-mdn-links"

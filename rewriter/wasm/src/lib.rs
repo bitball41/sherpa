@@ -97,8 +97,7 @@ impl Rewriter {
 		url: String,
 		module: bool,
 	) -> Result<JsRewriterOutput> {
-		// SAFETY: we know the js is a valid utf-8 string
-		let js = unsafe { std::string::String::from_utf8_unchecked(js) };
+		let js = String::from_utf8_lossy(&js).into_owned();
 
 		self.rewrite_js(js, base, url, module)
 	}

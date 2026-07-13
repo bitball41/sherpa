@@ -6,6 +6,8 @@ export async function setupPage(
 	page: Page,
 	url: string
 ): Promise<FrameLocator> {
+	registerInspect(page);
+
 	// Hack to disable HTTP cache.
 	await page.route("**", (route) => route.continue());
 	// Goto base url defined in config.
@@ -16,15 +18,10 @@ export async function setupPage(
 	const frame = page.frameLocator("iframe");
 	expect(title).toBe("sherpa");
 
-	expect(bar).not.toBeNull();
+	await expect(bar).toBeVisible();
 
 	await bar.fill(url);
-
-	await page.waitForTimeout(1000);
-
 	await bar.press("Enter");
-
-	registerInspect(page);
 
 	return frame;
 }

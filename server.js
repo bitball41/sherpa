@@ -14,7 +14,6 @@ import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
-import { chmodSync, writeFileSync } from "fs";
 
 const bare = createBareServer("/bare/", {
 	logErrors: true,
@@ -96,14 +95,6 @@ await fastify.listen({
 });
 console.log(`Listening on http://localhost:${PORT}/`);
 if (!process.env.CI) {
-	try {
-		writeFileSync(
-			".git/hooks/pre-commit",
-			"#!/bin/sh\npnpm format\ngit update-index --again\n"
-		);
-		chmodSync(".git/hooks/pre-commit", 0o755);
-	} catch {}
-
 	const compiler = rspack(rspackConfig);
 	compiler.watch({}, (err, stats) => {
 		console.log(

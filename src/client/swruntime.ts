@@ -84,7 +84,7 @@ function handleMessage(
 			(event) => event.event === "fetch"
 		);
 		const request = data.sherpa$request;
-		const Request = client.natives["Request"];
+		const Request = client.natives.store.Request;
 		const init: RequestInit = {
 			headers: new Headers(request.headers),
 			method: request.method,

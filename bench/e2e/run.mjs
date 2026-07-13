@@ -51,10 +51,10 @@ console.log(
 );
 
 const browser = await chromium.launch({
-	// the environment ships a pinned chromium; PLAYWRIGHT_EXECUTABLE_PATH
-	// overrides it if a different build should be used
-	executablePath:
-		process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? "/opt/pw-browsers/chromium",
+	// Let Playwright select its installed browser unless explicitly overridden.
+	...(process.env.PLAYWRIGHT_EXECUTABLE_PATH
+		? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH }
+		: {}),
 	args: ["--enable-features=SharedArrayBuffer"],
 });
 

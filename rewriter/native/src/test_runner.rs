@@ -151,4 +151,23 @@ function check(val) {
 			rewriter.reset();
 		}
 	}
+
+	#[test]
+	fn recovers_after_url_rewrite_error() {
+		let rewriter = NativeRewriter::default();
+		let mut invalid_options = RewriterOptions::default();
+		invalid_options.base = "not a valid base URL".to_string();
+		invalid_options.is_module = true;
+
+		assert!(
+			rewriter
+				.rewrite("import './module.js'", &invalid_options)
+				.is_err()
+		);
+		assert!(
+			rewriter
+				.rewrite("check(top);", &RewriterOptions::default())
+				.is_ok()
+		);
+	}
 }

@@ -13,7 +13,7 @@ function isWhitespace(c: number): boolean {
 }
 
 function isNewline(c: number): boolean {
-	return c === 10 /* \n */ || c === 13 /* \r */ || c === 12 /* \f */;
+	return c === 10 /* \n */ || c === 13 /* \r */ || c === 12; /* \f */
 }
 
 function isIdentChar(c: number): boolean {

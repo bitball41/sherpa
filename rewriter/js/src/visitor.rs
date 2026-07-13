@@ -67,6 +67,7 @@ where
 	pub config: &'data Config,
 	pub rewriter: &'data E,
 	pub flags: Flags,
+	pub shorthand_identifiers: std::vec::Vec<Span>,
 }
 
 impl<'data, E> Visitor<'_, 'data, E>
@@ -376,14 +377,21 @@ where
 		}
 	}
 
-	fn handle_for_of_in(&mut self, left: &ForStatementLeft<'data>, right: &Expression<'data>, body: &Statement<'data>) {
-    	let mut restids: Vec<Atom<'data>> = Vec::new();
+	fn handle_for_of_in(
+		&mut self,
+		left: &ForStatementLeft<'data>,
+		right: &Expression<'data>,
+		body: &Statement<'data>,
+	) {
+		let mut restids: Vec<Atom<'data>> = Vec::new();
 		let mut location_assigned: bool = false;
 		if let ForStatementLeft::VariableDeclaration(v) = &left {
-			self.handle_var_declarator(&v, &mut restids, &mut location_assigned);
+			if self.flags.destructure_rewrites {
+				self.handle_var_declarator(&v, &mut restids, &mut location_assigned);
+			}
 		} else {
-		    let target = left.as_assignment_target().unwrap();
-		    match target {
+			let target = left.as_assignment_target().unwrap();
+			match target {
 				AssignmentTarget::AssignmentTargetIdentifier(s) => {
 					if &s.name == "location" {
 						self.jschanges.add(rewrite!(s.span, TempVar));
@@ -415,16 +423,28 @@ where
 					walk::walk_expression(self, &s.expression);
 				}
 				AssignmentTarget::ObjectAssignmentTarget(o) => {
-					self.recurse_object_assignment_target(o, &mut restids, &mut location_assigned);
+					if self.flags.destructure_rewrites {
+						self.recurse_object_assignment_target(
+							o,
+							&mut restids,
+							&mut location_assigned,
+						);
+					}
 				}
 				AssignmentTarget::ArrayAssignmentTarget(a) => {
-					self.recurse_array_assignment_target(a, &mut restids, &mut location_assigned);
+					if self.flags.destructure_rewrites {
+						self.recurse_array_assignment_target(
+							a,
+							&mut restids,
+							&mut location_assigned,
+						);
+					}
 				}
 				_ => {}
 			}
 		}
 
-		if location_assigned || restids.len() > 0 {
+		if location_assigned || !restids.is_empty() {
 			match &body {
 				Statement::BlockStatement(b) => {
 					self.jschanges.add(rewrite!(
@@ -455,6 +475,7 @@ where
 			}
 		}
 		walk::walk_expression(self, &right);
+		walk::walk_statement(self, body);
 	}
 
 	fn scramitize(&mut self, span: Span) {
@@ -467,6 +488,15 @@ where
 	E: UrlRewriter,
 {
 	fn visit_identifier_reference(&mut self, it: &IdentifierReference) {
+		if let Some(index) = self
+			.shorthand_identifiers
+			.iter()
+			.position(|span| span.start == it.span.start && span.end == it.span.end)
+		{
+			self.shorthand_identifiers.swap_remove(index);
+			return;
+		}
+
 		if UNSAFE_GLOBALS.contains(&it.name.as_str()) {
 			self.jschanges
 				.add(rewrite!(it.span, WrapFn { enclose: false }));
@@ -474,9 +504,7 @@ where
 	}
 
 	fn visit_new_expression(&mut self, it: &NewExpression<'data>) {
-		// ??
-		// self.walk_member_expression(&it.callee);
-		walk::walk_arguments(self, &it.arguments);
+		walk::walk_new_expression(self, it);
 	}
 
 	fn visit_member_expression(&mut self, it: &MemberExpression<'data>) {
@@ -566,7 +594,11 @@ where
 				self.rewrite_url(source, true);
 			}
 		}
-		// do not walk further, we don't want to rewrite the identifiers
+		// Export specifier identifiers are syntax, not runtime references. Walk only
+		// an inline declaration so its initializer and function body are rewritten.
+		if let Some(declaration) = &it.declaration {
+			walk::walk_declaration(self, declaration);
+		}
 	}
 
 	fn visit_try_statement(&mut self, it: &oxc::ast::ast::TryStatement<'data>) {
@@ -599,21 +631,29 @@ where
 					false,
 					&mut location_assigned,
 				);
-				self.jschanges.add(rewrite!(
-					h.body.body[0].span(),
-					CleanFunction {
-						restids,
-						expression: false,
-						location_assigned,
-						wrap: false,
-					}
-				));
+				if !restids.is_empty() || location_assigned {
+					let start = h
+						.body
+						.body
+						.first()
+						.map(|statement| statement.span().start)
+						.unwrap_or(h.body.span.start + 1);
+					self.jschanges.add(rewrite!(
+						Span::new(start, start),
+						CleanFunction {
+							restids,
+							expression: false,
+							location_assigned,
+							wrap: false,
+						}
+					));
+				}
 			}
 			walk::walk_block_statement(self, &h.body);
 		}
 
 		if let Some(f) = &it.finalizer {
-    		walk::walk_block_statement(self, f);
+			walk::walk_block_statement(self, f);
 		}
 		walk::walk_block_statement(self, &it.block);
 	}
@@ -627,7 +667,7 @@ where
 			{
 				self.jschanges
 					.add(rewrite!(s.span, ShorthandObj { name: s.name }));
-				return;
+				self.shorthand_identifiers.push(s.span);
 			}
 		}
 
@@ -744,13 +784,15 @@ where
 		if let Some(t) = &it.update {
 			walk::walk_expression(self, t);
 		}
+
+		walk::walk_statement(self, &it.body);
 	}
 
 	fn visit_for_of_statement(&mut self, it: &oxc::ast::ast::ForOfStatement<'data>) {
-    	self.handle_for_of_in(&it.left, &it.right, &it.body);
+		self.handle_for_of_in(&it.left, &it.right, &it.body);
 	}
 	fn visit_for_in_statement(&mut self, it: &oxc::ast::ast::ForInStatement<'data>) {
-    	self.handle_for_of_in(&it.left, &it.right, &it.body);
+		self.handle_for_of_in(&it.left, &it.right, &it.body);
 	}
 
 	fn visit_function_body(&mut self, it: &FunctionBody<'data>) {
@@ -869,41 +911,44 @@ where
 				walk::walk_expression(self, &s.expression);
 			}
 			AssignmentTarget::ObjectAssignmentTarget(o) => {
-				if !self.flags.destructure_rewrites {
-					return;
-				}
+				if self.flags.destructure_rewrites {
+					let mut restids: Vec<Atom<'data>> = Vec::new();
+					let mut location_assigned: bool = false;
+					self.recurse_object_assignment_target(
+						o,
+						&mut restids,
+						&mut location_assigned,
+					);
 
-				let mut restids: Vec<Atom<'data>> = Vec::new();
-				let mut location_assigned: bool = false;
-				self.recurse_object_assignment_target(o, &mut restids, &mut location_assigned);
-
-				if restids.len() > 0 || location_assigned {
-					self.jschanges.add(rewrite!(
-						it.span,
-						WrapObjectAssignment {
-							restids,
-							location_assigned
-						}
-					));
+					if !restids.is_empty() || location_assigned {
+						self.jschanges.add(rewrite!(
+							it.span,
+							WrapObjectAssignment {
+								restids,
+								location_assigned
+							}
+						));
+					}
 				}
-				return;
 			}
 			AssignmentTarget::ArrayAssignmentTarget(a) => {
-				if !self.flags.destructure_rewrites {
-					return;
-				}
-
-				let mut restids: Vec<Atom<'data>> = Vec::new();
-				let mut location_assigned: bool = false;
-				self.recurse_array_assignment_target(a, &mut restids, &mut location_assigned);
-				if restids.len() > 0 || location_assigned {
-					self.jschanges.add(rewrite!(
-						it.span,
-						WrapObjectAssignment {
-							restids,
-							location_assigned
-						}
-					));
+				if self.flags.destructure_rewrites {
+					let mut restids: Vec<Atom<'data>> = Vec::new();
+					let mut location_assigned: bool = false;
+					self.recurse_array_assignment_target(
+						a,
+						&mut restids,
+						&mut location_assigned,
+					);
+					if !restids.is_empty() || location_assigned {
+						self.jschanges.add(rewrite!(
+							it.span,
+							WrapObjectAssignment {
+								restids,
+								location_assigned
+							}
+						));
+					}
 				}
 			}
 			_ => {}

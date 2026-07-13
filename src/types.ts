@@ -114,8 +114,10 @@ export interface SherpaConfig {
 /**
  * The config for Sherpa initialization.
  */
-export interface SherpaInitConfig
-	extends Omit<SherpaConfig, "codec" | "flags" | "errorPage"> {
+export interface SherpaInitConfig extends Omit<
+	SherpaConfig,
+	"codec" | "flags" | "errorPage"
+> {
 	flags: Partial<SherpaFlags>;
 	errorPage: Partial<SherpaErrorPageConfig>;
 	codec: {
