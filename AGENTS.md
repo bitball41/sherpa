@@ -390,9 +390,9 @@ plus `build`/`build:types`/`test:*`. What was done:
 - **Errors (6).** Two `newline-before-return`; one `no-constant-condition`
   (`if (1) return;` in `dbg.time` → a named `TIMING_ENABLED = false` module
   toggle, same disabled-by-default behavior but self-documenting and
-  re-enablable); one unnecessary empty template literal (`` `` `` → `""`); two
-  `quotes` on font stacks that legitimately contain `"..."` — fixed at the
-  config by adding `{ avoidEscape: true }` to the `quotes` rule (the idiomatic
+  re-enablable); one unnecessary empty template literal (` ` ``→`""`); two
+`quotes`on font stacks that legitimately contain`"..."`— fixed at the
+config by adding`{ avoidEscape: true }`to the`quotes` rule (the idiomatic
   setting: single quotes are the correct choice when the string embeds double
   quotes), so the source stays as written.
 - **Warnings (36 → 0).** `prefer-const` via `eslint --fix`; unused imports
@@ -421,7 +421,7 @@ clean and the full `test:unit` suite green (60 assertions, 6 new).
   across 14 inputs incl. quoted/case-variant/relative/trailing-junk), and
   `tests/unit/refresh.test.mjs` pins it.
 - **`Document.parseHTMLUnsafe` was trapped on the wrong object**
-  (`src/client/dom/document.ts`). It's a *static* method on `Document`, not on
+  (`src/client/dom/document.ts`). It's a _static_ method on `Document`, not on
   `Document.prototype`; the prototype trap silently no-op'd (the proxy helper
   bails when `Reflect.has` is false), so HTML injected via
   `Document.parseHTMLUnsafe(...)` ran completely unrewritten. Now traps the
@@ -430,7 +430,7 @@ clean and the full `test:unit` suite green (60 assertions, 6 new).
   correct.)
 - **Reflected URL getters realigned with `htmlRules`**
   (`src/client/dom/element.ts`). `htmlRules` rewrites `src` on `<input
-  type=image>` and `<track>` and `href` on `<area>`, but the page-facing
+type=image>` and `<track>` and `href` on `<area>`, but the page-facing
   property getters that unrewrite those back omitted `HTMLInputElement`,
   `HTMLTrackElement`, and `HTMLAreaElement` — so reading `el.src` / `area.href`
   handed the page the proxied URL. Added them, and guarded the getter-install
@@ -454,9 +454,9 @@ NOT done yet" / Environment) plus a hand-written `wasm.d.ts`; the committed
 - **Cookie persistence across service-worker restarts was silently broken**
   (`src/shared/cookie.ts`). `CookieStore.load()` did `if (typeof cookies ===
 "object") return cookies;` — returning the object **without ever assigning
-  `this.cookies`**. The client injects the jar as a JSON *string* (works), but
+  `this.cookies`**. The client injects the jar as a JSON _string_ (works), but
   the service worker restores it from IndexedDB where it comes back as a
-  structured-cloned *object*, so the worker's persisted jar was dropped on
+  structured-cloned _object_, so the worker's persisted jar was dropped on
   every SW restart (a session-cookie login didn't survive until the site
   re-set it). Now assigns for both shapes. Covered by two new
   `tests/unit/cookie.test.mjs` fixtures (the object/SW path and the
@@ -470,7 +470,7 @@ NOT done yet" / Environment) plus a hand-written `wasm.d.ts`; the committed
   unrewrite set (same class of fix as the `input`/`track`/`area` pass above).
 - **`cleanErrors` stack scrubbing deleted the wrong line**
   (`src/client/shared/error.ts`). It did `const line = lines.find(...);
-lines.splice(line, 1)` — `find` returns the matched *string*, and
+lines.splice(line, 1)` — `find` returns the matched _string_, and
   `splice("<string>", 1)` coerces the index to `NaN → 0`, so it removed the
   first stack line (usually the error message) and left the Sherpa frame in
   place. Now uses `findIndex` with an `idx !== -1` guard. (Behind the
@@ -483,7 +483,7 @@ lines.splice(line, 1)` — `find` returns the matched *string*, and
   (`src/worker/fetch.ts`). `isDownload` compared the whole header to the string
   `"inline"`, so only a bare `inline` showed in-browser; the common
   `inline; filename="doc.pdf"` form (a server asking for in-browser display)
-  fell through to the download path. Now parses the leading disposition *type*
+  fell through to the download path. Now parses the leading disposition _type_
   token, so `inline`/`inline; …` display and `attachment`/anything-else
   download, matching the grammar.
 - **Removed a rebrand-straggler console warning** (`src/controller/index.ts`)
@@ -491,6 +491,36 @@ lines.splice(line, 1)` — `find` returns the matched *string*, and
   please upgrade to v2" — Sherpa deliberately forks the 1.x line and there is
   no Sherpa v2, so the message was actively misleading on every controller
   load.
+
+### Bottleneck attribution pass (measurement only, no engine changes)
+
+`bench/bottleneck/` answers "what bottlenecks Sherpa?" now that the
+engine-vs-engine wins are banked. Two harnesses: `rewrite-cost.mjs` (real
+rewriters via `dist/sherpa.bundle.js` — the published micro bench stubbed
+the WASM JS rewriter and disabled `sourcemaps`) and `e2e-phases.mjs`
+(direct-vs-proxied browser loads, instrumented SW per-request timing,
+client-boot micro, CDP trace, shaped 60ms-RTT/10Mbit link, repeat-visit
+against a cacheable origin). Full report with numbers in
+`bench/bottleneck/README.md`. Ranked findings:
+
+1. **Nothing is ever cached** — SW-synthesized responses bypass the HTTP
+   cache, no Cache API use anywhere, rewritten output never memoized:
+   repeat visits are ~10× slower than direct (230ms vs 24ms on a small
+   page over a shaped link). Highest-leverage fix: a rewritten-response
+   Cache API layer in the worker.
+2. **Full-response buffering** (`rewriteBody` → `arrayBuffer()`) — doc
+   TTFB equals the whole download: 1207ms vs 51ms direct on a 1.2MiB page
+   at 10Mbit (2.3s vs 1.2s total). Fix = streaming/early-flush HTML
+   rewrite (hard; upstream 2.x went streaming for this reason).
+3. **Per-document client boot ~45–60ms serial** — ~32ms of it is the
+   per-byte `Uint8Array.from(atob(WASM), cb)` decode in the injected boot
+   (`src/shared/rewriters/wasm.ts`), plus parsing a 695KiB base64 payload
+   `<script>` per document.
+4. **Wire inflation** — rewritten HTML 2–2.5×; default `sourcemaps: true`
+   adds +43% to every minified script (map serialized as a decimal array
+   literal in the SW path of `rewriteJs`) and ~25% rewrite CPU.
+5. **Per-request SW overhead 1.5–10ms** engine CPU per subresource,
+   serialized on the single SW event loop.
 
 ## What's NOT done yet
 

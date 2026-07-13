@@ -9,7 +9,7 @@
 //
 // Loads are interleaved (engine order rotates each round) to neutralize
 // machine drift. Reported: median and p95 of warm loads, median of cold.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -51,10 +51,15 @@ console.log(
 );
 
 const browser = await chromium.launch({
-	// Let Playwright select its installed browser unless explicitly overridden.
-	...(process.env.PLAYWRIGHT_EXECUTABLE_PATH
-		? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH }
-		: {}),
+	// Prefer, in order: an explicit override; Playwright's own managed browser
+	// where it exists (normal dev machines); the environment-pinned Chromium
+	// (managed environments that block Playwright's browser download).
+	executablePath:
+		process.env.PLAYWRIGHT_EXECUTABLE_PATH ??
+		(existsSync("/opt/pw-browsers/chromium") &&
+		!existsSync(chromium.executablePath())
+			? "/opt/pw-browsers/chromium"
+			: undefined),
 	args: ["--enable-features=SharedArrayBuffer"],
 });
 
