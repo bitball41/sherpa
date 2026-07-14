@@ -19,9 +19,9 @@ test("postMessage target origins resolve in the virtual caller realm", () => {
 		normalizePostMessageTargetOrigin("https://target.test/path", source),
 		"https://target.test"
 	);
-	assert.equal(
-		normalizePostMessageTargetOrigin("../relative", source),
-		source.origin
+	assert.throws(
+		() => normalizePostMessageTargetOrigin("../relative", source),
+		(error) => error instanceof DOMException && error.name === "SyntaxError"
 	);
 });
 
