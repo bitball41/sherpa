@@ -15,13 +15,19 @@ import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
 
+const PORT = process.env.PORT ? parseInt(process.env.PORT) || 1337 : 1337;
+const HOST = process.env.HOST || "127.0.0.1";
+const ALLOW_PRIVATE_NETWORKS =
+	process.env.ALLOW_PRIVATE_NETWORKS === "1" ||
+	["127.0.0.1", "::1", "localhost"].includes(HOST);
+
 const bare = createBareServer("/bare/", {
 	logErrors: true,
-	blockLocal: false,
+	blockLocal: !ALLOW_PRIVATE_NETWORKS,
 });
 
-wisp.options.allow_loopback_ips = true;
-wisp.options.allow_private_ips = true;
+wisp.options.allow_loopback_ips = ALLOW_PRIVATE_NETWORKS;
+wisp.options.allow_private_ips = ALLOW_PRIVATE_NETWORKS;
 
 const fastify = Fastify({
 	serverFactory: (handler) => {
@@ -39,8 +45,10 @@ const fastify = Fastify({
 			.on("upgrade", (req, socket, head) => {
 				if (bare.shouldRoute(req)) {
 					bare.routeUpgrade(req, socket, head);
-				} else {
+				} else if (req.url?.startsWith("/wisp/")) {
 					wisp.routeRequest(req, socket, head);
+				} else {
+					socket.destroy();
 				}
 			});
 	},
@@ -80,9 +88,6 @@ fastify.register(fastifyStatic, {
 	prefix: "/baremod/",
 	decorateReply: false,
 });
-
-const PORT = process.env.PORT ? parseInt(process.env.PORT) || 1337 : 1337;
-const HOST = process.env.HOST || "0.0.0.0";
 
 fastify.setNotFoundHandler((request, reply) => {
 	console.error("PAGE PUNCHED THROUGH SW - " + request.url);
