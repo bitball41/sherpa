@@ -42,7 +42,7 @@ test("browser-only navigation mode falls back to a constructible internal mode",
 		createTransferredRequestInit(metadata({ mode: "navigate" }))
 	);
 
-	assert.equal(request.mode, "cors");
+	assert.equal(request.mode, "same-origin");
 });
 
 test("stream bodies use duplex without constructing an invalid keepalive request", () => {
