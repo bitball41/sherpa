@@ -5,6 +5,7 @@ import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
 import {
+	isLegacyWindowMessageEnvelope,
 	isVirtualMessageEnvelope,
 	isWindowMessageEnvelope,
 	shouldDeliverWindowMessage,
@@ -46,7 +47,7 @@ export default function (client: SherpaClient, self: Self) {
 				return this.source;
 			},
 			origin() {
-				if (isWindowMessageEnvelope(this.data))
+				if (isLegacyWindowMessageEnvelope(this.data))
 					return this.data.$sherpa$origin;
 
 				// Worker, MessagePort, and BroadcastChannel messages normally have an
