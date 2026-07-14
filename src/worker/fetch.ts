@@ -36,7 +36,7 @@ import {
 	isRedirectStatus,
 	normalizeHtmlContentType,
 } from "@/worker/response";
-import { appendUrlParamEntries } from "@/shared/urlCodec";
+import { appendUrlParamEntries, extractUrlParams } from "@/shared/urlCodec";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -111,7 +111,8 @@ export async function handleFetch(
 	client: Client | null
 ) {
 	try {
-		const requestUrl = new URL(request.url);
+		const extractedRequest = extractUrlParams(request.url);
+		const requestUrl = new URL(extractedRequest.url);
 
 		if (requestUrl.pathname === this.config.files.wasm) {
 			// this bootstrap script is requested by every proxied document, and
@@ -168,32 +169,43 @@ export async function handleFetch(
 		let fromServiceWorkerRuntime = false;
 
 		const extraParams: Array<[string, string]> = [];
-		for (const [param, value] of [...requestUrl.searchParams.entries()]) {
-			switch (param) {
-				case "type":
-					scriptType = value;
-					break;
-				case "dest":
-					break;
-				case "scope":
-					break;
-				case "from":
-					fromServiceWorkerRuntime = value === "swruntime";
-					break;
-				case "topFrame":
-					topFrameName = value;
-					break;
-				case "parentFrame":
-					parentFrameName = value;
-					break;
-				default:
-					dbg.warn(
-						`${requestUrl.href} extraneous query parameter ${param}. Assuming <form> element`
-					);
-					extraParams.push([param, value]);
-					break;
+		if (extractedRequest.params) {
+			const params = extractedRequest.params;
+			scriptType = params.type ?? "";
+			fromServiceWorkerRuntime = params.from === "swruntime";
+			topFrameName = params.topFrame;
+			parentFrameName = params.parentFrame;
+		} else {
+			// Backward compatibility for requests created by a client bundle from
+			// before marked metadata existed. New requests never inspect the target's
+			// query parameters as controls.
+			for (const [param, value] of [...requestUrl.searchParams.entries()]) {
+				switch (param) {
+					case "type":
+						scriptType = value;
+						break;
+					case "dest":
+						break;
+					case "scope":
+						break;
+					case "from":
+						fromServiceWorkerRuntime = value === "swruntime";
+						break;
+					case "topFrame":
+						topFrameName = value;
+						break;
+					case "parentFrame":
+						parentFrameName = value;
+						break;
+					default:
+						dbg.warn(
+							`${requestUrl.href} extraneous query parameter ${param}. Assuming <form> element`
+						);
+						extraParams.push([param, value]);
+						break;
+				}
+				requestUrl.searchParams.delete(param);
 			}
-			requestUrl.searchParams.delete(param);
 		}
 
 		const url = new URL(unrewriteUrl(requestUrl));
