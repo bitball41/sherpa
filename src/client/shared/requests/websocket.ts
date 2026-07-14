@@ -1,6 +1,7 @@
 import { type BareWebSocket } from "@mercuryworkshop/bare-mux";
 import type { SherpaClient } from "@client/index";
 import {
+	closeWebSocketOnAbort,
 	normalizeWebSocketCloseArguments,
 	normalizeWebSocketProtocols,
 	resolveWebSocketUrl,
@@ -269,7 +270,7 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				"User-Agent": self.navigator.userAgent,
 				Origin: client.url.origin,
 			});
-			options.signal?.addEventListener("abort", () => {
+			closeWebSocketOnAbort(options.signal, () => {
 				barews.close(1000, "");
 			});
 			let openResolver, closeResolver;
