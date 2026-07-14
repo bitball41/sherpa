@@ -82,9 +82,12 @@ export class SherpaServiceWorker extends EventTarget {
 		});
 
 		addEventListener("message", (event: ExtendableMessageEvent) => {
-			void this.handleMessage(event).catch((error) => {
+			const handled = this.handleMessage(event).catch((error) => {
 				console.error("failed to handle Sherpa worker message", error);
 			});
+			// Keep the worker alive until cookie/config persistence settles;
+			// otherwise the browser may terminate it mid-write.
+			event.waitUntil?.(handled);
 		});
 	}
 

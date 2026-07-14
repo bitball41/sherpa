@@ -28,8 +28,7 @@ export default function (client: SherpaClient, _self: Self) {
 			}
 
 			const request = ctx.args[0];
-			const options = ctx.args[1] as
-				(MultiCacheQueryOptions & { cacheName?: string }) | undefined;
+			const options = ctx.args[1] as MultiCacheQueryOptions | undefined;
 			if (options?.cacheName !== undefined) {
 				ctx.args[1] = {
 					...options,
