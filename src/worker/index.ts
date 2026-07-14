@@ -9,8 +9,14 @@ import { SherpaConfig } from "@/types";
 import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
 import { getDB } from "@/shared/security/db";
-import { setConfig } from "@/shared";
+import { codecDecode, setConfig } from "@/shared";
 import { SherpaDownload } from "@client/events";
+import {
+	getClientIdentity,
+	getVirtualClientUrl,
+	isTrustedControllerClient,
+	normalizeVirtualScope,
+} from "./messageSecurity";
 export * from "./error";
 export * from "./fetch";
 export * from "./fakesw";
@@ -31,7 +37,14 @@ export class SherpaServiceWorker extends EventTarget {
 	/**
 	 * Recorded sync messages in the message queue.
 	 */
-	syncPool: Record<number, (val?: any) => void> = {};
+	syncPool: Record<
+		number,
+		{
+			clientId: string;
+			type: MessageW2C["sherpa$type"];
+			resolve: (value: MessageC2W) => void;
+		}
+	> = {};
 	/**
 	 * Current sync token for collected messages in the queue.
 	 */
@@ -68,47 +81,95 @@ export class SherpaServiceWorker extends EventTarget {
 			console.error("failed to restore Sherpa cookies", error);
 		});
 
-		addEventListener("message", async ({ data }: { data: MessageC2W }) => {
-			if (typeof data !== "object" || data === null || !("sherpa$type" in data))
-				return;
-
-			if ("sherpa$token" in data) {
-				// (ack message)
-				const cb = this.syncPool[data.sherpa$token];
-				delete this.syncPool[data.sherpa$token];
-				if (cb) cb(data);
-
-				return;
-			}
-
-			if (data.sherpa$type === "registerServiceWorker") {
-				this.serviceWorkers.push(
-					new FakeServiceWorker(data.port, data.origin, data.scope)
-				);
-
-				return;
-			}
-
-			if (data.sherpa$type === "cookie") {
-				await this.cookieStoreReady;
-				this.cookieStore.setCookies(
-					[data.cookie],
-					new URL(data.url),
-					data.fromJs
-				);
-				const db = await getDB();
-				await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
-			}
-
-			if (data.sherpa$type === "loadConfig") {
-				this.config = data.config;
-				// Also refresh the module-level shared config (and re-parse the
-				// codecs) so runtime `SherpaController.modifyConfig` updates — flags,
-				// siteFlags, error-page theme — actually reach the code paths that
-				// read the shared `config`, not just `this.config`.
-				setConfig(data.config);
-			}
+		addEventListener("message", (event: ExtendableMessageEvent) => {
+			void this.handleMessage(event).catch((error) => {
+				console.error("failed to handle Sherpa worker message", error);
+			});
 		});
+	}
+
+	private async handleMessage(event: ExtendableMessageEvent) {
+		const data = event.data as MessageC2W;
+		if (typeof data !== "object" || data === null || !("sherpa$type" in data))
+			return;
+
+		const sender = getClientIdentity(event.source);
+		if (!sender) return;
+
+		if ("sherpa$token" in data && data.sherpa$token !== undefined) {
+			const pending = this.syncPool[data.sherpa$token];
+			if (
+				pending &&
+				pending.clientId === sender.id &&
+				pending.type === data.sherpa$type
+			) {
+				delete this.syncPool[data.sherpa$token];
+				pending.resolve(data);
+			}
+
+			return;
+		}
+
+		if (data.sherpa$type === "loadConfig") {
+			const db = await getDB();
+			const storedConfig = await db.get("config", "config");
+			if (
+				!storedConfig ||
+				!isTrustedControllerClient(
+					event.source,
+					location.origin,
+					storedConfig.prefix
+				)
+			) {
+				return;
+			}
+
+			// The controller persists config before notifying the worker. Reload
+			// that trusted copy instead of evaluating page-controlled codec strings.
+			await this.applyConfig(storedConfig);
+
+			return;
+		}
+
+		if (!this.config) await this.loadConfig();
+		if (!this.config) return;
+
+		const virtualUrl = getVirtualClientUrl(
+			event.source,
+			location.origin,
+			this.config.prefix,
+			codecDecode
+		);
+		if (!virtualUrl) return;
+
+		if (data.sherpa$type === "registerServiceWorker") {
+			if (data.origin !== virtualUrl.origin) return;
+
+			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
+			if (!scope) return;
+
+			this.serviceWorkers.push(
+				new FakeServiceWorker(data.port, virtualUrl.origin, scope)
+			);
+
+			return;
+		}
+
+		if (data.sherpa$type === "cookie") {
+			await this.cookieStoreReady;
+			this.cookieStore.setCookies([data.cookie], virtualUrl, data.fromJs);
+			const db = await getDB();
+			await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
+		}
+	}
+
+	private async applyConfig(nextConfig: SherpaConfig) {
+		const wasmPathChanged =
+			!this.config || this.config.files.wasm !== nextConfig.files.wasm;
+		this.config = nextConfig;
+		setConfig(nextConfig);
+
+		if (wasmPathChanged) await asyncSetWasm();
 	}
 
 	/**
@@ -118,7 +179,11 @@ export class SherpaServiceWorker extends EventTarget {
 		const token = this.synctoken++;
 		let cb: (val: MessageC2W) => void;
 		const promise: Promise<MessageC2W> = new Promise((r) => (cb = r));
-		this.syncPool[token] = cb;
+		this.syncPool[token] = {
+			clientId: client.id,
+			type: data.sherpa$type,
+			resolve: cb,
+		};
 		data.sherpa$token = token;
 
 		client.postMessage(data);
@@ -141,12 +206,8 @@ export class SherpaServiceWorker extends EventTarget {
 		if (this.config) return;
 
 		const db = await getDB();
-		this.config = await db.get("config", "config");
-
-		if (this.config) {
-			setConfig(this.config);
-			await asyncSetWasm();
-		}
+		const storedConfig = await db.get("config", "config");
+		if (storedConfig) await this.applyConfig(storedConfig);
 	}
 
 	/**
