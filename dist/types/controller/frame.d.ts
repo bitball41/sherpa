@@ -1,5 +1,5 @@
 /**
- * @fileoverview Contains abstractions for using Scrmajet under an iframe.
+ * @fileoverview Contains abstractions for using Sherpa under an iframe.
  */
 import { SherpaController } from "./index";
 import type { SherpaClient } from "../client/index";

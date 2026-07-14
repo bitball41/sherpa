@@ -1,4 +1,4 @@
-import { SherpaConfig, SherpaFlags } from "../types";
+import type { SherpaConfig, SherpaFlags } from "../types";
 export * from "./cookie";
 export * from "./errorPage";
 export * from "./headers";

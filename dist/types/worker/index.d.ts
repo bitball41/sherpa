@@ -24,7 +24,13 @@ export declare class SherpaServiceWorker extends EventTarget {
     /**
      * Recorded sync messages in the message queue.
      */
-    syncPool: Record<number, (val?: any) => void>;
+    syncPool: Record<number, {
+        clientId: string;
+        type: MessageW2C["sherpa$type"];
+        resolve: (value: MessageC2W) => void;
+        reject: (reason: Error) => void;
+        timeout: ReturnType<typeof setTimeout>;
+    }>;
     /**
      * Current sync token for collected messages in the queue.
      */
@@ -33,6 +39,7 @@ export declare class SherpaServiceWorker extends EventTarget {
      * Sherpa's cookie jar for cookie emulation through other storage means, connected to a client.
      */
     cookieStore: CookieStore;
+    private cookieStoreReady;
     /**
      * Fake service worker registrations, so that some sites don't complain.
      * This will eventually be replaced with a NestedSW feature under a flag in the future, but this will remain for stability even then.
@@ -42,6 +49,8 @@ export declare class SherpaServiceWorker extends EventTarget {
      * Initializes the `BareClient` Sherpa uses to fetch requests under a chosen proxy transport, the cookie jar store for proxifying cookies, and inits the listeners for emulation features and dynamic configs set through the Sherpa Controller.
      */
     constructor();
+    private handleMessage;
+    private applyConfig;
     /**
      * Dispatches a message in the message queues.
      */
@@ -97,6 +106,18 @@ type RegisterServiceWorkerMessage = {
     origin: string;
     scope: string;
 };
+type UnregisterServiceWorkerMessage = {
+    sherpa$type: "unregisterServiceWorker";
+    origin: string;
+    scope: string;
+};
+type PostServiceWorkerMessage = {
+    sherpa$type: "postServiceWorkerMessage";
+    origin: string;
+    scope: string;
+    message: unknown;
+    transfer: Transferable[];
+};
 /**
  * Sherpa cookie jar event message.
  * Contains a `sherpa$type` for identifying the message.
@@ -105,6 +126,7 @@ type CookieMessage = {
     sherpa$type: "cookie";
     cookie: string;
     url: string;
+    fromJs?: boolean;
 };
 /**
  * Sherpa config event message.
@@ -133,7 +155,7 @@ type MessageCommon = {
  * Message types sent from the client to the Service Worker.
  * These are routed by their `sherpa$type` to identify the messages apart from each other.
  */
-type MessageTypeC2W = RegisterServiceWorkerMessage | CookieMessage | ConfigMessage;
+type MessageTypeC2W = RegisterServiceWorkerMessage | UnregisterServiceWorkerMessage | PostServiceWorkerMessage | CookieMessage | ConfigMessage;
 /**
  * w2c (types): Message types sent from the Service Worker to the client.
  */
