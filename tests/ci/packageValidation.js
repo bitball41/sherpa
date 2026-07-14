@@ -31,7 +31,7 @@ const EXPECTED_DIST_FILES = [
 
 /**
  * Required type definition files and directories.
- * These aren't going to be all, because the modules update quite often, but the entry points and basic structure will be validatedl
+ * These aren't going to be all, because the modules update quite often, but the entry points and basic structure will be validated.
  */
 const EXPECTED_TYPE_FILES = [
 	"dist/types/**/*.d.ts",

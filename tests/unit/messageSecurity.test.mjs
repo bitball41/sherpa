@@ -80,4 +80,8 @@ test("service worker scopes remain path-only and same-origin", () => {
 		null
 	);
 	assert.equal(normalizeVirtualScope("relative/", "https://example.com"), null);
+	assert.equal(
+		normalizeVirtualScope("/app/%2fadmin/", "https://example.com"),
+		null
+	);
 });

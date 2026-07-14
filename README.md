@@ -182,7 +182,7 @@ Building the WASM rewriter from source requires a full toolchain:
 
 On Windows, the `cargo install` steps additionally need Microsoft's MSVC linker — install the Visual Studio Build Tools with the C++ (VCTools) workload.
 
-If you only touch the TypeScript (not the Rust rewriter), the prebuilt WASM under `rewriter/wasm/out/` is reused, so `pnpm build` alone is enough.
+`rewriter/wasm/out/` is generated and gitignored. A fresh checkout must run the rewriter build once; after that, TypeScript-only changes can reuse the local WASM output and run `pnpm build` directly.
 
 ### Building
 

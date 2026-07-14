@@ -1,5 +1,10 @@
 import { type BareWebSocket } from "@mercuryworkshop/bare-mux";
-import { SherpaClient } from "@client/index";
+import type { SherpaClient } from "@client/index";
+import {
+	normalizeWebSocketCloseArguments,
+	normalizeWebSocketProtocols,
+	resolveWebSocketUrl,
+} from "@/shared/websocket";
 
 type FakeWebSocketState = {
 	extensions: string;
@@ -7,6 +12,7 @@ type FakeWebSocketState = {
 	url: string;
 	binaryType: string;
 	barews: BareWebSocket;
+	messageQueue: Promise<void>;
 
 	onclose?: (ev: CloseEvent) => any;
 	onerror?: (ev: Event) => any;
@@ -30,6 +36,8 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 		new WeakMap();
 	client.Proxy("WebSocket", {
 		construct(ctx) {
+			const url = resolveWebSocketUrl(ctx.args[0], client.url);
+			const protocols = normalizeWebSocketProtocols(ctx.args[1]);
 			const fakeWebSocket = new EventTarget() as WebSocket;
 			Object.setPrototypeOf(fakeWebSocket, ctx.fn.prototype);
 			fakeWebSocket.constructor = ctx.fn;
@@ -43,22 +51,18 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 					},
 				});
 
-			const barews = client.bare.createWebSocket(
-				ctx.args[0],
-				ctx.args[1],
-				null,
-				{
-					"User-Agent": self.navigator.userAgent,
-					Origin: client.url.origin,
-				}
-			);
+			const barews = client.bare.createWebSocket(url, protocols, null, {
+				"User-Agent": self.navigator.userAgent,
+				Origin: client.url.origin,
+			});
 
 			const state: FakeWebSocketState = {
 				extensions: "",
 				protocol: "",
-				url: ctx.args[0],
+				url: url.href,
 				binaryType: "blob",
 				barews,
+				messageQueue: Promise.resolve(),
 
 				onclose: null,
 				onerror: null,
@@ -68,9 +72,22 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 
 			function fakeEventSend(fakeev: Event) {
 				const handler = state["on" + fakeev.type];
-				if (handler)
-					Reflect.apply(handler, fakeWebSocket, [trustEvent(fakeev)]);
+				if (handler) {
+					try {
+						Reflect.apply(handler, fakeWebSocket, [trustEvent(fakeev)]);
+					} catch (error) {
+						if (typeof self.reportError === "function") self.reportError(error);
+						else console.error("WebSocket event handler failed", error);
+					}
+				}
 				fakeWebSocket.dispatchEvent(fakeev);
+			}
+			function enqueueEvent(task: () => void | Promise<void>) {
+				state.messageQueue = state.messageQueue
+					.then(task)
+					.catch((error) =>
+						console.error("failed to dispatch WebSocket event", error)
+					);
 			}
 
 			barews.addEventListener("open", () => {
@@ -79,39 +96,41 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				fakeEventSend(new Event("open"));
 			});
 			barews.addEventListener("close", (ev) => {
-				fakeEventSend(new CloseEvent("close", ev));
+				enqueueEvent(() => fakeEventSend(new CloseEvent("close", ev)));
 			});
-			barews.addEventListener("message", async (ev) => {
-				let payload = ev.data;
-				if (typeof payload === "string") {
-					// DO NOTHING
-				} else if ("byteLength" in payload) {
-					// arraybuffer, convert to blob if needed or set the proper prototype
-					if (state.binaryType === "blob") {
-						payload = new Blob([payload]);
-					} else {
-						Object.setPrototypeOf(payload, ArrayBuffer.prototype);
+			barews.addEventListener("message", (ev) => {
+				enqueueEvent(async () => {
+					let payload = ev.data;
+					if (typeof payload === "string") {
+						// DO NOTHING
+					} else if ("byteLength" in payload) {
+						// arraybuffer, convert to blob if needed or set the proper prototype
+						if (state.binaryType === "blob") {
+							payload = new Blob([payload]);
+						} else {
+							Object.setPrototypeOf(payload, ArrayBuffer.prototype);
+						}
+					} else if ("arrayBuffer" in payload) {
+						// blob, convert to arraybuffer if neccesary.
+						if (state.binaryType === "arraybuffer") {
+							payload = await payload.arrayBuffer();
+							Object.setPrototypeOf(payload, ArrayBuffer.prototype);
+						}
 					}
-				} else if ("arrayBuffer" in payload) {
-					// blob, convert to arraybuffer if neccesary.
-					if (state.binaryType === "arraybuffer") {
-						payload = await payload.arrayBuffer();
-						Object.setPrototypeOf(payload, ArrayBuffer.prototype);
-					}
-				}
 
-				const fakeev = new MessageEvent("message", {
-					data: payload,
-					origin: ev.origin,
-					lastEventId: ev.lastEventId,
-					source: ev.source,
-					ports: ev.ports,
+					const fakeev = new MessageEvent("message", {
+						data: payload,
+						origin: ev.origin,
+						lastEventId: ev.lastEventId,
+						source: ev.source,
+						ports: ev.ports,
+					});
+
+					fakeEventSend(fakeev);
 				});
-
-				fakeEventSend(fakeev);
 			});
 			barews.addEventListener("error", () => {
-				fakeEventSend(new Event("error"));
+				enqueueEvent(() => fakeEventSend(new Event("error")));
 			});
 
 			socketmap.set(fakeWebSocket, state);
@@ -227,36 +246,39 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 	client.Proxy("WebSocket.prototype.close", {
 		apply(ctx) {
 			const ws = socketmap.get(ctx.this);
-			if (ctx.args[0] === undefined) ctx.args[0] = 1000;
-			if (ctx.args[1] === undefined) ctx.args[1] = "";
-			ctx.return(ws.barews.close(ctx.args[0], ctx.args[1]));
+			const { code, reason } = normalizeWebSocketCloseArguments(
+				ctx.args[0],
+				ctx.args[1],
+				ctx.args.length > 0,
+				ctx.args.length > 1
+			);
+			ctx.return(ws.barews.close(code, reason));
 		},
 	});
 
 	client.Proxy("WebSocketStream", {
 		construct(ctx) {
+			const url = resolveWebSocketUrl(ctx.args[0], client.url);
+			const options = ctx.args[1] ?? {};
+			const protocols = normalizeWebSocketProtocols(options.protocols);
 			const fakeWebSocket = {};
 			Object.setPrototypeOf(fakeWebSocket, ctx.fn.prototype);
 			fakeWebSocket.constructor = ctx.fn;
 
-			const barews = client.bare.createWebSocket(
-				ctx.args[0],
-				ctx.args[1],
-				null,
-				{
-					"User-Agent": self.navigator.userAgent,
-					Origin: client.url.origin,
-				}
-			);
-			ctx.args[1]?.signal?.addEventListener("abort", () => {
+			const barews = client.bare.createWebSocket(url, protocols, null, {
+				"User-Agent": self.navigator.userAgent,
+				Origin: client.url.origin,
+			});
+			options.signal?.addEventListener("abort", () => {
 				barews.close(1000, "");
 			});
 			let openResolver, closeResolver;
 			let openRejector;
+			let streamMessageQueue = Promise.resolve();
 			const state: FakeWebSocketStreamState = {
 				extensions: "",
 				protocol: "",
-				url: ctx.args[0],
+				url: url.href,
 				barews,
 
 				opened: new Promise((resolve, reject) => {
@@ -268,19 +290,23 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				}),
 				readable: new ReadableStream({
 					start(controller) {
-						barews.addEventListener("message", async (ev: MessageEvent) => {
-							let payload = ev.data;
-							if (typeof payload === "string") {
-								// DO NOTHING
-							} else if ("byteLength" in payload) {
-								// arraybuffer, set the realms prototype so its recognized
-								Object.setPrototypeOf(payload, ArrayBuffer.prototype);
-							} else if ("arrayBuffer" in payload) {
-								// blob, convert to arraybuffer
-								payload = await payload.arrayBuffer();
-								Object.setPrototypeOf(payload, ArrayBuffer.prototype);
-							}
-							controller.enqueue(payload);
+						barews.addEventListener("message", (ev: MessageEvent) => {
+							streamMessageQueue = streamMessageQueue
+								.then(async () => {
+									let payload = ev.data;
+									if (typeof payload === "string") {
+										// DO NOTHING
+									} else if ("byteLength" in payload) {
+										// arraybuffer, set the realms prototype so its recognized
+										Object.setPrototypeOf(payload, ArrayBuffer.prototype);
+									} else if ("arrayBuffer" in payload) {
+										// blob, convert to arraybuffer
+										payload = await payload.arrayBuffer();
+										Object.setPrototypeOf(payload, ArrayBuffer.prototype);
+									}
+									controller.enqueue(payload);
+								})
+								.catch((error) => controller.error(error));
 						});
 					},
 				}),
@@ -291,6 +317,8 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				}),
 			};
 			barews.addEventListener("open", () => {
+				state.protocol =
+					typeof barews.protocols === "string" ? barews.protocols : "";
 				openResolver({
 					readable: state.readable,
 					writable: state.writable,

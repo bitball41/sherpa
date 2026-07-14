@@ -1,8 +1,9 @@
 import { config } from "@/shared";
 import { unrewriteUrl } from "@rewriters/url";
-
-const DEFAULT_REFERRER_POLICY: ReferrerPolicy =
-	"strict-origin-when-cross-origin";
+import {
+	createReferrerValue,
+	DEFAULT_REFERRER_POLICY,
+} from "@/shared/referrerPolicy";
 
 export type VirtualRequestContext = {
 	credentials: RequestCredentials;
@@ -59,56 +60,17 @@ export function shouldSendCookies(context: VirtualRequestContext): boolean {
 	);
 }
 
-function isDowngrade(source: URL, target: URL): boolean {
-	return source.protocol === "https:" && target.protocol === "http:";
-}
-
-function stripReferrer(url: URL, originOnly = false): string {
-	const stripped = new URL(url.href);
-	stripped.username = "";
-	stripped.password = "";
-	stripped.hash = "";
-
-	if (originOnly || stripped.href.length > 4096) {
-		return `${stripped.origin}/`;
-	}
-
-	return stripped.href;
-}
-
 export function createRefererHeader(
 	context: VirtualRequestContext
 ): string | null {
 	const source = context.referrerUrl;
-	if (!source || !["http:", "https:"].includes(source.protocol)) return null;
+	if (!source) return null;
 
-	const sameOrigin = source.origin === context.targetUrl.origin;
-	const downgrade = isDowngrade(source, context.targetUrl);
-
-	switch (context.referrerPolicy) {
-		case "no-referrer":
-			return null;
-		case "origin":
-			return stripReferrer(source, true);
-		case "unsafe-url":
-			return stripReferrer(source);
-		case "strict-origin":
-			return downgrade ? null : stripReferrer(source, true);
-		case "strict-origin-when-cross-origin":
-			if (sameOrigin) return stripReferrer(source);
-
-			return downgrade ? null : stripReferrer(source, true);
-		case "same-origin":
-			return sameOrigin ? stripReferrer(source) : null;
-		case "origin-when-cross-origin":
-			return stripReferrer(source, !sameOrigin);
-		case "no-referrer-when-downgrade":
-			return downgrade ? null : stripReferrer(source);
-		default:
-			if (sameOrigin) return stripReferrer(source);
-
-			return downgrade ? null : stripReferrer(source, true);
-	}
+	return createReferrerValue(
+		context.referrerPolicy || DEFAULT_REFERRER_POLICY,
+		source,
+		context.targetUrl
+	);
 }
 
 export function createOriginHeader(
@@ -127,7 +89,8 @@ export function createOriginHeader(
 		case "no-referrer-when-downgrade":
 		case "strict-origin":
 		case "strict-origin-when-cross-origin":
-			return isDowngrade(context.initiatorUrl, context.targetUrl)
+			return context.initiatorUrl.protocol === "https:" &&
+				context.targetUrl.protocol === "http:"
 				? "null"
 				: context.initiatorUrl.origin;
 		case "same-origin":

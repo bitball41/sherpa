@@ -2,7 +2,6 @@ import {
 	codecDecode,
 	codecEncode,
 	config,
-	loadCodecs,
 	setConfig,
 	DEFAULT_ERROR_PAGE,
 } from "@/shared/index";
@@ -90,8 +89,6 @@ export class SherpaController extends EventTarget {
 	}
 
 	async init(): Promise<void> {
-		loadCodecs();
-
 		await this.openIDB();
 		navigator.serviceWorker.controller?.postMessage({
 			sherpa$type: "loadConfig",
@@ -169,7 +166,6 @@ export class SherpaController extends EventTarget {
 
 	async modifyConfig(newconfig: Partial<SherpaInitConfig>) {
 		setConfig(mergeConfig(config, newconfig));
-		loadCodecs();
 
 		await this.#saveConfig();
 		navigator.serviceWorker.controller?.postMessage({

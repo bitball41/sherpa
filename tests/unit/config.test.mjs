@@ -46,3 +46,32 @@ test("mergeConfig serializes runtime codec updates", () => {
 	assert.equal(merged.codec.decode, decodeURIComponent.toString());
 	assert.equal(typeof merged.codec.encode, "string");
 });
+
+test("mergeConfig preserves sibling flags for an updated site pattern", () => {
+	const merged = mergeConfig(base, {
+		siteFlags: {
+			example: { serviceworkers: true },
+		},
+	});
+
+	assert.deepEqual(merged.siteFlags.example, {
+		sourcemaps: false,
+		serviceworkers: true,
+	});
+	assert.deepEqual(base.siteFlags.example, { sourcemaps: false });
+});
+
+test("mergeConfig treats special site-pattern keys as data", () => {
+	const siteFlags = JSON.parse(
+		'{"__proto__":{"serviceworkers":true},"constructor":{"syncxhr":true}}'
+	);
+	const merged = mergeConfig(base, { siteFlags });
+
+	assert.equal(Object.getPrototypeOf(merged.siteFlags), Object.prototype);
+	assert.equal(
+		Object.prototype.hasOwnProperty.call(merged.siteFlags, "__proto__"),
+		true
+	);
+	assert.deepEqual(merged.siteFlags.__proto__, { serviceworkers: true });
+	assert.deepEqual(merged.siteFlags.constructor, { syncxhr: true });
+});

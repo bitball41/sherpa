@@ -188,6 +188,29 @@ test("rejects Secure cookies received over an insecure connection", () => {
 	assert.equal(store.getCookies(new URL("https://example.com/"), false), "");
 });
 
+test("enforces __Secure- and __Host- cookie prefix invariants", () => {
+	const jar = new CookieStore();
+	const url = new URL("https://example.com/account/page");
+
+	jar.setCookies(
+		[
+			"__Secure-missing=bad; Path=/",
+			"__Secure-valid=ok; Secure; Path=/",
+			"__Host-domain=bad; Secure; Path=/; Domain=example.com",
+			"__Host-default-path=bad; Secure",
+			"__Host-insecure=bad; Path=/",
+			"__Host-valid=ok; Secure; Path=/",
+		],
+		url
+	);
+
+	assert.equal(
+		jar.getCookies(new URL("https://example.com/"), false),
+		"__Secure-valid=ok; __Host-valid=ok"
+	);
+	assert.equal(jar.getCookies(new URL("https://sub.example.com/"), false), "");
+});
+
 test("document.cookie cannot create or overwrite HttpOnly cookies", () => {
 	const store = new CookieStore();
 	const url = new URL("https://example.com/");

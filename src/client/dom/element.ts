@@ -69,6 +69,24 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	const attrs = Object.keys(attrObject);
 
+	function namespacedShadowAttribute(
+		element: Element,
+		namespace: string | null,
+		localName: string
+	): string {
+		const attribute = client.natives.call(
+			"Element.prototype.getAttributeNodeNS",
+			element,
+			namespace,
+			localName
+		) as Attr | null;
+		const qualifiedName = attribute
+			? client.descriptors.get("Attr.prototype.name", attribute)
+			: localName;
+
+		return `${SHADOW_ATTRIBUTE_PREFIX}${qualifiedName || localName}`;
+	}
+
 	for (const prop of attrs) {
 		const attribute = propertyAttributes[prop] || prop;
 		for (const element of attrObject[prop]) {
@@ -190,6 +208,28 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	client.Proxy("Element.prototype.getAttributeNS", {
+		apply(ctx) {
+			const namespace = ctx.args[0] == null ? null : String(ctx.args[0]);
+			const localName = String(ctx.args[1]);
+			if (localName.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(null);
+
+			const shadow = namespacedShadowAttribute(ctx.this, namespace, localName);
+			if (
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, shadow)
+			) {
+				const value = client.natives.call(
+					"Element.prototype.getAttribute",
+					ctx.this,
+					shadow
+				);
+
+				return ctx.return(value ?? "");
+			}
+		},
+	});
+
 	client.Proxy("Element.prototype.getAttributeNames", {
 		apply(ctx) {
 			const attrNames = ctx.call() as string[];
@@ -204,6 +244,13 @@ export default function (client: SherpaClient, self: typeof window) {
 	client.Proxy("Element.prototype.getAttributeNode", {
 		apply(ctx) {
 			if (String(ctx.args[0]).startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(null);
+		},
+	});
+
+	client.Proxy("Element.prototype.getAttributeNodeNS", {
+		apply(ctx) {
+			if (String(ctx.args[1]).startsWith(SHADOW_ATTRIBUTE_PREFIX))
 				return ctx.return(null);
 		},
 	});
@@ -224,6 +271,22 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	client.Proxy("Element.prototype.hasAttributeNS", {
+		apply(ctx) {
+			const namespace = ctx.args[0] == null ? null : String(ctx.args[0]);
+			const localName = String(ctx.args[1]);
+			if (localName.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(false);
+
+			const shadow = namespacedShadowAttribute(ctx.this, namespace, localName);
+			if (
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, shadow)
+			) {
+				return ctx.return(true);
+			}
+		},
+	});
+
 	client.Proxy("Element.prototype.setAttribute", {
 		apply(ctx) {
 			const rawName = String(ctx.args[0]);
@@ -231,6 +294,8 @@ export default function (client: SherpaClient, self: typeof window) {
 				ctx.this.namespaceURI === "http://www.w3.org/1999/xhtml"
 					? rawName.toLowerCase()
 					: rawName;
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(undefined);
 			const value = String(ctx.args[1]);
 			if (isEventAttribute(name)) {
 				ctx.args[1] = rewriteJs(
@@ -277,6 +342,8 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (ownerElement) return ctx.call();
 
 			const name = client.descriptors.get("Attr.prototype.name", attribute);
+			if (String(name).startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(null);
 			const value = client.descriptors.get("Attr.prototype.value", attribute);
 			const previousValue = self.Element.prototype.getAttribute.call(
 				ctx.this,
@@ -303,12 +370,68 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	client.Proxy("Element.prototype.setAttributeNodeNS", {
+		apply(ctx) {
+			const attribute = ctx.args[0] as Attr;
+			const ownerElement = client.descriptors.get(
+				"Attr.prototype.ownerElement",
+				attribute
+			);
+			if (ownerElement) return ctx.call();
+
+			const name = client.descriptors.get("Attr.prototype.name", attribute);
+			if (String(name).startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(null);
+			const namespace = client.descriptors.get(
+				"Attr.prototype.namespaceURI",
+				attribute
+			);
+			const localName = client.descriptors.get(
+				"Attr.prototype.localName",
+				attribute
+			);
+			const value = client.descriptors.get("Attr.prototype.value", attribute);
+			const previousValue = self.Element.prototype.getAttributeNS.call(
+				ctx.this,
+				namespace,
+				localName
+			);
+			const previousAttribute = ctx.call() as Attr | null;
+
+			if (previousAttribute && previousValue !== null) {
+				client.descriptors.set(
+					"Attr.prototype.value",
+					previousAttribute,
+					previousValue
+				);
+			}
+
+			self.Element.prototype.setAttributeNS.call(
+				ctx.this,
+				namespace,
+				name,
+				value
+			);
+			ctx.return(previousAttribute);
+		},
+	});
+
 	client.Proxy("Element.prototype.setAttributeNS", {
 		apply(ctx) {
 			const [namespace, rawName, rawValue] = ctx.args;
 			const name = String(rawName);
+			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(undefined);
 			const value = String(rawValue);
-			if (namespace == null && isEventAttribute(name)) {
+			const eventAttribute = namespace == null && isEventAttribute(name);
+			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
+			if (eventAttribute || ruleList) {
+				// Validate namespace/qualified-name combinations before creating the
+				// shadow value. Otherwise a native NamespaceError would leave stale
+				// internal state behind.
+				self.document.createAttributeNS(namespace, name);
+			}
+			if (eventAttribute) {
 				ctx.args[2] = rewriteJs(
 					value,
 					`(inline ${name} on element)`,
@@ -323,8 +446,6 @@ export default function (client: SherpaClient, self: typeof window) {
 
 				return;
 			}
-
-			const ruleList = findHtmlRule(name, ctx.this.tagName.toLowerCase());
 
 			if (ruleList) {
 				const rewritten = ruleList.fn(value, client.meta, client.cookieStore);
@@ -377,6 +498,24 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
 				return ctx.return(undefined);
 			ctx.fn.call(ctx.this, `${SHADOW_ATTRIBUTE_PREFIX}${name}`);
+		},
+	});
+
+	client.Proxy("Element.prototype.removeAttributeNS", {
+		apply(ctx) {
+			const namespace = ctx.args[0] == null ? null : String(ctx.args[0]);
+			const localName = String(ctx.args[1]);
+			if (localName.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+				return ctx.return(undefined);
+			const shadow = namespacedShadowAttribute(ctx.this, namespace, localName);
+			const result = ctx.call();
+			client.natives.call(
+				"Element.prototype.removeAttribute",
+				ctx.this,
+				shadow
+			);
+
+			ctx.return(result);
 		},
 	});
 

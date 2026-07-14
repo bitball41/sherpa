@@ -1,4 +1,5 @@
-import { SherpaConfig, SherpaFlags } from "@/types";
+import type { SherpaConfig, SherpaFlags } from "@/types";
+import { flagEnabledForConfig } from "./siteFlags";
 
 export * from "./cookie";
 export * from "./errorPage";
@@ -16,29 +17,8 @@ export function loadCodecs() {
 	codecDecode = nativeFunction(`return ${config.codec.decode}`)() as any;
 }
 
-// flagEnabled runs several times for every rewritten script/resource;
-// compiling the siteFlags patterns on every call is pure waste, and a
-// pattern string always compiles to the same RegExp so the cache can never
-// go stale across config updates
-const siteFlagRegexes = new Map<string, RegExp>();
-
 export function flagEnabled(flag: keyof SherpaFlags, url: URL): boolean {
-	const value = config.flags[flag];
-	for (const regex in config.siteFlags) {
-		const partialflags = config.siteFlags[regex];
-		if (!(flag in partialflags)) continue;
-
-		let compiled = siteFlagRegexes.get(regex);
-		if (!compiled) {
-			compiled = new RegExp(regex);
-			siteFlagRegexes.set(regex, compiled);
-		}
-		if (compiled.test(url.href)) {
-			return partialflags[flag];
-		}
-	}
-
-	return value;
+	return flagEnabledForConfig(config, flag, url);
 }
 
 export let config: SherpaConfig;

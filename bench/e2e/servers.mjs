@@ -5,7 +5,7 @@
 //     endpoint and the same bare-mux + epoxy transport builds
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, relative, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
@@ -195,7 +195,15 @@ export function startHostServer(engineName) {
 		]) {
 			if (path.startsWith(route)) {
 				const file = join(dir, path.slice(route.length));
-				if (!file.startsWith(dir) || !existsSync(file)) break;
+				const pathFromRoot = relative(dir, file);
+
+				if (
+					pathFromRoot === ".." ||
+					pathFromRoot.startsWith(`..${sep}`) ||
+					isAbsolute(pathFromRoot) ||
+					!existsSync(file)
+				)
+					break;
 				const ext = file.slice(file.lastIndexOf("."));
 
 				return send(

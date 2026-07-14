@@ -2,7 +2,11 @@
  * @fileoverview Contains the core Service Worker logic for Sherpa, which handles the initial request interception and handles client management for the Sherpa service.
  */
 
-import { FakeServiceWorker } from "@/worker/fakesw";
+import {
+	FakeServiceWorker,
+	removeFakeServiceWorker,
+	replaceFakeServiceWorker,
+} from "@/worker/fakesw";
 import { handleFetch } from "@/worker/fetch";
 import BareClient from "@mercuryworkshop/bare-mux";
 import { SherpaConfig } from "@/types";
@@ -20,6 +24,8 @@ import {
 export * from "./error";
 export * from "./fetch";
 export * from "./fakesw";
+
+const CLIENT_RPC_TIMEOUT_MS = 10_000;
 
 /**
  * Main `SherpaServiceWorker` class created by the `$sherpaLoadWorker` factory, which handles routing the proxy and contains the core logic for request interception.
@@ -43,6 +49,8 @@ export class SherpaServiceWorker extends EventTarget {
 			clientId: string;
 			type: MessageW2C["sherpa$type"];
 			resolve: (value: MessageC2W) => void;
+			reject: (reason: Error) => void;
+			timeout: ReturnType<typeof setTimeout>;
 		}
 	> = {};
 	/**
@@ -82,9 +90,10 @@ export class SherpaServiceWorker extends EventTarget {
 		});
 
 		addEventListener("message", (event: ExtendableMessageEvent) => {
-			void this.handleMessage(event).catch((error) => {
+			const task = this.handleMessage(event).catch((error) => {
 				console.error("failed to handle Sherpa worker message", error);
 			});
+			event.waitUntil(task);
 		});
 	}
 
@@ -97,6 +106,7 @@ export class SherpaServiceWorker extends EventTarget {
 		if (!sender) return;
 
 		if ("sherpa$token" in data && data.sherpa$token !== undefined) {
+			if (!Number.isSafeInteger(data.sherpa$token)) return;
 			const pending = this.syncPool[data.sherpa$token];
 			if (
 				pending &&
@@ -104,6 +114,7 @@ export class SherpaServiceWorker extends EventTarget {
 				pending.type === data.sherpa$type
 			) {
 				delete this.syncPool[data.sherpa$token];
+				clearTimeout(pending.timeout);
 				pending.resolve(data);
 			}
 
@@ -148,9 +159,37 @@ export class SherpaServiceWorker extends EventTarget {
 			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
 			if (!scope) return;
 
-			this.serviceWorkers.push(
+			replaceFakeServiceWorker(
+				this.serviceWorkers,
 				new FakeServiceWorker(data.port, virtualUrl.origin, scope)
 			);
+
+			return;
+		}
+
+		if (data.sherpa$type === "unregisterServiceWorker") {
+			if (data.origin !== virtualUrl.origin) return;
+
+			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
+			if (!scope) return;
+
+			removeFakeServiceWorker(this.serviceWorkers, virtualUrl.origin, scope);
+
+			return;
+		}
+
+		if (data.sherpa$type === "postServiceWorkerMessage") {
+			if (data.origin !== virtualUrl.origin || !Array.isArray(data.transfer))
+				return;
+
+			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
+			if (!scope) return;
+
+			const worker = this.serviceWorkers.find(
+				(candidate) =>
+					candidate.origin === virtualUrl.origin && candidate.scope === scope
+			);
+			worker?.postMessage(data.message, data.transfer);
 
 			return;
 		}
@@ -178,17 +217,35 @@ export class SherpaServiceWorker extends EventTarget {
 	async dispatch(client: Client, data: MessageW2C): Promise<MessageC2W> {
 		const token = this.synctoken++;
 		let cb: (val: MessageC2W) => void;
-		const promise: Promise<MessageC2W> = new Promise((r) => (cb = r));
+		let reject: (reason: Error) => void;
+		const promise: Promise<MessageC2W> = new Promise(
+			(resolve, rejectPromise) => {
+				cb = resolve;
+				reject = rejectPromise;
+			}
+		);
+		const timeout = setTimeout(() => {
+			delete this.syncPool[token];
+			reject(new Error(`client ${data.sherpa$type} acknowledgement timed out`));
+		}, CLIENT_RPC_TIMEOUT_MS);
 		this.syncPool[token] = {
 			clientId: client.id,
 			type: data.sherpa$type,
 			resolve: cb,
+			reject,
+			timeout,
 		};
 		data.sherpa$token = token;
 
-		client.postMessage(data);
+		try {
+			client.postMessage(data);
+		} catch (error) {
+			clearTimeout(timeout);
+			delete this.syncPool[token];
+			throw error;
+		}
 
-		return await promise;
+		return promise;
 	}
 
 	/**
@@ -224,6 +281,8 @@ export class SherpaServiceWorker extends EventTarget {
 	 * ```
 	 */
 	route({ request }: FetchEvent) {
+		if (!this.config) return false;
+
 		if (request.url.startsWith(location.origin + this.config.prefix))
 			return true;
 		else if (request.url.startsWith(location.origin + this.config.files.wasm))
@@ -263,6 +322,20 @@ type RegisterServiceWorkerMessage = {
 	port: MessagePort;
 	origin: string;
 	scope: string;
+};
+
+type UnregisterServiceWorkerMessage = {
+	sherpa$type: "unregisterServiceWorker";
+	origin: string;
+	scope: string;
+};
+
+type PostServiceWorkerMessage = {
+	sherpa$type: "postServiceWorkerMessage";
+	origin: string;
+	scope: string;
+	message: unknown;
+	transfer: Transferable[];
 };
 
 /**
@@ -306,7 +379,11 @@ type MessageCommon = {
  * These are routed by their `sherpa$type` to identify the messages apart from each other.
  */
 type MessageTypeC2W =
-	RegisterServiceWorkerMessage | CookieMessage | ConfigMessage;
+	| RegisterServiceWorkerMessage
+	| UnregisterServiceWorkerMessage
+	| PostServiceWorkerMessage
+	| CookieMessage
+	| ConfigMessage;
 /**
  * w2c (types): Message types sent from the Service Worker to the client.
  */

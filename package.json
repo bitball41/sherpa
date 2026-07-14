@@ -1,6 +1,7 @@
 {
 	"name": "sherpa",
 	"version": "1.1.0",
+	"packageManager": "pnpm@11.7.0",
 	"description": "Sherpa is a fork of Mercury Workshop's Scramjet, an experimental web proxy that aims to be the successor to Ultraviolet.",
 	"type": "module",
 	"types": "./dist/types/index.d.ts",
@@ -29,7 +30,7 @@
 		"test:integration": "npx playwright test",
 		"docs": "typedoc",
 		"docs:dev": "typedoc --options typedoc.dev-facing.json",
-		"docs:serve": "npx serve _docs; typedoc --watch"
+		"docs:serve": "typedoc --watch & npx serve _docs"
 	},
 	"exports": {
 		".": {
@@ -52,6 +53,9 @@
 	"keywords": [],
 	"author": "",
 	"license": "AGPL-3.0-only",
+	"engines": {
+		"node": ">=22.18.0"
+	},
 	"ava": {
 		"files": [
 			"tests/ci/**/*.js"

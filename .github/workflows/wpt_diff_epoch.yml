@@ -22,10 +22,19 @@ on:
         default: false
         type: boolean
 
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: wpt-results-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-changes:
     name: Check for changes
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
 
@@ -33,7 +42,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check for recent changes
         id: check
@@ -66,6 +75,7 @@ jobs:
   build-sherpa:
     name: Build Sherpa
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: check-changes
     if: needs.check-changes.outputs.should-run == 'true'
 
@@ -76,12 +86,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 11.7.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "24"
           cache: pnpm
 
       - name: Install dependencies
@@ -119,6 +129,7 @@ jobs:
         with:
           name: packaged-sherpa
           path: sherpa-*.tgz
+          if-no-files-found: error
 
       - name: Upload artifact (dist)
         uses: actions/upload-artifact@v4
@@ -128,10 +139,12 @@ jobs:
             dist/*.js
             dist/*.js.map
             dist/*.wasm
+          if-no-files-found: error
 
   generate-matrix:
     name: Generate shard matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: check-changes
     if: needs.check-changes.outputs.should-run == 'true'
     outputs:
@@ -141,7 +154,11 @@ jobs:
         id: generate
         run: |
           SHARD_COUNT="${{ github.event.inputs.shard_count || '2' }}"
-          SHARDS=$(seq -s'", "' 1 $SHARD_COUNT)
+          if ! [[ "$SHARD_COUNT" =~ ^[0-9]+$ ]] || [ "$SHARD_COUNT" -lt 1 ] || [ "$SHARD_COUNT" -gt 20 ]; then
+            echo "shard_count must be an integer between 1 and 20" >&2
+            exit 1
+          fi
+          SHARDS=$(seq -s'", "' 1 "$SHARD_COUNT")
           echo "shards=[\"$SHARDS\"]" >> "$GITHUB_OUTPUT"
 
   run-wpt-tests:
@@ -167,12 +184,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 11.7.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: latest
+          node-version: "24"
           cache: pnpm
 
       - name: Setup Python
@@ -226,7 +243,7 @@ jobs:
       - name: Setup WPT-diff dependencies
         run: |
           cd wpt-diff
-          pnpm install
+          pnpm install --frozen-lockfile
           # Install Playwright browsers only if cache miss
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != 'true' ]; then
             pnpm exec playwright install chromium
@@ -237,7 +254,7 @@ jobs:
           fi
 
       - name: Save Playwright browsers cache
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: steps.playwright-cache.outputs.cache-hit != 'true' && matrix.shard == '1'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -247,7 +264,7 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('wpt-diff/pnpm-lock.yaml') }}
 
       - name: Save Typia validators cache
-        if: steps.typia-cache.outputs.cache-hit != 'true'
+        if: steps.typia-cache.outputs.cache-hit != 'true' && matrix.shard == '1'
         uses: actions/cache/save@v4
         with:
           path: wpt-diff/generatedValidators/
@@ -258,6 +275,17 @@ jobs:
           pnpm run dev &
           DEMO_PID="$!"
           echo "DEMO_PID=$DEMO_PID" >> "$GITHUB_ENV"
+
+      - name: Wait for Sherpa demo server
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:1337/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Sherpa demo server did not become ready" >&2
+          exit 1
 
       - name: Generate WPT-diff config
         working-directory: wpt-diff
@@ -282,6 +310,17 @@ jobs:
         run: |
           ./wpt serve --no-h2 &
           echo "WPT_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for WPT server
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://web-platform.test:8000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "WPT server did not become ready" >&2
+          exit 1
 
       - name: Install xvfb
         run: sudo apt install -y xvfb
@@ -314,6 +353,7 @@ jobs:
           fi
 
       - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wpt-test-results-shard-${{ matrix.shard }}
@@ -321,12 +361,14 @@ jobs:
             wpt-diff/wpt-report-diff.json
             wpt-diff/wpt-report-proxy.json
             wpt-diff/failed-tests.json
+          if-no-files-found: warn
 
   combine-and-upload-reports:
     name: Combine and upload reports
     needs: [build-sherpa, generate-matrix, run-wpt-tests]
-    if: ${{ !cancelled() && needs.run-wpt-tests.result != 'failure' && github.event.inputs.skip_combiner != 'true' }}
+    if: ${{ always() && !cancelled() && needs.build-sherpa.result == 'success' && needs.generate-matrix.result == 'success' && github.event.inputs.skip_combiner != 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout WPT-diff

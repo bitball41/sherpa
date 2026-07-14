@@ -1,8 +1,9 @@
 import { iswindow } from "@client/entry";
 import { unrewriteUrl } from "@rewriters/url";
-import { SherpaClient } from "@client/index";
+import type { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
+import { getVirtualStorageArea } from "@client/dom/storage";
 
 export default function (client: SherpaClient, self: Self) {
 	const handlers = {
@@ -81,8 +82,25 @@ export default function (client: SherpaClient, self: Self) {
 			url() {
 				return unrewriteUrl(this.url);
 			},
+			storageArea() {
+				return getVirtualStorageArea(this.storageArea);
+			},
 		},
 	};
+
+	function getListenerFunction(
+		listener: any
+	): ((...args: any[]) => any) | null {
+		if (typeof listener === "function") return listener;
+		if (typeof listener !== "object" || listener === null) return null;
+
+		return function (...args: any[]) {
+			const handleEvent = listener.handleEvent;
+			if (typeof handleEvent === "function") {
+				return Reflect.apply(handleEvent, listener, args);
+			}
+		};
+	}
 
 	function wraplistener(listener: (...args: any) => any) {
 		return new Proxy(listener, {
@@ -145,9 +163,9 @@ export default function (client: SherpaClient, self: Self) {
 
 	client.Proxy("EventTarget.prototype.addEventListener", {
 		apply(ctx) {
-			if (typeof ctx.args[1] !== "function") return;
-
 			const origlistener = ctx.args[1];
+			const listenerFunction = getListenerFunction(origlistener);
+			if (!listenerFunction) return;
 			const options = ctx.args[2];
 			const capture =
 				typeof options === "boolean" ? options : Boolean(options?.capture);
@@ -166,7 +184,7 @@ export default function (client: SherpaClient, self: Self) {
 			) {
 				return ctx.return(undefined);
 			}
-			let proxylistener = wraplistener(origlistener);
+			let proxylistener = wraplistener(listenerFunction);
 			if (once) {
 				const wrapped = proxylistener;
 				proxylistener = new Proxy(wrapped, {
@@ -212,7 +230,7 @@ export default function (client: SherpaClient, self: Self) {
 
 	client.Proxy("EventTarget.prototype.removeEventListener", {
 		apply(ctx) {
-			if (typeof ctx.args[1] !== "function") return;
+			if (!getListenerFunction(ctx.args[1])) return;
 
 			const arr = client.eventcallbacks.get(ctx.this);
 			if (!arr) return;

@@ -1,6 +1,7 @@
 import { config, flagEnabled } from "@/shared";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
+import { readSyncResponse } from "@/shared/syncResponse";
 
 const SYNC_XHR_WATCHDOG_MS = 30_000;
 
@@ -51,7 +52,7 @@ export default function (client: SherpaClient, self: Self) {
 
 			//@ts-ignore
 			const sab = new SharedArrayBuffer(1024, { maxByteLength: 2147483647 });
-			const view = new DataView(sab);
+			const lock = new Uint8Array(sab, 0, 1);
 
 			client.natives.call("Worker.prototype.postMessage", worker, {
 				sab,
@@ -61,7 +62,7 @@ export default function (client: SherpaClient, self: Self) {
 			});
 
 			const now = performance.now();
-			while (view.getUint8(0) === 0) {
+			while (Atomics.load(lock, 0) === 0) {
 				// Keep a finite watchdog in case the helper worker fails before it can
 				// release the lock; otherwise this main-thread spin would never end.
 				if (performance.now() - now > SYNC_XHR_WATCHDOG_MS) {
@@ -70,12 +71,9 @@ export default function (client: SherpaClient, self: Self) {
 				/* spin */
 			}
 
-			const status = view.getUint16(1);
-			const headersLength = view.getUint32(3);
-
-			const headersab = new Uint8Array(headersLength);
-			headersab.set(new Uint8Array(sab.slice(7, 7 + headersLength)));
-			const headers = new TextDecoder().decode(headersab);
+			// The helper may have grown the SAB. Decode through fresh views instead
+			// of the fixed-length lock view created before postMessage().
+			const { status, headers, body: bodyab } = readSyncResponse(sab);
 			const parsedHeaders = new Map<string, string>();
 			for (const line of headers.split(/\r?\n/)) {
 				const colon = line.indexOf(":");
@@ -86,13 +84,6 @@ export default function (client: SherpaClient, self: Self) {
 				parsedHeaders.set(name, previous ? `${previous}, ${value}` : value);
 			}
 
-			const bodyLength = view.getUint32(7 + headersLength);
-			const bodyab = new Uint8Array(bodyLength);
-			bodyab.set(
-				new Uint8Array(
-					sab.slice(11 + headersLength, 11 + headersLength + bodyLength)
-				)
-			);
 			const body = new TextDecoder().decode(bodyab);
 
 			// these should be using proxies to not leak scram strings but who cares

@@ -24,7 +24,7 @@
 // Results land in results/bottleneck-*.json; a summary prints to stdout.
 import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, relative, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
@@ -385,7 +385,14 @@ function startHost() {
 		]) {
 			if (path.startsWith(route)) {
 				const file = join(dir, path.slice(route.length));
-				if (!file.startsWith(dir)) break;
+				const pathFromRoot = relative(dir, file);
+
+				if (
+					pathFromRoot === ".." ||
+					pathFromRoot.startsWith(`..${sep}`) ||
+					isAbsolute(pathFromRoot)
+				)
+					break;
 				try {
 					const ext = file.slice(file.lastIndexOf("."));
 
