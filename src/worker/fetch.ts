@@ -36,6 +36,7 @@ import {
 	isRedirectStatus,
 	normalizeHtmlContentType,
 } from "@/worker/response";
+import { appendUrlParamEntries } from "@/shared/urlCodec";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -161,7 +162,7 @@ export async function handleFetch(
 		let parentFrameName;
 		let fromServiceWorkerRuntime = false;
 
-		const extraParams: Record<string, string> = {};
+		const extraParams: Array<[string, string]> = [];
 		for (const [param, value] of [...requestUrl.searchParams.entries()]) {
 			switch (param) {
 				case "type":
@@ -184,7 +185,7 @@ export async function handleFetch(
 					dbg.warn(
 						`${requestUrl.href} extraneous query parameter ${param}. Assuming <form> element`
 					);
-					extraParams[param] = value;
+					extraParams.push([param, value]);
 					break;
 			}
 			requestUrl.searchParams.delete(param);
@@ -192,9 +193,7 @@ export async function handleFetch(
 
 		const url = new URL(unrewriteUrl(requestUrl));
 		// now that we're past unrewriting it's safe to add back the params
-		for (const [param, value] of Object.entries(extraParams)) {
-			url.searchParams.set(param, value);
-		}
+		appendUrlParamEntries(url, extraParams);
 
 		const meta: URLMeta = {
 			origin: url,
