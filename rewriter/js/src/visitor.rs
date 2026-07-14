@@ -577,7 +577,7 @@ where
 	}
 	fn visit_import_expression(&mut self, it: &ImportExpression<'data>) {
 		self.jschanges.add(rewrite!(
-			Span::new(it.span.start, it.span.start + 7),
+			Span::new(it.span.start, it.source.span().start),
 			ImportFn
 		));
 		walk::walk_import_expression(self, it);
@@ -978,3 +978,4 @@ mod tests {
 		}
 	}
 }
+
