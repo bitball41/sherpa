@@ -33,7 +33,7 @@ export function createTransferredRequestInit(
 
 	// `navigate` is reserved for browser-created requests and cannot be passed
 	// to the Request constructor. Other modes can and should be preserved.
-	if (request.mode !== "navigate") init.mode = request.mode;
+	init.mode = request.mode === "navigate" ? "same-origin" : request.mode;
 	if (request.referrer) init.referrer = request.referrer;
 
 	if (request.body) {
