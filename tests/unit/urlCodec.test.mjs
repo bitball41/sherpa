@@ -6,6 +6,7 @@ import {
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
+	extractUrlParams,
 	resolveBaseHref,
 } from "../../src/shared/urlCodec.ts";
 
@@ -51,20 +52,53 @@ test("decodeProxyUrl passes embedded blob and data URLs through", () => {
 	);
 });
 
-test("appendUrlParams inserts internal parameters before fragments", () => {
-	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded#section", {
-			dest: "worker",
-			type: "module",
-		}),
-		"https://proxy.test/sherpa/encoded?dest=worker&type=module#section"
+test("internal URL metadata is marked and extracted before fragments", () => {
+	const original = "https://proxy.test/sherpa/encoded?scope=target#section";
+	const proxied = appendUrlParams(original, {
+		dest: "serviceworker",
+		scope: "/app/",
+	});
+
+	assert.equal(proxied.endsWith("#section"), true);
+	assert.match(proxied, /__sherpa_meta__/);
+	assert.match(proxied, /[?&]dest=serviceworker(?:&|#|$)/);
+	assert.deepEqual(
+		{
+			...extractUrlParams(proxied),
+			params: { ...extractUrlParams(proxied).params },
+		},
+		{
+			url: original,
+			params: { dest: "serviceworker", scope: "/app/" },
+		}
 	);
-	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded?scope=%2Fapp%2F#x", {
-			dest: "serviceworker",
-		}),
-		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F&dest=serviceworker#x"
+});
+
+test("internal metadata cannot collide with identity-codec target queries", () => {
+	const original =
+		"https://proxy.test/sherpa/https://target.test/?type=user&from=page";
+	const proxied = appendUrlParams(original, {
+		dest: "worker",
+		type: "module",
+	});
+	const extracted = extractUrlParams(proxied);
+
+	assert.equal(extracted.url, original);
+	assert.deepEqual(
+		{ ...extracted.params },
+		{ dest: "worker", type: "module" }
 	);
+});
+
+test("malformed or absent metadata is preserved instead of destructively parsed", () => {
+	const plain = "https://proxy.test/sherpa/value?type=user";
+	assert.deepEqual(extractUrlParams(plain), { url: plain, params: null });
+
+	const malformed = `${plain}&__sherpa_meta__=%7Bbad&type=module`;
+	assert.deepEqual(extractUrlParams(malformed), {
+		url: malformed,
+		params: null,
+	});
 });
 
 test("relative HTML base URLs resolve from the document directory", () => {
