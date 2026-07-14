@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	appendUrlParamEntries,
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
+	resolveBaseHref,
 } from "../../src/shared/urlCodec.ts";
 
 const encode = encodeURIComponent;
@@ -63,4 +65,30 @@ test("appendUrlParams inserts internal parameters before fragments", () => {
 		}),
 		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F&dest=serviceworker#x"
 	);
+});
+
+test("relative HTML base URLs resolve from the document directory", () => {
+	const documentUrl = new URL("https://example.com/a/page.html");
+
+	assert.equal(
+		resolveBaseHref("assets/", documentUrl)?.href,
+		"https://example.com/a/assets/"
+	);
+	assert.equal(
+		resolveBaseHref("/assets/", documentUrl)?.href,
+		"https://example.com/assets/"
+	);
+	assert.equal(resolveBaseHref("http://[", documentUrl), null);
+});
+
+test("restoring form parameters preserves duplicate names and order", () => {
+	const url = new URL("https://example.com/search");
+	appendUrlParamEntries(url, [
+		["tag", "first"],
+		["tag", "second"],
+		["page", "1"],
+	]);
+
+	assert.deepEqual(url.searchParams.getAll("tag"), ["first", "second"]);
+	assert.equal(url.search, "?tag=first&tag=second&page=1");
 });
