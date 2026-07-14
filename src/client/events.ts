@@ -1,4 +1,4 @@
-import { SherpaClient } from "@client/index";
+import type { SherpaClient } from "@client/index";
 
 /**
  * Union type for all global Sherpa events.
@@ -10,8 +10,11 @@ export type SherpaGlobalEvent = SherpaGlobalDownloadEvent;
  */
 export class SherpaGlobalDownloadEvent extends Event {
 	type = "download";
-	constructor(public download: SherpaDownload) {
+	download: SherpaDownload;
+
+	constructor(download: SherpaDownload) {
 		super("download");
+		this.download = download;
 	}
 }
 
@@ -52,8 +55,11 @@ export type SherpaEvents = {
  */
 export class NavigateEvent extends Event {
 	type = "navigate";
-	constructor(public url: string) {
-		super("navigate");
+	url: string;
+
+	constructor(url: string) {
+		super("navigate", { cancelable: true });
+		this.url = url;
 	}
 }
 
@@ -62,8 +68,11 @@ export class NavigateEvent extends Event {
  */
 export class UrlChangeEvent extends Event {
 	type = "urlchange";
-	constructor(public url: string) {
+	url: string;
+
+	constructor(url: string) {
 		super("urlchange");
+		this.url = url;
 	}
 }
 
@@ -72,10 +81,12 @@ export class UrlChangeEvent extends Event {
  */
 export class SherpaContextEvent extends Event {
 	type = "contextInit";
-	constructor(
-		public window: Self,
-		public client: SherpaClient
-	) {
+	window: Self;
+	client: SherpaClient;
+
+	constructor(window: Self, client: SherpaClient) {
 		super("contextInit");
+		this.window = window;
+		this.client = client;
 	}
 }
