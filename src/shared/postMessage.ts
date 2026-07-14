@@ -88,7 +88,7 @@ export function normalizePostMessageTargetOrigin(
 	if (serialized === "*") return serialized;
 
 	try {
-		return new URL(serialized, sourceUrl).origin;
+		return new URL(serialized).origin;
 	} catch {
 		throw new DOMException(
 			`Failed to execute 'postMessage': '${serialized}' is not a valid target origin`,
