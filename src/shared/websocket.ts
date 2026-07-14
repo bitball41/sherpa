@@ -103,7 +103,7 @@ export function normalizeWebSocketCloseArguments(
 export function closeWebSocketOnAbort(
 	signal: AbortSignal | undefined,
 	close: () => void
-): void {
+): (() => void) | undefined {
 	if (!signal) return;
 	if (signal.aborted) {
 		close();
@@ -111,4 +111,6 @@ export function closeWebSocketOnAbort(
 		return;
 	}
 	signal.addEventListener("abort", close, { once: true });
+
+	return () => signal.removeEventListener("abort", close);
 }
