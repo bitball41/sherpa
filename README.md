@@ -205,7 +205,7 @@ Sherpa runs at <http://localhost:1337> and rebuilds on file changes (excluding t
 
 ### Setting up Typedoc
 
-Typedoc generation is inherited from upstream. There are two builds: user-facing (`/typedoc`) and developer-facing (`/typedoc/dev`). Run locally with:
+Typedoc generation is inherited from upstream. There are two builds: user-facing (`/typedoc`) and developer-facing (`/typedoc-dev`). Run locally with:
 
 ```sh
 pnpm run docs

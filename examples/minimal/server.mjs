@@ -4,7 +4,7 @@
 //   1. the app itself            (examples/minimal/public/ -> /)
 //   2. the built Sherpa engine   (dist/ -> /scram/)
 //   3. bare-mux + a transport    (/baremux/, /epoxy/)
-//   4. a Wisp server             (all WebSocket upgrades) for outbound traffic
+//   4. a Wisp server             (/wisp/ upgrades) for outbound traffic
 // plus the cross-origin-isolation headers Sherpa needs. None of this is
 // Sherpa-specific plumbing you have to invent — it's the standard bare-mux/Wisp
 // setup any browser proxy uses.
@@ -21,9 +21,15 @@ import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
-// Allow the bundled demo to reach loopback/private hosts during local testing.
-wisp.options.allow_loopback_ips = true;
-wisp.options.allow_private_ips = true;
+const PORT = Number(process.env.PORT) || 8989;
+const HOST = process.env.HOST || "127.0.0.1";
+const ALLOW_PRIVATE_NETWORKS =
+	process.env.ALLOW_PRIVATE_NETWORKS === "1" ||
+	["127.0.0.1", "::1", "localhost"].includes(HOST);
+
+// Local-only demos may reach private hosts; public bindings must opt in.
+wisp.options.allow_loopback_ips = ALLOW_PRIVATE_NETWORKS;
+wisp.options.allow_private_ips = ALLOW_PRIVATE_NETWORKS;
 
 const fastify = Fastify({
 	serverFactory: (handler) =>
@@ -35,10 +41,14 @@ const fastify = Fastify({
 				res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
 				handler(req, res);
 			})
-			// The transport tunnels all proxied traffic out over Wisp.
-			.on("upgrade", (req, socket, head) =>
-				wisp.routeRequest(req, socket, head)
-			),
+			// Only the configured transport endpoint accepts WebSocket upgrades.
+			.on("upgrade", (req, socket, head) => {
+				if (req.url?.startsWith("/wisp/")) {
+					wisp.routeRequest(req, socket, head);
+				} else {
+					socket.destroy();
+				}
+			}),
 });
 
 // 1. The app (index.html + sw.js).
@@ -64,7 +74,5 @@ fastify.register(fastifyStatic, {
 	decorateReply: false,
 });
 
-const PORT = Number(process.env.PORT) || 8989;
-const HOST = process.env.HOST || "0.0.0.0";
 await fastify.listen({ port: PORT, host: HOST });
 console.log(`Sherpa minimal example → http://localhost:${PORT}/`);

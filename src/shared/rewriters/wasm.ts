@@ -11,14 +11,13 @@ import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { getInjectScripts } from "@rewriters/html";
 import { CookieStore } from "@/shared/cookie";
+import { base64ToBytes } from "@/shared/base64";
 
 let wasm_u8: Uint8Array<ArrayBuffer>;
 
 declare const REWRITERWASM: string | undefined;
-if (REWRITERWASM)
-	wasm_u8 = Uint8Array.from(atob(REWRITERWASM), (c) => c.charCodeAt(0));
-else if (self.WASM)
-	wasm_u8 = Uint8Array.from(atob(self.WASM), (c) => c.charCodeAt(0));
+if (REWRITERWASM) wasm_u8 = base64ToBytes(REWRITERWASM);
+else if (self.WASM) wasm_u8 = base64ToBytes(self.WASM);
 
 // only use in sw
 export async function asyncSetWasm() {

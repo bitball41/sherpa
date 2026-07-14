@@ -1,6 +1,10 @@
 import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { storagePrefix, unprefixStorageKey } from "@/shared/storage";
+import {
+	matchNamespacedCaches,
+	namespaceCacheName,
+} from "@/shared/cacheNamespace";
 
 export default function (client: SherpaClient, _self: Self) {
 	const prefix = storagePrefix(client.url.origin);
@@ -22,6 +26,37 @@ export default function (client: SherpaClient, _self: Self) {
 			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
 				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
 			}
+
+			const request = ctx.args[0];
+			const options = ctx.args[1] as
+				(MultiCacheQueryOptions & { cacheName?: string }) | undefined;
+			if (options?.cacheName !== undefined) {
+				ctx.args[1] = {
+					...options,
+					cacheName: namespaceCacheName(prefix, options.cacheName),
+				};
+
+				return;
+			}
+
+			const storage = ctx.this as CacheStorage;
+			ctx.return(
+				(async () => {
+					const names = (await client.natives.call(
+						"CacheStorage.prototype.keys",
+						storage
+					)) as string[];
+
+					return matchNamespacedCaches(names, prefix, async (name) => {
+						return client.natives.call(
+							"CacheStorage.prototype.match",
+							storage,
+							request,
+							{ ...options, cacheName: name }
+						);
+					});
+				})()
+			);
 		},
 	});
 

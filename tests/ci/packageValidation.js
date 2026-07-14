@@ -8,6 +8,15 @@ import test from "ava";
 import { glob } from "glob";
 import { existsSync, readFileSync } from "node:fs";
 
+const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+
+function exportTargets(value) {
+	if (typeof value === "string") return [value];
+	if (!value || typeof value !== "object") return [];
+
+	return Object.values(value).flatMap(exportTargets);
+}
+
 /**
  * Expected distribution files for Sherpa's bundles.
  * All JS files listed must have corresponding source maps.
@@ -124,4 +133,16 @@ test("Package structure is valid for distribution", async (t) => {
 	t.true(hasJsFiles, "Distribution should contain JS files");
 	t.true(hasWasmFile, "Distribution should contain WASM file");
 	t.true(hasTypeFiles, "Library should contain core type definition files");
+});
+
+test("Every declared package export exists", (t) => {
+	const missingExports = exportTargets(packageJson.exports)
+		.map((target) => target.replace(/^\.\//, ""))
+		.filter((target) => !existsSync(target));
+
+	t.deepEqual(
+		missingExports,
+		[],
+		`Missing package export targets: ${missingExports.join(", ")}`
+	);
 });

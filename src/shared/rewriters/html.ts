@@ -9,7 +9,8 @@ import { rewriteRefresh } from "@rewriters/refresh";
 import { CookieStore } from "@/shared/cookie";
 import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
-import { appendUrlParams } from "@/shared/urlCodec";
+import { appendUrlParams, resolveBaseHref } from "@/shared/urlCodec";
+import { bytesToBase64 } from "@/shared/base64";
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
@@ -154,12 +155,8 @@ function traverseParsedHtml(
 			// resolution. An invalid first value is still first; later elements do
 			// not get to silently replace it.
 			state.baseHrefSeen = true;
-			try {
-				meta.base = new URL(attribs.href, meta.origin);
-			} catch {
-				// Browsers ignore an invalid base URL; it must not abort rewriting
-				// the rest of an otherwise usable document.
-			}
+			const resolvedBase = resolveBaseHref(attribs.href, meta.base);
+			if (resolvedBase) meta.base = resolvedBase;
 		}
 
 		const attributes = Object.keys(attribs);
@@ -332,20 +329,7 @@ const jsMimeEssences =
 // 	return Uint8Array.from(binString, (m) => m.codePointAt(0));
 // }
 
-export function bytesToBase64(bytes: Uint8Array) {
-	// chunked String.fromCharCode.apply builds the binary string thousands of
-	// times faster than one string object per byte; 8k args stays comfortably
-	// under every engine's argument-count limit
-	let binString = "";
-	for (let i = 0; i < bytes.length; i += 8192) {
-		binString += String.fromCharCode.apply(
-			null,
-			bytes.subarray(i, i + 8192) as unknown as number[]
-		);
-	}
-
-	return btoa(binString);
-}
+export { bytesToBase64 };
 const eventAttributes = new Set([
 	"onafterprint",
 	"onbeforexrselect",

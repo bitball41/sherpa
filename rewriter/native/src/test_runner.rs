@@ -170,4 +170,25 @@ function check(val) {
 				.is_ok()
 		);
 	}
+
+	#[test]
+	fn rewrites_dynamic_import_with_comments_and_whitespace() {
+		let options = RewriterOptions::default();
+		let rewriter = NativeRewriter::new(&options);
+		let rewritten = rewriter
+			.rewrite(
+				r#"const load = import /* keep */ ( "./dep.js");"#,
+				&options,
+			)
+			.unwrap();
+		let output = std::str::from_utf8(&rewritten.js).unwrap();
+
+		assert!(
+			output.contains(&format!(
+				r#"{}("{}","./dep.js")"#,
+				options.importfn, options.base
+			)),
+			"unexpected dynamic import output: {output}"
+		);
+	}
 }

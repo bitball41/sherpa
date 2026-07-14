@@ -1,31 +1,45 @@
 #!/bin/bash
-cp -r existing-typedoc/* _docs/ || true
-cp -r existing-typedoc-dev/* _docs-dev/ || true
+set -euo pipefail
 
-pnpm run docs || true
-pnpm run docs:dev || true
+mkdir -p _docs _docs-dev
+if [[ -d existing-typedoc ]]; then
+	cp -a existing-typedoc/. _docs/
+fi
+if [[ -d existing-typedoc-dev ]]; then
+	cp -a existing-typedoc-dev/. _docs-dev/
+fi
+
+pnpm run docs
+pnpm run docs:dev
 
 VERSION=$(jq -r '.version' package.json)
 
-if [ -f "_docs/.typedoc-plugin-versions" ]; then
-    existing_versions=$(jq -r '.versions[]?' existing-typedoc/.typedoc-plugin-versions || echo "")
-    if [ -n "$existing_versions" ]; then
-        all_versions=$(printf '%s\n' $existing_versions "v$VERSION" | sort -u)
-        printf '%s\n' $all_versions | jq -R . | jq -s --arg dev "v$VERSION" '{"versions": ., "dev": $dev}' > _docs/.typedoc-plugin-versions
-    else
-        jq -n --arg version "v$VERSION" '{"versions":[$version],"dev":$version}' > _docs/.typedoc-plugin-versions
-    fi
-fi
+merge_versions() {
+	local output_dir=$1
+	local history_dir=$2
+	local output_manifest="$output_dir/.typedoc-plugin-versions"
+	local history_manifest="$history_dir/.typedoc-plugin-versions"
 
-if [ -f "_docs-dev/.typedoc-plugin-versions" ]; then
-    existing_versions_dev=$(jq -r '.versions[]?' existing-typedoc-dev/.typedoc-plugin-versions || echo "")
-    if [ -n "$existing_versions_dev" ]; then
-        all_versions_dev=$(printf '%s\n' $existing_versions_dev "v$VERSION" | sort -u)
-        printf '%s\n' $all_versions_dev | jq -R . | jq -s --arg dev "v$VERSION" '{"versions": ., "dev": $dev}' > _docs-dev/.typedoc-plugin-versions
-    else
-        jq -n --arg version "v$VERSION" '{"versions":[$version],"dev":$version}' > _docs-dev/.typedoc-plugin-versions
-    fi
-fi
+	[[ -f "$output_manifest" ]] || return
+
+	local existing_versions=""
+	if [[ -f "$history_manifest" ]]; then
+		existing_versions=$(jq -r '.versions[]?' "$history_manifest")
+	fi
+
+	if [[ -n "$existing_versions" ]]; then
+		printf '%s\n' "$existing_versions" "v$VERSION" |
+			sort -u |
+			jq -R . |
+			jq -s --arg dev "v$VERSION" '{"versions": ., "dev": $dev}' > "$output_manifest"
+	else
+		jq -n --arg version "v$VERSION" \
+			'{"versions":[$version],"dev":$version}' > "$output_manifest"
+	fi
+}
+
+merge_versions _docs existing-typedoc
+merge_versions _docs-dev existing-typedoc-dev
 
 tar -czf "typedoc-$VERSION.tar.gz" -C _docs .
 tar -czf "typedoc-$VERSION.tar.gz-dev" -C _docs-dev .
