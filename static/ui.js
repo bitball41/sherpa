@@ -246,7 +246,7 @@ function BrowserApp() {
     </div>
     `;
 }
-window.addEventListener("load", async () => {
+window.addEventListener("load", () => {
 	const root = document.getElementById("app");
 	try {
 		root.replaceWith(h(BrowserApp));
@@ -254,21 +254,11 @@ window.addEventListener("load", async () => {
 		root.replaceWith(document.createTextNode("" + e));
 		throw e;
 	}
-	function b64(buffer) {
-		let binary = "";
-		const bytes = new Uint8Array(buffer);
-		const len = bytes.byteLength;
-		for (let i = 0; i < len; i++) {
-			binary += String.fromCharCode(bytes[i]);
-		}
-
-		return btoa(binary);
-	}
-	const arraybuffer = await (await fetch("/assets/sherpa.png")).arrayBuffer();
+	const logoUrl = new URL("/assets/sherpa.png", location.href).href;
 	console.log(
 		"%cb",
 		`
-      background-image: url(data:image/png;base64,${b64(arraybuffer)});
+      background-image: url(${JSON.stringify(logoUrl)});
       color: transparent;
       padding-left: 200px;
       padding-bottom: 100px;

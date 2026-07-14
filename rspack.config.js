@@ -11,6 +11,24 @@ import { readFileSync } from "node:fs";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const packagemeta = JSON.parse(await readFile("package.json"));
 
+function getCommitHash() {
+	const environmentHash =
+		process.env.SHERPA_COMMIT_HASH ?? process.env.GITHUB_SHA;
+
+	if (environmentHash?.trim()) return environmentHash.trim().slice(0, 7);
+
+	try {
+		return execSync("git rev-parse --short HEAD", {
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch {
+		return "unknown";
+	}
+}
+
+const commitHash = JSON.stringify(getCommitHash());
+
 // Configuration for standard IIFE builds
 const iifeConfig = defineConfig({
 	mode: "development",
@@ -74,20 +92,7 @@ const iifeConfig = defineConfig({
 			REWRITERWASM: "undefined",
 		}),
 		new rspack.DefinePlugin({
-			COMMITHASH: (() => {
-				try {
-					const hash = JSON.stringify(
-						execSync("git rev-parse --short HEAD", {
-							encoding: "utf-8",
-							stdio: ["ignore", "pipe", "ignore"],
-						}).replace(/\r?\n|\r/g, "")
-					);
-
-					return hash;
-				} catch {
-					return JSON.stringify("unknown");
-				}
-			})(),
+			COMMITHASH: commitHash,
 		}),
 		process.env.DEBUG
 			? new RsdoctorRspackPlugin({
@@ -182,20 +187,7 @@ const moduleConfig = defineConfig({
 			})(),
 		}),
 		new rspack.DefinePlugin({
-			COMMITHASH: (() => {
-				try {
-					const hash = JSON.stringify(
-						execSync("git rev-parse --short HEAD", {
-							encoding: "utf-8",
-							stdio: ["ignore", "pipe", "ignore"],
-						}).replace(/\r?\n|\r/g, "")
-					);
-
-					return hash;
-				} catch {
-					return JSON.stringify("unknown");
-				}
-			})(),
+			COMMITHASH: commitHash,
 		}),
 		process.env.DEBUG
 			? new RsdoctorRspackPlugin({

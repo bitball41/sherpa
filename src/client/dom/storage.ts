@@ -1,9 +1,17 @@
-import { SherpaClient } from "@client/index";
+import type { SherpaClient } from "@client/index";
 import {
 	storageKeys,
 	storagePrefix,
 	unprefixStorageKey,
 } from "@/shared/storage";
+
+const storageAreaProxies = new WeakMap<Storage, Storage>();
+
+export function getVirtualStorageArea(
+	storageArea: Storage | null
+): Storage | null {
+	return storageArea ? storageAreaProxies.get(storageArea) || null : null;
+}
 
 export default function (client: SherpaClient, self: typeof window) {
 	const namespace = client.url.origin;
@@ -84,6 +92,8 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	const localStorageProxy = new Proxy(self.localStorage, handler);
 	const sessionStorageProxy = new Proxy(self.sessionStorage, handler);
+	storageAreaProxies.set(self.localStorage, localStorageProxy);
+	storageAreaProxies.set(self.sessionStorage, sessionStorageProxy);
 
 	delete self.localStorage;
 	delete self.sessionStorage;

@@ -74,7 +74,7 @@ export class SherpaClient {
 		any,
 		Array<{
 			event: string;
-			originalCallback: AnyFunction;
+			originalCallback: any;
 			proxiedCallback: AnyFunction;
 			capture: boolean;
 			once: boolean;
@@ -660,12 +660,12 @@ export class SherpaClient {
 			desc.set = oldDescriptor.set;
 		}
 
-		if (descriptor.enumerable) desc.enumerable = descriptor.enumerable;
-		else if (oldDescriptor?.enumerable)
-			desc.enumerable = oldDescriptor.enumerable;
-		if (descriptor.configurable) desc.configurable = descriptor.configurable;
-		else if (oldDescriptor?.configurable)
-			desc.configurable = oldDescriptor.configurable;
+		if (descriptor.enumerable !== undefined)
+			desc.enumerable = descriptor.enumerable;
+		else if (oldDescriptor) desc.enumerable = oldDescriptor.enumerable;
+		if (descriptor.configurable !== undefined)
+			desc.configurable = descriptor.configurable;
+		else if (oldDescriptor) desc.configurable = oldDescriptor.configurable;
 
 		Object.defineProperty(target, prop, desc);
 

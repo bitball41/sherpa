@@ -522,6 +522,59 @@ against a cacheable origin). Full report with numbers in
 5. **Per-request SW overhead 1.5–10ms** engine CPU per subresource,
    serialized on the single SW event loop.
 
+### Two-pass repository audit and hardening
+
+Every repository file was read twice (all 217 UTF-8 files; the large binary
+fixture was identity-checked separately). The resulting working branch is a
+broad correctness/security/release hardening pass rather than one isolated
+bug fix. Important groups:
+
+- **Configuration and policy correctness.** Partial runtime updates now
+  deep-merge nested flags/site flags without losing siblings; special object
+  keys are treated as data; invalid site regexes fail closed; Referrer-Policy
+  implements the complete recognized-token/redirect/downgrade behavior; and
+  request/response header normalization uses null-prototype records with safe
+  singleton and multi-value handling.
+- **Synchronous and worker RPC reliability.** The synchronous XHR response
+  frame survives `SharedArrayBuffer` growth and rejects truncated frames.
+  Client/worker RPCs have bounded timeouts and sender/type checks. WASM fetches
+  verify HTTP success, stale pooled rewriters are freed safely, source hashing
+  is reproducible, and generated-worker payloads are no longer needlessly
+  rebuilt.
+- **Nested Service Worker emulation.** Registrations are now same-origin and
+  scope validated, stored independently, longest-scope matched, exposed with
+  usable registration/active objects, and actually removed on `unregister()`.
+  `ready`, `controller`, `getRegistration()`, and `getRegistrations()` follow
+  their multi-registration semantics. Fetch RPCs time out instead of hanging;
+  transferred request metadata, `respondWith`, and `waitUntil` are represented;
+  and page-to-worker `postMessage` (including transferables) reaches the nested
+  runtime.
+- **DOM and language traps.** Compound/logical assignment operators preserve
+  evaluation semantics; object-form event listeners work; storage proxies keep
+  stable identity and correct `storageArea`; namespace-aware attribute APIs,
+  `setAttributeNodeNS`, and every mutating `NamedNodeMap` sibling now go through
+  rewriting; the internal `sherpa-attr-*` namespace can no longer be overwritten
+  through public setters.
+- **Request compatibility.** Fetch/download failure paths settle reliably,
+  WebSocket event order no longer lets one throwing property handler suppress
+  other listeners, and both `WebSocket`/`WebSocketStream` now resolve relative
+  URLs against the virtual document, normalize HTTP(S) schemes, validate
+  fragments/subprotocols/close arguments, and pass stream options correctly.
+  Cookie prefix rules, header propagation, and several hostile-rejection paths
+  were hardened in the same sweep.
+- **Build and release integrity.** CI permissions and triggers were tightened,
+  pnpm and commit metadata are reproducible, workflow/shell validation is
+  explicit, static serving has containment checks, packaging validates every
+  export/artifact/map/type, and a tracked generated Cargo lockfile was removed.
+
+Current validation: **124 unit assertions**, ESLint, full TypeScript `--noEmit`,
+Rslib declarations, both production Rspack bundles (using the exact generated
+WASM glue recovered from a successful CI artifact), workflow lint, and all six
+package-validation checks pass. A live Playwright run remains unavailable in
+this sandbox because no browser binary is installed and its browser CDN is not
+reachable; this is an environment limitation, not a skipped local failure. No
+Rust source or committed WASM binary changed.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

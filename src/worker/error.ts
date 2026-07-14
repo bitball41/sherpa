@@ -219,7 +219,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
 
 export function renderError(err: unknown, fetchedURL: string) {
 	const headers = {
-		"content-type": "text/html",
+		"content-type": "text/html; charset=utf-8",
 	};
 	// The error page is only ever served for a document/iframe navigation, so
 	// when we're cross-origin isolated it must re-assert *both* COOP and COEP —

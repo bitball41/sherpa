@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
@@ -14,10 +15,10 @@ trap cleanup SIGINT SIGTERM
 
 pnpm install
 
-if [ ! -d "rewriter/target" ]; then
+if [ ! -f "rewriter/wasm/out/wasm.js" ] || [ ! -f "dist/sherpa.wasm.wasm" ]; then
     pnpm run rewriter:build
 fi
-if [ ! -d "dist" ]; then
+if [ ! -f "dist/sherpa.all.js" ] || [ ! -f "dist/sherpa.sync.js" ]; then
     pnpm run build
 fi
 

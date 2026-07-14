@@ -4,6 +4,7 @@ import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 // import { argdbg } from "@client/shared/err";
 import { indirectEval } from "@client/shared/eval";
+import { evaluateAssignment } from "@/shared/assignment";
 
 export function createWrapFn(client: SherpaClient, self: typeof globalThis) {
 	return function (identifier: any, strict: boolean) {
@@ -144,17 +145,8 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 		}
 	);
 
-	self.$scramitize = function (v) {
-		if (v === location) debugger;
-		if (iswindow) {
-			// if (v === self.parent) debugger;
-			if (v === self.top) debugger;
-		}
-
-		if (typeof v === "string" && v.includes("sherpa")) debugger;
-		if (typeof v === "string" && v.includes(location.origin)) debugger;
-
-		return v;
+	self.$scramitize = function (value) {
+		return value;
 	};
 
 	// location = "..." can't be rewritten as wrapfn(location) = ..., so instead it will actually be rewritten as
@@ -165,7 +157,12 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 		value: function (lhs: any, op: string, rhs: any) {
 			const locationClient = client.box.locations.get(lhs);
 			if (locationClient) {
-				locationClient.locationProxy.href = rhs;
+				const result = evaluateAssignment(
+					locationClient.locationProxy.href,
+					op,
+					rhs
+				);
+				if (result.assign) locationClient.locationProxy.href = result.value;
 
 				return true;
 			}

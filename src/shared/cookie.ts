@@ -48,8 +48,16 @@ export class CookieStore {
 			if (!parsed || !parsed.name) continue;
 
 			const cookie: Cookie = { ...parsed };
+			const hadDomainAttribute = cookie.domain !== undefined;
+			const hadHostPath = cookie.path === "/";
 			if (fromJs && cookie.httpOnly) continue;
 			if (cookie.secure && url.protocol !== "https:") continue;
+			if (cookie.name.startsWith("__Secure-") && !cookie.secure) continue;
+			if (
+				cookie.name.startsWith("__Host-") &&
+				(!cookie.secure || hadDomainAttribute || !hadHostPath)
+			)
+				continue;
 
 			const requestHost = url.hostname.toLowerCase();
 			if (cookie.domain) {
@@ -179,6 +187,12 @@ export class CookieStore {
 			cookie.domain = cookie.domain.replace(/^\.+/, "").toLowerCase();
 			cookie.path ||= "/";
 			cookie.hostOnly ??= false;
+			if (cookie.name.startsWith("__Secure-") && !cookie.secure) continue;
+			if (
+				cookie.name.startsWith("__Host-") &&
+				(!cookie.secure || !cookie.hostOnly || cookie.path !== "/")
+			)
+				continue;
 			cookie.sameSite = cookie.sameSite?.toLowerCase() as Cookie["sameSite"];
 			if (
 				!(["strict", "lax", "none"] as string[]).includes(cookie.sameSite) ||

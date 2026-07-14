@@ -9,7 +9,7 @@ export type SherpaGlobalEvent = SherpaGlobalDownloadEvent;
  * Event class for proxified download interception.
  */
 export class SherpaGlobalDownloadEvent extends Event {
-	type = "download";
+	declare type: "download";
 	download: SherpaDownload;
 
 	constructor(download: SherpaDownload) {
@@ -54,7 +54,7 @@ export type SherpaEvents = {
  * Navigation event class fired when Sherpa frame navigates to a new proxified URL.
  */
 export class NavigateEvent extends Event {
-	type = "navigate";
+	declare type: "navigate";
 	url: string;
 
 	constructor(url: string) {
@@ -67,7 +67,7 @@ export class NavigateEvent extends Event {
  * URL change event class fired when the proxified URL changes in a Sherpa frame.
  */
 export class UrlChangeEvent extends Event {
-	type = "urlchange";
+	declare type: "urlchange";
 	url: string;
 
 	constructor(url: string) {
@@ -80,7 +80,7 @@ export class UrlChangeEvent extends Event {
  * Event class fired when Sherpa initializes in a frame.
  */
 export class SherpaContextEvent extends Event {
-	type = "contextInit";
+	declare type: "contextInit";
 	window: Self;
 	client: SherpaClient;
 

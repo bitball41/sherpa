@@ -16,7 +16,7 @@ import {
 
 import { unrewriteBlob, unrewriteUrl, type URLMeta } from "@rewriters/url";
 import { rewriteJs } from "@rewriters/js";
-import { SherpaHeaders } from "@/shared/headers";
+import { flattenResponseHeaders, SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
 import { bytesToBase64, rewriteHtml } from "@rewriters/html";
@@ -121,6 +121,11 @@ export async function handleFetch(
 				const wasmPath = this.config.files.wasm;
 				cachedWasmPayloadPath = wasmPath;
 				cachedWasmPayload = fetch(wasmPath).then(async (x) => {
+					if (!x.ok) {
+						throw new Error(
+							`failed to fetch rewriter wasm: HTTP ${x.status} ${x.statusText}`
+						);
+					}
 					const b64 = bytesToBase64(new Uint8Array(await x.arrayBuffer()));
 
 					return (
@@ -440,19 +445,36 @@ export async function handleFetch(
 			requestContext.referrerUrl?.href || ""
 		);
 	} catch (err) {
-		const errorDetails = {
-			message: err.message,
+		let message = "Unknown error";
+		try {
+			message = err instanceof Error ? err.message : String(err);
+		} catch {
+			// A rejected Proxy can throw from both instanceof and string coercion.
+		}
+
+		const errorDetails: Record<string, unknown> = {
+			message,
 			url: request.url,
 			destination: request.destination,
 		};
-		if (err.cause) {
-			errorDetails["cause"] = err.cause;
-			if (err.cause instanceof AggregateError) {
-				errorDetails["causeErrors"] = err.cause.errors;
+		if (typeof err === "object" && err !== null) {
+			try {
+				const cause = (err as { cause?: unknown }).cause;
+				if (cause !== undefined) {
+					errorDetails.cause = cause;
+					if (cause instanceof AggregateError) {
+						errorDetails.causeErrors = cause.errors;
+					}
+				}
+			} catch {
+				// Treat hostile error metadata as absent.
 			}
-		}
-		if (err.stack) {
-			errorDetails["stack"] = err.stack;
+			try {
+				const stack = (err as { stack?: unknown }).stack;
+				if (stack) errorDetails.stack = stack;
+			} catch {
+				// Treat hostile error metadata as absent.
+			}
 		}
 
 		console.error("ERROR FROM SERVICE WORKER FETCH: ", errorDetails);
@@ -462,10 +484,16 @@ export async function handleFetch(
 			return new Response(undefined, { status: 500 });
 
 		const formattedError = Object.entries(errorDetails)
-			.map(
-				([key, value]) =>
-					`${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`
-			)
+			.map(([key, value]) => {
+				let printable = "[unprintable]";
+				try {
+					printable = String(value);
+				} catch {
+					// Keep the error page available for hostile rejection values.
+				}
+
+				return `${key.charAt(0).toUpperCase() + key.slice(1)}: ${printable}`;
+			})
 			.join("\n\n");
 
 		return renderError(formattedError, unrewriteUrl(request.url));
@@ -500,15 +528,20 @@ async function handleResponse(
 	// }
 	const isNavigationRequest =
 		mode === "navigate" && ["document", "iframe"].includes(destination);
-	const responseHeaders = await rewriteHeaders(
+	const rewrittenHeaders = await rewriteHeaders(
 		response.rawHeaders,
 		meta,
 		bareClient,
 		{ get: getReferrerPolicy, set: storeReferrerPolicy }
 	);
+	const responseHeaders = flattenResponseHeaders(rewrittenHeaders);
+	const maybeSetCookies = rewrittenHeaders["set-cookie"] || [];
+	const setCookies = Array.isArray(maybeSetCookies)
+		? maybeSetCookies
+		: [maybeSetCookies];
 	const isRedirectResponse =
 		isRedirectStatus(response.status) &&
-		typeof responseHeaders["location"] === "string" &&
+		responseHeaders["location"] !== undefined &&
 		responseHeaders["location"].length > 0;
 
 	// Store referrer policy from navigation responses for Force Referrer
@@ -548,9 +581,6 @@ async function handleResponse(
 		}
 	}
 
-	const maybeHeaders = responseHeaders["set-cookie"] || [];
-	const setCookies =
-		maybeHeaders instanceof Array ? maybeHeaders : [maybeHeaders];
 	for (const cookie of setCookies) {
 		// Only window realms install the synchronous document-cookie listener.
 		// Waiting for an acknowledgement from a worker client would never resolve.
@@ -565,8 +595,22 @@ async function handleResponse(
 				// not be delivered until each Set-Cookie has been applied to the
 				// client's synchronous jar, and later cookies may override earlier
 				// ones, so these can't be dispatched in parallel.
-				// eslint-disable-next-line no-await-in-loop
-				await promise;
+				try {
+					// eslint-disable-next-line no-await-in-loop
+					await promise;
+				} catch (error) {
+					console.warn(
+						"failed to synchronize a Set-Cookie with the client",
+						error
+					);
+				}
+			} else {
+				void promise.catch((error) => {
+					console.warn(
+						"failed to synchronize a Set-Cookie with the client",
+						error
+					);
+				});
 			}
 		}
 	}
@@ -575,12 +619,6 @@ async function handleResponse(
 	if (setCookies.length) {
 		const db = await getDB();
 		await db.put("cookies", JSON.parse(cookieStore.dump()), "cookies");
-	}
-
-	for (const header in responseHeaders) {
-		// flatten everything past here
-		if (Array.isArray(responseHeaders[header]))
-			responseHeaders[header] = responseHeaders[header][0];
 	}
 
 	if (isDownload(responseHeaders, destination) && !isRedirectResponse) {
@@ -612,7 +650,7 @@ async function handleResponse(
 			const download: SherpaDownload = {
 				filename,
 				url: url.href,
-				type: responseHeaders["content-type"],
+				type: responseHeaders["content-type"] ?? "application/octet-stream",
 				body: response.body,
 				length: Number(length),
 			};
@@ -624,11 +662,12 @@ async function handleResponse(
 				response.body ? [response.body] : []
 			);
 
-			// endless vortex reference
-			await new Promise(() => {});
+			// A 204 navigation leaves the current document in place while allowing
+			// this FetchEvent to settle after the body stream has been transferred.
+			return new Response(null, { status: 204 });
 		} else {
 			// manually rewrite for regular browser download
-			const header = responseHeaders["content-disposition"];
+			const header = responseHeaders["content-disposition"] ?? "";
 
 			// validate header and test for filename
 			if (!/\s*?((inline|attachment);\s*?)filename=/i.test(header)) {

@@ -4,6 +4,33 @@ function serializeCodec(codec: string | ((url: string) => string)): string {
 	return typeof codec === "function" ? codec.toString() : codec;
 }
 
+function mergeSiteFlags(
+	current: SherpaConfig["siteFlags"],
+	updates?: SherpaInitConfig["siteFlags"]
+): SherpaConfig["siteFlags"] {
+	const merged: SherpaConfig["siteFlags"] = {};
+
+	for (const pattern of Object.keys(current)) {
+		Object.defineProperty(merged, pattern, {
+			value: { ...current[pattern] },
+			enumerable: true,
+			configurable: true,
+			writable: true,
+		});
+	}
+
+	for (const pattern of Object.keys(updates || {})) {
+		Object.defineProperty(merged, pattern, {
+			value: { ...current[pattern], ...updates![pattern] },
+			enumerable: true,
+			configurable: true,
+			writable: true,
+		});
+	}
+
+	return merged;
+}
+
 /**
  * Applies a partial public configuration without dropping nested defaults.
  * Keeping this explicit also prevents special object keys from walking or
@@ -18,7 +45,7 @@ export function mergeConfig(
 		globals: { ...current.globals, ...updates.globals },
 		files: { ...current.files, ...updates.files },
 		flags: { ...current.flags, ...updates.flags },
-		siteFlags: { ...current.siteFlags, ...updates.siteFlags },
+		siteFlags: mergeSiteFlags(current.siteFlags, updates.siteFlags),
 		errorPage: { ...current.errorPage, ...updates.errorPage },
 		codec: {
 			encode: serializeCodec(updates.codec?.encode ?? current.codec.encode),

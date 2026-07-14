@@ -6,6 +6,11 @@ import { rewriteUrl, type URLMeta } from "@rewriters/url";
 import { getSiteDirective } from "@/shared/security/siteTests";
 import { rewriteLinkHeader } from "@rewriters/linkHeader";
 import { rewriteRefresh } from "@rewriters/refresh";
+import {
+	createReferrerValue,
+	DEFAULT_REFERRER_POLICY,
+	selectReferrerPolicy,
+} from "@/shared/referrerPolicy";
 
 interface StoredReferrerPolicies {
 	get(url: string): Promise<{ policy: string; referrer: string } | null>;
@@ -55,9 +60,9 @@ export async function rewriteHeaders(
 	client: BareClient,
 	storedReferrerPolicies: StoredReferrerPolicies
 ) {
-	const headers = {};
+	const headers: BareHeaders = Object.create(null);
 
-	for (const key in rawHeaders) {
+	for (const key of Object.keys(rawHeaders)) {
 		headers[key.toLowerCase()] = rawHeaders[key];
 	}
 
@@ -66,11 +71,12 @@ export async function rewriteHeaders(
 	}
 
 	for (const urlHeader of URL_HEADERS) {
-		if (headers[urlHeader])
-			headers[urlHeader] = rewriteUrl(
-				headers[urlHeader]?.toString() as string,
-				meta
-			);
+		const value = headers[urlHeader];
+		if (typeof value === "string") {
+			headers[urlHeader] = rewriteUrl(value, meta);
+		} else if (Array.isArray(value)) {
+			headers[urlHeader] = value.map((url) => rewriteUrl(url, meta));
+		}
 	}
 
 	if (typeof headers["link"] === "string") {
@@ -102,54 +108,13 @@ export async function rewriteHeaders(
 		const referrerUrl = new URL(headers["referer"]);
 		const storedPolicyData = await storedReferrerPolicies.get(referrerUrl.href);
 		if (storedPolicyData) {
-			const storedReferrerPolicy = storedPolicyData.policy
-				.toLowerCase()
-				.split(",")
-				.map((rawDir) => rawDir.trim());
-			if (
-				storedReferrerPolicy.includes("no-referrer") ||
-				(storedReferrerPolicy.includes("no-referrer-when-downgrade") &&
-					meta.origin.protocol === "http:" &&
-					referrerUrl.protocol === "https:")
-			) {
-				delete headers["referer"];
-			} else if (storedReferrerPolicy.includes("origin")) {
-				headers["referer"] = referrerUrl.origin;
-			} else if (storedReferrerPolicy.includes("origin-when-cross-origin")) {
-				if (referrerUrl.origin !== meta.origin.origin) {
-					headers["referer"] = referrerUrl.origin;
-				} else {
-					headers["referer"] = referrerUrl.href;
-				}
-			} else if (storedReferrerPolicy.includes("same-origin")) {
-				if (referrerUrl.origin === meta.origin.origin) {
-					headers["referer"] = referrerUrl.href;
-				} else {
-					delete headers["referer"];
-				}
-			} else if (storedReferrerPolicy.includes("strict-origin")) {
-				if (
-					meta.origin.protocol === "http:" &&
-					referrerUrl.protocol === "https:"
-				) {
-					delete headers["referer"];
-				} else {
-					headers["referer"] = referrerUrl.origin;
-				}
-			}
-			// `strict-origin-when-cross-origin` is the default behavior anyway
-			else {
-				if (referrerUrl.origin === meta.origin.origin) {
-					headers["referer"] = referrerUrl.href;
-				} else if (
-					meta.origin.protocol === "http:" &&
-					referrerUrl.protocol === "https:"
-				) {
-					delete headers["referer"];
-				} else {
-					headers["referer"] = referrerUrl.origin;
-				}
-			}
+			const policy =
+				selectReferrerPolicy(storedPolicyData.policy) ||
+				DEFAULT_REFERRER_POLICY;
+			const referer = createReferrerValue(policy, referrerUrl, meta.origin);
+
+			if (referer === null) delete headers["referer"];
+			else headers["referer"] = referer;
 		}
 	}
 	if (

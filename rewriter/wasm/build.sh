@@ -2,7 +2,6 @@
 set -euo pipefail
 shopt -s inherit_errexit
 
-
 if ! [ "${RELEASE:-0}" = "1" ]; then
 	WASMOPTFLAGS="${WASMOPTFLAGS:-} -g"
 	FEATURES="debug,${FEATURES:-}"
@@ -13,10 +12,50 @@ fi
 
 MODE="release"
 if [ "${RELEASE:-0}" != "1" ]; then MODE="debug"; fi
-# shellcheck disable=SC2046
-SRC_HASH=$( (echo "MODE=${MODE}"; sha256sum $(git ls-files -z -- "src" | tr '\0' ' ' 2>/dev/null || find src -type f -name '*.rs'; echo Cargo.toml; echo build.sh) 2>/dev/null | sort -k2 | sha256sum ) | sha256sum | cut -d' ' -f1 ) || SRC_HASH="unknown"
 
-if [ -f out/.build-hash ] && [ -f ../../dist/sherpa.wasm.wasm ] && [ "$SRC_HASH" != "unknown" ] && grep -q "$SRC_HASH" out/.build-hash; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REWRITER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$REWRITER_DIR/.." && pwd)"
+
+compute_source_hash() {
+	{
+		printf '%s\n' \
+			"MODE=${MODE}" \
+			"FEATURES=${FEATURES}" \
+			"WASMOPTFLAGS=${WASMOPTFLAGS}" \
+			"OPTIMIZE_FOR_SIZE=${OPTIMIZE_FOR_SIZE:-0}" \
+			"OPTIMIZE_FOR_SPEED=${OPTIMIZE_FOR_SPEED:-0}"
+
+		while IFS= read -r -d '' source_file; do
+			digest=$(sha256sum "$source_file" | cut -d' ' -f1)
+			relative="${source_file#${REPO_ROOT}/}"
+			printf '%s  %s\n' "$digest" "$relative"
+		done < <(
+			find \
+				"$REWRITER_DIR/js" \
+				"$REWRITER_DIR/transform" \
+				"$REWRITER_DIR/wasm" \
+				-type f \( -name '*.rs' -o -name 'Cargo.toml' \) \
+				! -path "$SCRIPT_DIR/out/*" -print0
+			printf '%s\0' \
+				"$REWRITER_DIR/Cargo.toml" \
+				"$REWRITER_DIR/Cargo.lock" \
+				"$REWRITER_DIR/rust-toolchain.toml" \
+				"$SCRIPT_DIR/build.sh"
+		)
+	} | sort -k2 | sha256sum | cut -d' ' -f1
+}
+
+SRC_HASH=$(compute_source_hash) || SRC_HASH="unknown"
+
+if [ "${1:-}" = "--print-source-hash" ]; then
+	printf '%s\n' "$SRC_HASH"
+	exit 0
+fi
+
+cd "$SCRIPT_DIR"
+
+if [ -f out/.build-hash ] && [ -f ../../dist/sherpa.wasm.wasm ] && [ "$SRC_HASH" != "unknown" ] && grep -qxF "$SRC_HASH" out/.build-hash; then
   echo "Rewriter sources unchanged (hash $SRC_HASH); skipping rebuild."
   exit 0
 fi
@@ -27,8 +66,9 @@ which cargo wasm-bindgen wasm-opt wasm-snip &> /dev/null || {
 }
 
 WBG="wasm-bindgen 0.2.100"
-if ! [[ "$(wasm-bindgen -V)" =~ ^"$WBG" ]]; then
-	echo "Incorrect wasm-bindgen-cli version: '$(wasm-bindgen -V)' != '$WBG'"
+CURRENT_WBG=$(wasm-bindgen -V)
+if [ "$CURRENT_WBG" != "$WBG" ]; then
+	echo "Incorrect wasm-bindgen-cli version: '$CURRENT_WBG' != '$WBG'"
 	exit 1
 fi
 

@@ -111,6 +111,7 @@ export function normalizeVirtualScope(
 	virtualOrigin: string
 ): string | null {
 	if (typeof scope !== "string" || !scope.startsWith("/")) return null;
+	if (/%2f|%5c/i.test(scope)) return null;
 
 	try {
 		const normalized = new URL(scope, virtualOrigin);

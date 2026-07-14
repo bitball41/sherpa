@@ -1,16 +1,33 @@
-import { type MessageW2R, type MessageR2W } from "@client/swruntime";
+import type { MessageR2W, MessageW2R } from "../client/swruntime";
+
+const DEFAULT_RESPONSE_TIMEOUT_MS = 30_000;
+
+type PendingResponse = {
+	resolve: (value: MessageR2W | null) => void;
+	timeout: ReturnType<typeof setTimeout>;
+};
 
 export class FakeServiceWorker {
 	syncToken = 0;
-	promises: Record<number, (val?: MessageR2W) => void> = {};
+	promises = new Map<number, PendingResponse>();
 	messageChannel = new MessageChannel();
 	connected = false;
+	disposed = false;
+	handle: MessagePort;
+	origin: string;
+	scope: string;
+	responseTimeoutMs: number;
 
 	constructor(
-		public handle: MessagePort,
-		public origin: string,
-		public scope: string
+		handle: MessagePort,
+		origin: string,
+		scope: string,
+		responseTimeoutMs = DEFAULT_RESPONSE_TIMEOUT_MS
 	) {
+		this.handle = handle;
+		this.origin = origin;
+		this.scope = scope;
+		this.responseTimeoutMs = responseTimeoutMs;
 		this.messageChannel.port1.addEventListener("message", (event) => {
 			if (
 				typeof event.data === "object" &&
@@ -36,14 +53,51 @@ export class FakeServiceWorker {
 	}
 
 	handleMessage(data: MessageR2W) {
-		const cb = this.promises[data.sherpa$token];
+		if (!Number.isSafeInteger(data.sherpa$token)) return;
+		const cb = this.promises.get(data.sherpa$token);
 		if (cb) {
-			cb(data);
-			delete this.promises[data.sherpa$token];
+			this.promises.delete(data.sherpa$token);
+			clearTimeout(cb.timeout);
+			cb.resolve(data);
+		}
+	}
+
+	dispose() {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.connected = false;
+
+		for (const pending of this.promises.values()) {
+			clearTimeout(pending.timeout);
+			pending.resolve(null);
+		}
+		this.promises.clear();
+
+		this.messageChannel.port1.close();
+		this.handle.close();
+	}
+
+	postMessage(data: unknown, transfer: Transferable[] = []): boolean {
+		if (this.disposed) return false;
+
+		try {
+			this.handle.postMessage(
+				{
+					sherpa$type: "message",
+					sherpa$data: data,
+				} satisfies MessageW2R,
+				transfer
+			);
+
+			return true;
+		} catch {
+			return false;
 		}
 	}
 
 	async fetch(request: Request): Promise<Response | false> {
+		if (this.disposed) return false;
+
 		const token = this.syncToken++;
 		// Transferring a stream detaches it. Transfer a clone so falling through to
 		// the normal transport still has the original request body available.
@@ -58,17 +112,38 @@ export class FakeServiceWorker {
 				headers: Array.from(clonedRequest.headers.entries()),
 				method: clonedRequest.method,
 				mode: clonedRequest.mode,
-				destinitation: clonedRequest.destination,
+				destination: clonedRequest.destination,
+				credentials: clonedRequest.credentials,
+				cache: clonedRequest.cache,
+				redirect: clonedRequest.redirect,
+				referrer: clonedRequest.referrer,
+				referrerPolicy: clonedRequest.referrerPolicy,
+				integrity: clonedRequest.integrity,
+				keepalive: clonedRequest.keepalive,
 			},
 		};
 
-		const response = new Promise<MessageR2W>((resolve) => {
-			this.promises[token] = resolve;
+		const response = new Promise<MessageR2W | null>((resolve) => {
+			const timeout = setTimeout(() => {
+				if (!this.promises.delete(token)) return;
+				resolve(null);
+			}, this.responseTimeoutMs);
+			this.promises.set(token, { resolve, timeout });
 		});
 		const transfer = clonedRequest.body ? [clonedRequest.body] : [];
-		this.handle.postMessage(message, transfer);
+		try {
+			this.handle.postMessage(message, transfer);
+		} catch {
+			const pending = this.promises.get(token);
+			if (pending) clearTimeout(pending.timeout);
+			this.promises.delete(token);
 
-		const { sherpa$response: r } = await response;
+			return false;
+		}
+
+		const result = await response;
+		if (!result) return false;
+		const { sherpa$response: r } = result;
 
 		if (!r) return false;
 		if ("error" in r) {
@@ -81,4 +156,36 @@ export class FakeServiceWorker {
 			statusText: r.statusText,
 		});
 	}
+}
+
+/** Replaces an existing registration for the same virtual origin and scope. */
+export function replaceFakeServiceWorker(
+	workers: FakeServiceWorker[],
+	next: FakeServiceWorker
+): void {
+	const existing = workers.findIndex(
+		(worker) => worker.origin === next.origin && worker.scope === next.scope
+	);
+	if (existing !== -1) {
+		workers[existing].dispose();
+		workers.splice(existing, 1);
+	}
+	workers.push(next);
+}
+
+/** Removes and disposes one exact virtual-origin registration. */
+export function removeFakeServiceWorker(
+	workers: FakeServiceWorker[],
+	origin: string,
+	scope: string
+): boolean {
+	const index = workers.findIndex(
+		(worker) => worker.origin === origin && worker.scope === scope
+	);
+	if (index === -1) return false;
+
+	workers[index].dispose();
+	workers.splice(index, 1);
+
+	return true;
 }

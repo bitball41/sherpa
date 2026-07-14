@@ -21,7 +21,13 @@ else if (self.WASM) wasm_u8 = base64ToBytes(self.WASM);
 
 // only use in sw
 export async function asyncSetWasm() {
-	const buf = await fetch(config.files.wasm).then((r) => r.arrayBuffer());
+	const response = await fetch(config.files.wasm);
+	if (!response.ok) {
+		throw new Error(
+			`failed to fetch rewriter wasm: HTTP ${response.status} ${response.statusText}`
+		);
+	}
+	const buf = await response.arrayBuffer();
 	wasm_u8 = new Uint8Array(buf);
 }
 
@@ -52,7 +58,11 @@ function initWasm() {
 	wasmInitialized = true;
 }
 
-type PooledRewriter = { rewriter: Rewriter; inUse: boolean };
+type PooledRewriter = {
+	rewriter: Rewriter;
+	inUse: boolean;
+	stale: boolean;
+};
 const rewriters: PooledRewriter[] = [];
 let poolConfig = config;
 
@@ -64,7 +74,8 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 	// instances must not survive a runtime configuration update.
 	if (poolConfig !== config) {
 		for (const obj of rewriters) {
-			if (!obj.inUse) obj.rewriter.free();
+			if (obj.inUse) obj.stale = true;
+			else obj.rewriter.free();
 		}
 		rewriters.length = 0;
 		poolConfig = config;
@@ -102,7 +113,7 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 				decode: codecDecode,
 			},
 		});
-		obj = { rewriter, inUse: false };
+		obj = { rewriter, inUse: false, stale: false };
 		rewriters.push(obj);
 	} else {
 		if (flagEnabled("rewriterLogs", meta.base))
@@ -114,5 +125,12 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 	}
 	obj.inUse = true;
 
-	return [obj.rewriter, () => (obj.inUse = false)];
+	return [
+		obj.rewriter,
+		() => {
+			if (!obj.inUse) return;
+			obj.inUse = false;
+			if (obj.stale) obj.rewriter.free();
+		},
+	];
 }

@@ -20,7 +20,7 @@ export class SherpaServiceWorkerRuntime {
 						this.recvport = event.data.sherpa$port;
 						this.recvport.postMessage({ sherpa$type: "init" });
 					} else {
-						handleMessage.call(this, client, event.data);
+						handleMessage.call(this, client, event.data, event.ports);
 					}
 				}
 			});
@@ -71,14 +71,26 @@ export class SherpaServiceWorkerRuntime {
 function handleMessage(
 	this: SherpaServiceWorkerRuntime,
 	client: SherpaClient,
-	data: MessageW2R
+	data: MessageW2R,
+	ports: readonly MessagePort[] = []
 ) {
 	const port = this.recvport;
 	const type = data.sherpa$type;
-	const token = data.sherpa$token;
 	const handlers = client.eventcallbacks.get(self);
 
+	if (type === "message") {
+		const event = new MessageEvent("message", {
+			data: data.sherpa$data,
+			origin: client.url.origin,
+			ports: Array.from(ports),
+		});
+		client.natives.call("EventTarget.prototype.dispatchEvent", self, event);
+
+		return;
+	}
+
 	if (type === "fetch") {
+		const token = data.sherpa$token;
 		dbg.log("ee", data);
 		const fetchhandlers = (handlers || []).filter(
 			(event) => event.event === "fetch"
@@ -103,14 +115,41 @@ function handleMessage(
 			init
 		);
 
-		Object.defineProperty(fakeRequest, "destination", {
-			value: request.destinitation,
-		});
+		for (const [property, value] of Object.entries({
+			destination: request.destination,
+			mode: request.mode,
+			credentials: request.credentials,
+			cache: request.cache,
+			redirect: request.redirect,
+			referrer: request.referrer,
+			referrerPolicy: request.referrerPolicy,
+			integrity: request.integrity,
+			keepalive: request.keepalive,
+		})) {
+			Object.defineProperty(fakeRequest, property, {
+				configurable: true,
+				value,
+			});
+		}
 
 		const fakeFetchEvent: any = new Event("fetch");
-		fakeFetchEvent.request = fakeRequest;
+		Object.assign(fakeFetchEvent, {
+			request: fakeRequest,
+			clientId: "",
+			resultingClientId: "",
+			replacesClientId: "",
+			preloadResponse: Promise.resolve(undefined),
+			isReload: false,
+		});
 		let responsePromise: Promise<Response> | null = null;
+		let dispatching = true;
 		fakeFetchEvent.respondWith = (response: Response | Promise<Response>) => {
+			if (!dispatching) {
+				throw new DOMException(
+					"respondWith() must be called while the fetch event is being dispatched",
+					"InvalidStateError"
+				);
+			}
 			if (responsePromise) {
 				throw new DOMException(
 					"respondWith() has already been called",
@@ -119,14 +158,29 @@ function handleMessage(
 			}
 			responsePromise = Promise.resolve(response);
 		};
+		fakeFetchEvent.waitUntil = (promise: PromiseLike<unknown>) => {
+			if (!dispatching) {
+				throw new DOMException(
+					"waitUntil() must be called while the fetch event is being dispatched",
+					"InvalidStateError"
+				);
+			}
+			void Promise.resolve(promise).catch((error) => {
+				console.error("fake service worker lifetime promise failed", error);
+			});
+		};
 
 		dbg.log("to fn", fakeFetchEvent);
-		for (const handler of fetchhandlers) {
-			try {
-				handler.proxiedCallback(trustEvent(fakeFetchEvent));
-			} catch (error) {
-				console.error("fake service worker fetch handler failed", error);
+		try {
+			for (const handler of fetchhandlers) {
+				try {
+					handler.proxiedCallback(trustEvent(fakeFetchEvent));
+				} catch (error) {
+					console.error("fake service worker fetch handler failed", error);
+				}
 			}
+		} finally {
+			dispatching = false;
 		}
 
 		if (!responsePromise) {
@@ -190,9 +244,16 @@ export type TransferrableResponseError = { error: string };
 export type TransferrableRequest = {
 	body: ReadableStream | null;
 	headers: [string, string][];
-	destinitation: RequestDestination;
+	destination: RequestDestination;
 	method: Request["method"];
 	mode: Request["mode"];
+	credentials: RequestCredentials;
+	cache: RequestCache;
+	redirect: RequestRedirect;
+	referrer: string;
+	referrerPolicy: ReferrerPolicy;
+	integrity: string;
+	keepalive: boolean;
 	url: string;
 };
 
@@ -206,6 +267,11 @@ type FetchRequestMessage = {
 	sherpa$request: TransferrableRequest;
 };
 
+type RuntimeMessage = {
+	sherpa$type: "message";
+	sherpa$data: unknown;
+};
+
 // r2w = runtime to (service) worker
 
 type MessageTypeR2W = FetchResponseMessage;
@@ -217,5 +283,6 @@ type MessageCommon = {
 };
 
 export type MessageR2W = MessageCommon & MessageTypeR2W;
-export type MessageW2R = MessageCommon &
-	MessageTypeW2R & { sherpa$port?: MessagePort };
+export type MessageW2R =
+	| (MessageCommon & MessageTypeW2R & { sherpa$port?: MessagePort })
+	| RuntimeMessage;
