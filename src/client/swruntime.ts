@@ -1,5 +1,6 @@
 import { SherpaClient } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { createTransferredRequestInit } from "@/shared/serviceWorkerRequest";
 
 export class SherpaServiceWorkerRuntime {
 	recvport: MessagePort;
@@ -97,16 +98,7 @@ function handleMessage(
 		);
 		const request = data.sherpa$request;
 		const Request = client.natives.store.Request;
-		const init: RequestInit = {
-			headers: new Headers(request.headers),
-			method: request.method,
-			mode: "same-origin",
-		};
-		if (request.body) {
-			init.body = request.body;
-			// Chromium requires duplex when a RequestInit body is a ReadableStream.
-			(init as RequestInit & { duplex: "half" }).duplex = "half";
-		}
+		const init = createTransferredRequestInit(request);
 
 		// Keep the native request pointed at Sherpa so fetch(event.request) stays
 		// proxied. The Request.url trap exposes the unrewritten URL to site code.
