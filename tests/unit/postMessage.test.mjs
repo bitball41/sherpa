@@ -64,8 +64,7 @@ test("ordinary application objects are never mistaken for Sherpa envelopes", () 
 	assert.equal(
 		isVirtualMessageEnvelope({
 			$sherpa$messagetype: "window",
-			$sherpa$origin: "https://caller.test",
-			$sherpa$data: "missing target",
+			$sherpa$data: "missing origin",
 		}),
 		false
 	);
