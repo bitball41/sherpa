@@ -270,7 +270,7 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				"User-Agent": self.navigator.userAgent,
 				Origin: client.url.origin,
 			});
-			closeWebSocketOnAbort(options.signal, () => {
+			const cleanupAbort = closeWebSocketOnAbort(options.signal, () => {
 				barews.close(1000, "");
 			});
 			let openResolver, closeResolver;
@@ -328,10 +328,12 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				});
 			});
 			barews.addEventListener("close", (ev: CloseEvent) => {
+				cleanupAbort?.();
 				closeResolver({ code: ev.code, reason: ev.reason });
 			});
 
 			barews.addEventListener("error", (ev: Event) => {
+				cleanupAbort?.();
 				openRejector(ev);
 			});
 
