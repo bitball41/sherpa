@@ -39,12 +39,13 @@ export default function (client: SherpaClient) {
 				// invoking stolen function will give us the caller's globalThis, remember sherpa has already proxied it!!!
 				const callerGlobalThisProxied: Self = Function("return globalThis")();
 				const callerClient = callerGlobalThisProxied[SHERPACLIENT];
+				const callerUrl = callerClient?.url ?? client.url;
 				const targetOptions = ctx.args[1];
 				const usesOptions =
 					typeof targetOptions === "object" && targetOptions !== null;
 				const targetOrigin = normalizePostMessageTargetOrigin(
 					usesOptions ? targetOptions.targetOrigin : targetOptions,
-					callerClient.url
+					callerUrl
 				);
 
 				// this WOULD be enough but the source argument of MessageEvent has to return the caller's window
@@ -54,7 +55,7 @@ export default function (client: SherpaClient) {
 
 				ctx.args[0] = {
 					$sherpa$messagetype: "window",
-					$sherpa$origin: callerClient.url.origin,
+					$sherpa$origin: callerUrl.origin,
 					$sherpa$targetOrigin: targetOrigin,
 					$sherpa$data: ctx.args[0],
 				};
