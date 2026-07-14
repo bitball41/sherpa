@@ -1,8 +1,11 @@
-export type WindowMessageEnvelope = {
+export type LegacyWindowMessageEnvelope = {
 	$sherpa$messagetype: "window";
 	$sherpa$origin: string;
-	$sherpa$targetOrigin: string;
 	$sherpa$data: unknown;
+};
+
+export type WindowMessageEnvelope = LegacyWindowMessageEnvelope & {
+	$sherpa$targetOrigin: string;
 };
 
 export type WorkerMessageEnvelope = {
@@ -11,6 +14,7 @@ export type WorkerMessageEnvelope = {
 };
 
 export type VirtualMessageEnvelope =
+	| LegacyWindowMessageEnvelope
 	| WindowMessageEnvelope
 	| WorkerMessageEnvelope;
 
@@ -18,19 +22,27 @@ function hasOwn(value: object, key: PropertyKey): boolean {
 	return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+export function isLegacyWindowMessageEnvelope(
+	value: unknown
+): value is LegacyWindowMessageEnvelope {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		(value as Partial<LegacyWindowMessageEnvelope>).$sherpa$messagetype ===
+			"window" &&
+		typeof (value as Partial<LegacyWindowMessageEnvelope>).$sherpa$origin ===
+			"string" &&
+		hasOwn(value, "$sherpa$data")
+	);
+}
+
 export function isWindowMessageEnvelope(
 	value: unknown
 ): value is WindowMessageEnvelope {
 	return (
-		typeof value === "object" &&
-		value !== null &&
-		(value as Partial<WindowMessageEnvelope>).$sherpa$messagetype ===
-			"window" &&
-		typeof (value as Partial<WindowMessageEnvelope>).$sherpa$origin ===
-			"string" &&
+		isLegacyWindowMessageEnvelope(value) &&
 		typeof (value as Partial<WindowMessageEnvelope>).$sherpa$targetOrigin ===
-			"string" &&
-		hasOwn(value, "$sherpa$data")
+			"string"
 	);
 }
 
@@ -49,7 +61,9 @@ export function isWorkerMessageEnvelope(
 export function isVirtualMessageEnvelope(
 	value: unknown
 ): value is VirtualMessageEnvelope {
-	return isWindowMessageEnvelope(value) || isWorkerMessageEnvelope(value);
+	return (
+		isLegacyWindowMessageEnvelope(value) || isWorkerMessageEnvelope(value)
+	);
 }
 
 /**
@@ -67,7 +81,9 @@ export function normalizePostMessageTargetOrigin(
 	try {
 		serialized = `${value}`;
 	} catch {
-		throw new TypeError("postMessage targetOrigin could not be converted to a string");
+		throw new TypeError(
+			"postMessage targetOrigin could not be converted to a string"
+		);
 	}
 	if (serialized === "*") return serialized;
 
