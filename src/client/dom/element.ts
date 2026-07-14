@@ -5,21 +5,13 @@ import { rewriteJs } from "@rewriters/js";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
+import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
-function bytesToBase64(bytes: Uint8Array) {
-	const binString = Array.from(bytes, (byte) =>
-		String.fromCodePoint(byte)
-	).join("");
-
-	return btoa(binString);
-}
 function base64ToString(value: string): string {
-	return decoder.decode(
-		Uint8Array.from(atob(value), (char) => char.charCodeAt(0))
-	);
+	return decoder.decode(base64ToBytes(value));
 }
 export default function (client: SherpaClient, self: typeof window) {
 	const attrObject = {
