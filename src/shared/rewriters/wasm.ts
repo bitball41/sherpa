@@ -1,9 +1,37 @@
 // i am a cat. i like to be petted. i like to be fed. i like to be
-import { initSync, Rewriter } from "../../../rewriter/wasm/out/wasm.js";
-import type { JsRewriterOutput } from "../../../rewriter/wasm/out/wasm.js";
+import {
+	initSync,
+	Rewriter as WasmRewriter,
+} from "../../../rewriter/wasm/out/wasm.js";
 import { codecDecode, codecEncode, config, flagEnabled } from "@/shared";
 
-export type { JsRewriterOutput, Rewriter };
+/**
+ * Public, package-contained view of the wasm-bindgen rewrite result.
+ * Keep this structural so declarations never reference build-only glue files.
+ */
+export type JsRewriterOutput = {
+	js: Uint8Array;
+	map: Uint8Array;
+	scramtag: string;
+	errors: string[];
+};
+
+/** Public structural view of the runtime WASM rewriter. */
+export interface Rewriter {
+	free(): void;
+	rewrite_js(
+		js: string,
+		base: string,
+		url: string,
+		module: boolean
+	): JsRewriterOutput;
+	rewrite_js_bytes(
+		js: Uint8Array,
+		base: string,
+		url: string,
+		module: boolean
+	): JsRewriterOutput;
+}
 
 import { rewriteUrl, URLMeta } from "@rewriters/url";
 import { htmlRules } from "@/shared/htmlRules";
@@ -89,7 +117,7 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 		if (flagEnabled("rewriterLogs", meta.base))
 			console.log(`creating new rewriter, ${len} rewriters made already`);
 
-		const rewriter = new Rewriter({
+		const rewriter = new WasmRewriter({
 			config,
 			shared: {
 				rewrite: {
