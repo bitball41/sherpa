@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	isLegacyWindowMessageEnvelope,
 	isVirtualMessageEnvelope,
 	isWindowMessageEnvelope,
 	normalizePostMessageTargetOrigin,
@@ -75,4 +76,17 @@ test("ordinary application objects are never mistaken for Sherpa envelopes", () 
 		}),
 		true
 	);
+});
+
+
+test("legacy window envelopes remain readable during update races", () => {
+	const legacy = {
+		$sherpa$messagetype: "window",
+		$sherpa$origin: "https://caller.test",
+		$sherpa$data: "legacy",
+	};
+
+	assert.equal(isLegacyWindowMessageEnvelope(legacy), true);
+	assert.equal(isWindowMessageEnvelope(legacy), false);
+	assert.equal(isVirtualMessageEnvelope(legacy), true);
 });
