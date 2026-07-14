@@ -20,7 +20,8 @@ merge_versions() {
 	local output_manifest="$output_dir/.typedoc-plugin-versions"
 	local history_manifest="$history_dir/.typedoc-plugin-versions"
 
-	[[ -f "$output_manifest" ]] || return
+	# No manifest to merge is a normal skip, not a failure under `set -e`.
+	[[ -f "$output_manifest" ]] || return 0
 
 	local existing_versions=""
 	if [[ -f "$history_manifest" ]]; then

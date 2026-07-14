@@ -70,6 +70,24 @@ test("virtual client URLs are derived from Client.url", () => {
 	assert.equal(getClientIdentity({ id: "", url: proxyOrigin }), null);
 });
 
+test("virtual client URLs reject non-http(s) protocols", () => {
+	for (const encoded of [
+		"blob:https://example.com/uuid",
+		"data:text/html,evil",
+		encodeURIComponent("javascript:alert(1)"),
+	]) {
+		assert.equal(
+			getVirtualClientUrl(
+				{ id: "page", url: `${proxyOrigin}${prefix}${encoded}` },
+				proxyOrigin,
+				prefix,
+				decode
+			),
+			null
+		);
+	}
+});
+
 test("service worker scopes remain path-only and same-origin", () => {
 	assert.equal(
 		normalizeVirtualScope("/app/../assets/", "https://example.com"),

@@ -4,7 +4,12 @@ set -euo pipefail
 DST=${DST:-staticbuild}
 
 rm -rf "$DST"
-mkdir -p 	"$DST/baremux" 	"$DST/epoxy" 	"$DST/libcurl" 	"$DST/assets" 	"$DST/scram"
+mkdir -p \
+	"$DST/baremux" \
+	"$DST/epoxy" \
+	"$DST/libcurl" \
+	"$DST/assets" \
+	"$DST/scram"
 
 cp -a node_modules/@mercuryworkshop/bare-mux/dist/. "$DST/baremux/"
 cp -a node_modules/@mercuryworkshop/epoxy-transport/dist/. "$DST/epoxy/"
@@ -22,5 +27,6 @@ if [[ -d _docs-dev ]]; then
 	cp -a _docs-dev/. "$DST/typedoc-dev/"
 fi
 
-printf 'let _CONFIG = %s' 	"$(jq -c -n '{"wispurl": "wss://anura.pro/", "bareurl": "https://aluu.xyz/bare/"}')" 	> "$DST/config.js"
-
+printf 'let _CONFIG = %s' \
+	"$(jq -c -n '{"wispurl": "wss://anura.pro/", "bareurl": "https://aluu.xyz/bare/"}')" \
+	> "$DST/config.js"

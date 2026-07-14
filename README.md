@@ -203,6 +203,15 @@ pnpm dev
 
 Sherpa runs at <http://localhost:1337> and rebuilds on file changes (excluding the rewriter).
 
+By default the dev server binds to loopback (`127.0.0.1`) and blocks proxying to
+loopback/private hosts. To reach it from another device, or to proxy
+private-network targets, set `HOST=0.0.0.0` (or a specific interface) and, if you
+need private-network access on a non-loopback bind, `ALLOW_PRIVATE_NETWORKS=1`:
+
+```sh
+HOST=0.0.0.0 ALLOW_PRIVATE_NETWORKS=1 pnpm dev
+```
+
 ### Setting up Typedoc
 
 Typedoc generation is inherited from upstream. There are two builds: user-facing (`/typedoc`) and developer-facing (`/typedoc-dev`). Run locally with:

@@ -82,6 +82,9 @@ export function getVirtualClientUrl(
 		return null;
 
 	try {
+		// This mirrors decodeProxyUrl but stays dependency-free on purpose: the
+		// unit-test harness imports this module's raw .ts and cannot resolve the
+		// "@/" path alias, so the trust boundary must not import shared code.
 		const encoded = identity.url.slice(proxyPrefix.length);
 		if (/^(?:blob|data):/i.test(encoded)) return null;
 
