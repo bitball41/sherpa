@@ -7,6 +7,7 @@
 import test from "ava";
 import { glob } from "glob";
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 
@@ -36,6 +37,7 @@ const EXPECTED_DIST_FILES = [
 const EXPECTED_TYPE_FILES = [
 	"dist/types/**/*.d.ts",
 	"dist/types/index.d.ts",
+	"dist/types/global.d.ts",
 	"lib/index.d.ts",
 ];
 
@@ -144,5 +146,55 @@ test("Every declared package export exists", (t) => {
 		missingExports,
 		[],
 		`Missing package export targets: ${missingExports.join(", ")}`
+	);
+});
+
+
+function relativeTypeReferenceCandidates(file, specifier) {
+	const base = resolve(dirname(file), specifier);
+	const extension = extname(base);
+	const candidates = [
+		base,
+		`${base}.ts`,
+		`${base}.d.ts`,
+		join(base, "index.d.ts"),
+	];
+	if ([".js", ".mjs", ".cjs"].includes(extension)) {
+		candidates.push(`${base.slice(0, -extension.length)}.d.ts`);
+	}
+
+	return candidates;
+}
+
+test("Every relative declaration reference resolves inside the package", async (t) => {
+	const declarationFiles = await glob("dist/types/**/*.d.ts");
+	const missingReferences = [];
+	const patterns = [
+		/(?:\bfrom\s+|\bimport\s*)["'](\.[^"']+)["']/g,
+		/\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+		/<reference\s+path=["'](\.[^"']+)["']/g,
+	];
+
+	for (const file of declarationFiles) {
+		const source = readFileSync(file, "utf8");
+		const specifiers = new Set();
+		for (const pattern of patterns) {
+			for (const match of source.matchAll(pattern)) specifiers.add(match[1]);
+		}
+		for (const specifier of specifiers) {
+			if (
+				!relativeTypeReferenceCandidates(file, specifier).some((candidate) =>
+					existsSync(candidate)
+				)
+			) {
+				missingReferences.push(`${file} -> ${specifier}`);
+			}
+		}
+	}
+
+	t.deepEqual(
+		missingReferences,
+		[],
+		`Unresolved declaration references: ${missingReferences.join(", ")}`
 	);
 });
