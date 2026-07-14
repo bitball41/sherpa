@@ -90,4 +90,14 @@ test("WebSocketStream abort handling covers pre-aborted and future signals", () 
 	future.abort();
 	future.abort();
 	assert.equal(futureCloses, 1);
+
+	const cleanedUp = new AbortController();
+	let cleanedUpCloses = 0;
+	const cleanup = closeWebSocketOnAbort(
+		cleanedUp.signal,
+		() => cleanedUpCloses++
+	);
+	cleanup();
+	cleanedUp.abort();
+	assert.equal(cleanedUpCloses, 0);
 });
