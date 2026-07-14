@@ -46,6 +46,27 @@ export function decodeProxyUrl(
 }
 
 /**
+ * Resolves an HTML <base href> against the document's fallback base URL.
+ * Relative bases are directory-relative to the response URL, not origin-rooted.
+ */
+export function resolveBaseHref(href: string, fallbackBase: URL): URL | null {
+	try {
+		return new URL(href, fallbackBase);
+	} catch {
+		return null;
+	}
+}
+
+export function appendUrlParamEntries(
+	url: URL,
+	params: Iterable<readonly [string, string]>
+): void {
+	for (const [name, value] of params) {
+		url.searchParams.append(name, value);
+	}
+}
+
+/**
  * Adds Sherpa's internal query parameters before a URL fragment. Concatenating
  * `?dest=...` directly put the parameter inside `#fragment`, where service
  * workers cannot see it.
