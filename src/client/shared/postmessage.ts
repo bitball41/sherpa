@@ -2,6 +2,7 @@ import { iswindow } from "@client/entry";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { POLLUTANT } from "@client/shared/realm";
+import { normalizePostMessageTargetOrigin } from "@/shared/postMessage";
 
 export default function (client: SherpaClient) {
 	if (iswindow)
@@ -38,6 +39,13 @@ export default function (client: SherpaClient) {
 				// invoking stolen function will give us the caller's globalThis, remember sherpa has already proxied it!!!
 				const callerGlobalThisProxied: Self = Function("return globalThis")();
 				const callerClient = callerGlobalThisProxied[SHERPACLIENT];
+				const targetOptions = ctx.args[1];
+				const usesOptions =
+					typeof targetOptions === "object" && targetOptions !== null;
+				const targetOrigin = normalizePostMessageTargetOrigin(
+					usesOptions ? targetOptions.targetOrigin : targetOptions,
+					callerClient.url
+				);
 
 				// this WOULD be enough but the source argument of MessageEvent has to return the caller's window
 				// and if we just call it normally it would be coming from here, which WILL NOT BE THE CALLER'S because the accessor is from the parent
@@ -47,12 +55,21 @@ export default function (client: SherpaClient) {
 				ctx.args[0] = {
 					$sherpa$messagetype: "window",
 					$sherpa$origin: callerClient.url.origin,
+					$sherpa$targetOrigin: targetOrigin,
 					$sherpa$data: ctx.args[0],
 				};
 
-				// * origin because obviously
-				if (typeof ctx.args[1] === "string") ctx.args[1] = "*";
-				if (typeof ctx.args[1] === "object") ctx.args[1].targetOrigin = "*";
+				// Every virtual origin shares the physical proxy origin. Widen only
+				// the physical delivery, then enforce the original virtual target in
+				// the receiving realm before any application listener is invoked.
+				if (usesOptions) {
+					ctx.args[1] = {
+						targetOrigin: "*",
+						transfer: targetOptions.transfer,
+					};
+				} else {
+					ctx.args[1] = "*";
+				}
 
 				ctx.return(wrappedPostMessage.call(ctx.fn, ...ctx.args));
 			},
