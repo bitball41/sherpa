@@ -36,7 +36,11 @@ import {
 	isRedirectStatus,
 	normalizeHtmlContentType,
 } from "@/worker/response";
-import { appendUrlParamEntries, extractUrlParams } from "@/shared/urlCodec";
+import {
+	appendUrlParamEntries,
+	appendUrlParams,
+	extractUrlParams,
+} from "@/shared/urlCodec";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -587,9 +591,10 @@ async function handleResponse(
 
 		// ensure that ?type=module is not lost in a redirect
 		if (scriptType) {
-			const url = new URL(responseHeaders["location"]);
-			url.searchParams.set("type", scriptType);
-			responseHeaders["location"] = url.href;
+			responseHeaders["location"] = appendUrlParams(
+				responseHeaders["location"],
+				{ type: scriptType }
+			);
 		}
 	}
 
