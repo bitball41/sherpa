@@ -134,6 +134,7 @@ server.listen(port, host, () => {
 
 function close() {
 	server.close(() => process.exit(0));
+	server.closeAllConnections();
 }
 
 process.on("SIGINT", close);
