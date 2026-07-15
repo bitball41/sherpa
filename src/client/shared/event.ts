@@ -4,6 +4,7 @@ import type { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
+import { withCurrentEvent } from "@/shared/currentEvent";
 
 export default function (client: SherpaClient, self: Self) {
 	const handlers = {
@@ -144,18 +145,9 @@ export default function (client: SherpaClient, self: Self) {
 					}
 				}
 
-				if (!self.event) {
-					Object.defineProperty(self, "event", {
-						get() {
-							return args[0];
-						},
-						configurable: true,
-					});
-				}
-
-				const rv = Reflect.apply(target, that, args);
-
-				return rv;
+				return withCurrentEvent(self, args[0], () =>
+					Reflect.apply(target, that, args)
+				);
 			},
 			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
 		});
