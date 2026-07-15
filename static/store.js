@@ -14,8 +14,15 @@ const store = $store(
 				location.host +
 				"/bare/",
 		proxy: "",
-		transport: "/epoxy/index.mjs",
+		transport: _CONFIG?.transport || "/epoxy/index.mjs",
 	},
 	{ ident: "settings", backing: "localstorage", autosave: "auto" }
 );
 self.store = store;
+
+function sherpaTransportOptions(transport) {
+	return transport === "/baremod/index.mjs"
+		? [store.bareurl]
+		: [{ wisp: store.wispurl }];
+}
+self.sherpaTransportOptions = sherpaTransportOptions;
