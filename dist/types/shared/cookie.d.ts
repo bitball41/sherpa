@@ -5,14 +5,21 @@ export type Cookie = {
     expires?: string;
     maxAge?: number;
     domain?: string;
+    hostOnly?: boolean;
     secure?: boolean;
     httpOnly?: boolean;
     sameSite?: "strict" | "lax" | "none";
 };
+export type CookieAccessContext = {
+    sameSite: boolean;
+    topLevelNavigation: boolean;
+    method: string;
+};
 export declare class CookieStore {
     private cookies;
-    setCookies(cookies: string[], url: URL): void;
-    getCookies(url: URL, fromJs: boolean): string;
-    load(cookies: string): null;
+    private cookieId;
+    setCookies(cookies: string[], url: URL, fromJs?: boolean): void;
+    getCookies(url: URL, fromJs: boolean, context?: CookieAccessContext): string;
+    load(cookies: string | Record<string, Cookie>): void;
     dump(): string;
 }

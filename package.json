@@ -11,7 +11,7 @@
 	},
 	"scripts": {
 		"build": "rspack build --mode production",
-		"build:types": "rslib build && rm -rf dist/temp",
+		"build:types": "rslib build && node scripts/finalize-types.mjs",
 		"build:all": "npm run build && npm run build:types",
 		"rewriter:build": "cd rewriter/wasm/ && bash build.sh && cd ../../",
 		"dev": "node server.js",
@@ -30,7 +30,7 @@
 		"test:integration": "npx playwright test",
 		"docs": "typedoc",
 		"docs:dev": "typedoc --options typedoc.dev-facing.json",
-		"docs:serve": "typedoc --watch & npx serve _docs"
+		"docs:serve": "node scripts/serve-docs.mjs"
 	},
 	"exports": {
 		".": {

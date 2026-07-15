@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	closeWebSocketOnAbort,
 	normalizeWebSocketCloseArguments,
 	normalizeWebSocketProtocols,
 	resolveWebSocketUrl,
@@ -72,4 +73,31 @@ test("close argument validation rejects reserved codes and oversized reasons", (
 		() => normalizeWebSocketCloseArguments(3000, "🙂".repeat(31), true, true),
 		(error) => error?.name === "SyntaxError"
 	);
+});
+
+
+test("WebSocketStream abort handling covers pre-aborted and future signals", () => {
+	const preAborted = new AbortController();
+	preAborted.abort();
+	let preAbortedCloses = 0;
+	closeWebSocketOnAbort(preAborted.signal, () => preAbortedCloses++);
+	assert.equal(preAbortedCloses, 1);
+
+	const future = new AbortController();
+	let futureCloses = 0;
+	closeWebSocketOnAbort(future.signal, () => futureCloses++);
+	assert.equal(futureCloses, 0);
+	future.abort();
+	future.abort();
+	assert.equal(futureCloses, 1);
+
+	const cleanedUp = new AbortController();
+	let cleanedUpCloses = 0;
+	const cleanup = closeWebSocketOnAbort(
+		cleanedUp.signal,
+		() => cleanedUpCloses++
+	);
+	cleanup();
+	cleanedUp.abort();
+	assert.equal(cleanedUpCloses, 0);
 });

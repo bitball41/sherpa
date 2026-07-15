@@ -71,21 +71,102 @@ export function appendUrlParamEntries(
  * `?dest=...` directly put the parameter inside `#fragment`, where service
  * workers cannot see it.
  */
+const INTERNAL_METADATA_PARAM = "dest";
+const INTERNAL_METADATA_PREFIX = "__sherpa_meta_v1__";
+
+export type ExtractedUrlParams = {
+	url: string;
+	params: Record<string, string> | null;
+};
+
+/**
+ * Adds a marked Sherpa metadata suffix before the fragment. Individual legacy
+ * parameters remain after the marker so an older worker can still understand
+ * the URL during a service-worker update race.
+ */
 export function appendUrlParams(
 	url: string,
 	params: Record<string, string | undefined>
 ): string {
+	const entries = Object.entries(params).filter(
+		(entry): entry is [string, string] => entry[1] !== undefined
+	);
+	if (entries.length === 0) return url;
+
 	const hashIndex = url.indexOf("#");
 	const head = hashIndex === -1 ? url : url.slice(0, hashIndex);
 	const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
 	const serialized = new URLSearchParams();
+	serialized.set(
+		INTERNAL_METADATA_PARAM,
+		INTERNAL_METADATA_PREFIX + JSON.stringify(entries)
+	);
+	for (const [name, value] of entries) serialized.append(name, value);
 
-	for (const [key, value] of Object.entries(params)) {
-		if (value !== undefined) serialized.set(key, value);
+	return `${head}${head.includes("?") ? "&" : "?"}${serialized}${hash}`;
+}
+
+/**
+ * Removes only Sherpa's marked suffix, preserving every byte of the encoded
+ * target URL before it. This prevents target query names such as `type`,
+ * `scope`, or `from` from becoming internal controls under custom codecs.
+ */
+export function extractUrlParams(url: string): ExtractedUrlParams {
+	const hashIndex = url.indexOf("#");
+	const head = hashIndex === -1 ? url : url.slice(0, hashIndex);
+	const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
+	const marker = `${INTERNAL_METADATA_PARAM}=${INTERNAL_METADATA_PREFIX}`;
+	const questionMarker = `?${marker}`;
+	const ampersandMarker = `&${marker}`;
+	const markerIndex = Math.max(
+		head.lastIndexOf(questionMarker),
+		head.lastIndexOf(ampersandMarker)
+	);
+	if (markerIndex === -1) return { url, params: null };
+
+	const suffix = head.slice(markerIndex + 1);
+	const suffixParams = new URLSearchParams(suffix);
+	const metadata = suffixParams.get(INTERNAL_METADATA_PARAM);
+	if (metadata === null || !metadata.startsWith(INTERNAL_METADATA_PREFIX))
+		return { url, params: null };
+	const encoded = metadata.slice(INTERNAL_METADATA_PREFIX.length);
+
+	try {
+		const entries: unknown = JSON.parse(encoded);
+		if (!Array.isArray(entries)) return { url, params: null };
+		const params = Object.create(null) as Record<string, string>;
+		const parsedEntries: [string, string][] = [];
+		for (const entry of entries) {
+			if (
+				!Array.isArray(entry) ||
+				entry.length !== 2 ||
+				typeof entry[0] !== "string" ||
+				typeof entry[1] !== "string"
+			) {
+				return { url, params: null };
+			}
+			params[entry[0]] = entry[1];
+			parsedEntries.push([entry[0], entry[1]]);
+		}
+
+		// A new Sherpa sender writes the same entries after the marker for
+		// older workers. Requiring that exact suffix prevents an old-client
+		// request from treating a target-owned lookalike parameter as metadata.
+		const suffixEntries = [...suffixParams.entries()];
+		if (
+			suffixEntries.length !== parsedEntries.length + 1 ||
+			suffixEntries[0]?.[0] !== INTERNAL_METADATA_PARAM ||
+			suffixEntries[0]?.[1] !== metadata ||
+			parsedEntries.some(([name, value], index) => {
+				const suffixEntry = suffixEntries[index + 1];
+				return suffixEntry?.[0] !== name || suffixEntry?.[1] !== value;
+			})
+		) {
+			return { url, params: null };
+		}
+
+		return { url: head.slice(0, markerIndex) + hash, params };
+	} catch {
+		return { url, params: null };
 	}
-
-	const query = serialized.toString();
-	if (!query) return url;
-
-	return `${head}${head.includes("?") ? "&" : "?"}${query}${hash}`;
 }

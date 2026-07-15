@@ -4,15 +4,28 @@ import type { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
+import {
+	isLegacyWindowMessageEnvelope,
+	isVirtualMessageEnvelope,
+	isWindowMessageEnvelope,
+	shouldDeliverWindowMessage,
+} from "@/shared/postMessage";
 
 export default function (client: SherpaClient, self: Self) {
 	const handlers = {
 		message: {
 			_init() {
+				const data = this.data;
 				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					("$sherpa$type" in this.data || "sherpa$type" in this.data)
+					isWindowMessageEnvelope(data) &&
+					!shouldDeliverWindowMessage(data, client.url.origin)
+				) {
+					return false;
+				}
+				if (
+					typeof data === "object" &&
+					data !== null &&
+					("$sherpa$type" in data || "sherpa$type" in data)
 				) {
 					// this is a ctl message
 					return false;
@@ -34,21 +47,15 @@ export default function (client: SherpaClient, self: Self) {
 				return this.source;
 			},
 			origin() {
-				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					"$sherpa$origin" in this.data
-				)
+				if (isLegacyWindowMessageEnvelope(this.data))
 					return this.data.$sherpa$origin;
 
-				return client.url.origin;
+				// Worker, MessagePort, and BroadcastChannel messages normally have an
+				// empty native origin; do not fabricate the document origin for them.
+				return this.origin;
 			},
 			data() {
-				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					"$sherpa$data" in this.data
-				)
+				if (isVirtualMessageEnvelope(this.data))
 					return this.data.$sherpa$data;
 
 				return this.data;
@@ -102,7 +109,10 @@ export default function (client: SherpaClient, self: Self) {
 		};
 	}
 
-	function wraplistener(listener: (...args: any) => any) {
+	function wraplistener(
+		listener: (...args: any) => any,
+		onAccepted?: () => void
+	) {
 		return new Proxy(listener, {
 			apply(target, that, args) {
 				const realEvent: Event = args[0];
@@ -153,9 +163,9 @@ export default function (client: SherpaClient, self: Self) {
 					});
 				}
 
-				const rv = Reflect.apply(target, that, args);
+				onAccepted?.();
 
-				return rv;
+				return Reflect.apply(target, that, args);
 			},
 			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
 		});
@@ -184,22 +194,32 @@ export default function (client: SherpaClient, self: Self) {
 			) {
 				return ctx.return(undefined);
 			}
-			let proxylistener = wraplistener(listenerFunction);
+			let proxylistener: (...args: any[]) => any;
+			const removeOnce = once
+				? () => {
+						const callbacks = client.eventcallbacks.get(ctx.this);
+						const index = callbacks?.findIndex(
+							(entry) => entry.proxiedCallback === proxylistener
+						);
+						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+
+						// The physical listener cannot use native `once`: a message for
+						// another virtual origin would consume it before Sherpa filters it.
+						Reflect.apply(
+							self.EventTarget.prototype.removeEventListener,
+							ctx.this,
+							[ctx.args[0], proxylistener, capture]
+						);
+					}
+				: undefined;
+			proxylistener = wraplistener(listenerFunction, removeOnce);
 			if (once) {
-				const wrapped = proxylistener;
-				proxylistener = new Proxy(wrapped, {
-					apply(target, that, args) {
-						try {
-							return Reflect.apply(target, that, args);
-						} finally {
-							const callbacks = client.eventcallbacks.get(ctx.this);
-							const index = callbacks?.findIndex(
-								(entry) => entry.proxiedCallback === proxylistener
-							);
-							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
-						}
-					},
-				});
+				ctx.args[2] = {
+					capture,
+					once: false,
+					passive: Boolean(options?.passive),
+					signal,
+				};
 			}
 
 			ctx.args[1] = proxylistener;

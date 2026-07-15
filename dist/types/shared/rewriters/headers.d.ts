@@ -12,7 +12,7 @@ interface StoredReferrerPolicies {
  * @param rawHeaders Headers before they were rewritten
  * @param meta Parsed Proxy URL
  * @param client `BareClient` instance used for fetching
- * @param isNavigationRequest Whether the request is a navigation request
+ * @param storedReferrerPolicies Referrer policies remembered for proxied origins
  */
-export declare function rewriteHeaders(rawHeaders: BareHeaders, meta: URLMeta, client: BareClient, storedReferrerPolicies: StoredReferrerPolicies): Promise<{}>;
+export declare function rewriteHeaders(rawHeaders: BareHeaders, meta: URLMeta, client: BareClient, storedReferrerPolicies: StoredReferrerPolicies): Promise<BareHeaders>;
 export {};

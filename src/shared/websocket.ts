@@ -97,3 +97,20 @@ export function normalizeWebSocketCloseArguments(
 
 	return { code, reason };
 }
+
+
+/** Close a WebSocketStream for both pre-aborted and future AbortSignals. */
+export function closeWebSocketOnAbort(
+	signal: AbortSignal | undefined,
+	close: () => void
+): (() => void) | undefined {
+	if (!signal) return;
+	if (signal.aborted) {
+		close();
+
+		return;
+	}
+	signal.addEventListener("abort", close, { once: true });
+
+	return () => signal.removeEventListener("abort", close);
+}

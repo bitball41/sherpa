@@ -5,6 +5,8 @@ import { SherpaGlobalEvents } from "../client/events";
 export declare class SherpaController extends EventTarget {
     #private;
     private db;
+    private listeningForWorkerMessages;
+    private readonly handleWorkerMessage;
     constructor(config: Partial<SherpaInitConfig>);
     init(): Promise<void>;
     createFrame(frame?: HTMLIFrameElement): SherpaFrame;
@@ -12,7 +14,7 @@ export declare class SherpaController extends EventTarget {
     decodeUrl(url: string | URL): string;
     /**
      * A URL that renders a live preview of Sherpa's error page using your
-     * current {@link SherpaErrorPageConfig | `errorPage`} theme, with a sample
+     * current `errorPage` theme, with a sample
      * trace filled in. Point a frame (or any navigation) at it to see your
      * customization without having to trigger a real fetch failure.
      *
