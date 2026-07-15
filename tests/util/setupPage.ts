@@ -1,4 +1,3 @@
-/* eslint-disable no-async-promise-executor */
 import { expect, FrameLocator, Page } from "@playwright/test";
 import { registerInspect } from "./inspectConsole";
 
@@ -21,7 +20,15 @@ export async function setupPage(
 	await expect(bar).toBeVisible();
 
 	await bar.fill(url);
+	const proxiedPrefix = new URL("/sherpa/", page.url()).href;
+	const navigation = page.waitForEvent("framenavigated", {
+		predicate: (navigatedFrame) =>
+			navigatedFrame.parentFrame() === page.mainFrame() &&
+			navigatedFrame.url().startsWith(proxiedPrefix),
+		timeout: 30_000,
+	});
 	await bar.press("Enter");
+	await navigation;
 
 	return frame;
 }
