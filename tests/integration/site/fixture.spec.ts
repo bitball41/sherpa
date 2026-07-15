@@ -51,6 +51,7 @@ test.describe("deterministic proxy fixture", () => {
 			"#contents > ytd-video-renderer:nth-child(1) > #dismissible > ytd-thumbnail > a > yt-image > img"
 		);
 		await expect(thumbnail).toBeVisible();
+		await expect(thumbnail).toHaveJSProperty("naturalWidth", 160);
 		expect(await thumbnail.getAttribute("src")).not.toBeNull();
 	});
 });
