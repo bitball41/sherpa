@@ -31,7 +31,7 @@ test.describe("YouTube (live)", () => {
 		const title = await frame
 			.locator("#video-title > yt-formatted-string")
 			.first()
-			.textContent({ timeout: 5000 });
+			.textContent();
 		const thumbnailRef = frame.locator(
 			"#contents > ytd-video-renderer:nth-child(1) > #dismissible > ytd-thumbnail > a > yt-image > img"
 		);
