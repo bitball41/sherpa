@@ -14,18 +14,20 @@ const sherpa = new SherpaController({
 	},
 });
 
-sherpa.init();
-navigator.serviceWorker.register("./sw.js");
-
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+const runtimeReady = Promise.all([
+	sherpa.init(),
+	navigator.serviceWorker
+		.register("./sw.js")
+		.then(() => navigator.serviceWorker.ready),
+	connection.setTransport(store.transport, [{ wisp: store.wispurl }]),
+]);
 const flex = css`
 	display: flex;
 `;
 const col = css`
 	flex-direction: column;
 `;
-
-connection.setTransport(store.transport, [{ wisp: store.wispurl }]);
 
 function Config() {
 	this.css = `
@@ -195,7 +197,8 @@ function BrowserApp() {
 
 	const frame = sherpa.createFrame();
 
-	this.mount = () => {
+	this.mount = async () => {
+		await runtimeReady;
 		let body = btoa(
 			`<body style="background: #000; color: #fff">Welcome to <i>Sherpa</i>! Type in a URL in the omnibox above and press enter to get started.</body>`
 		);
@@ -207,7 +210,8 @@ function BrowserApp() {
 		this.url = e.url;
 	});
 
-	const handleSubmit = () => {
+	const handleSubmit = async () => {
+		await runtimeReady;
 		this.url = this.url.trim();
 		//  frame.go(this.url)
 		if (!this.url.startsWith("http")) {
