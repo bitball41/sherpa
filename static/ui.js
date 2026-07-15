@@ -20,7 +20,7 @@ const runtimeReady = Promise.all([
 	navigator.serviceWorker
 		.register("./sw.js")
 		.then(() => navigator.serviceWorker.ready),
-	connection.setTransport(store.transport, [{ wisp: store.wispurl }]),
+	connection.setTransport(store.transport, sherpaTransportOptions(store.transport)),
 ]);
 const flex = css`
 	display: flex;
