@@ -109,7 +109,10 @@ export default function (client: SherpaClient, self: Self) {
 		};
 	}
 
-	function wraplistener(listener: (...args: any) => any) {
+	function wraplistener(
+		listener: (...args: any) => any,
+		onAccepted?: () => void
+	) {
 		return new Proxy(listener, {
 			apply(target, that, args) {
 				const realEvent: Event = args[0];
@@ -160,9 +163,9 @@ export default function (client: SherpaClient, self: Self) {
 					});
 				}
 
-				const rv = Reflect.apply(target, that, args);
+				onAccepted?.();
 
-				return rv;
+				return Reflect.apply(target, that, args);
 			},
 			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
 		});
@@ -191,22 +194,32 @@ export default function (client: SherpaClient, self: Self) {
 			) {
 				return ctx.return(undefined);
 			}
-			let proxylistener = wraplistener(listenerFunction);
+			let proxylistener: (...args: any[]) => any;
+			const removeOnce = once
+				? () => {
+						const callbacks = client.eventcallbacks.get(ctx.this);
+						const index = callbacks?.findIndex(
+							(entry) => entry.proxiedCallback === proxylistener
+						);
+						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+
+						// The physical listener cannot use native `once`: a message for
+						// another virtual origin would consume it before Sherpa filters it.
+						Reflect.apply(
+							self.EventTarget.prototype.removeEventListener,
+							ctx.this,
+							[ctx.args[0], proxylistener, capture]
+						);
+					}
+				: undefined;
+			proxylistener = wraplistener(listenerFunction, removeOnce);
 			if (once) {
-				const wrapped = proxylistener;
-				proxylistener = new Proxy(wrapped, {
-					apply(target, that, args) {
-						try {
-							return Reflect.apply(target, that, args);
-						} finally {
-							const callbacks = client.eventcallbacks.get(ctx.this);
-							const index = callbacks?.findIndex(
-								(entry) => entry.proxiedCallback === proxylistener
-							);
-							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
-						}
-					},
-				});
+				ctx.args[2] = {
+					capture,
+					once: false,
+					passive: Boolean(options?.passive),
+					signal,
+				};
 			}
 
 			ctx.args[1] = proxylistener;

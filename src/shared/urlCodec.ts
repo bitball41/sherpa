@@ -71,7 +71,8 @@ export function appendUrlParamEntries(
  * `?dest=...` directly put the parameter inside `#fragment`, where service
  * workers cannot see it.
  */
-const INTERNAL_METADATA_PARAM = "__sherpa_meta__";
+const INTERNAL_METADATA_PARAM = "dest";
+const INTERNAL_METADATA_PREFIX = "__sherpa_meta_v1__";
 
 export type ExtractedUrlParams = {
 	url: string;
@@ -96,7 +97,10 @@ export function appendUrlParams(
 	const head = hashIndex === -1 ? url : url.slice(0, hashIndex);
 	const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
 	const serialized = new URLSearchParams();
-	serialized.set(INTERNAL_METADATA_PARAM, JSON.stringify(entries));
+	serialized.set(
+		INTERNAL_METADATA_PARAM,
+		INTERNAL_METADATA_PREFIX + JSON.stringify(entries)
+	);
 	for (const [name, value] of entries) serialized.append(name, value);
 
 	return `${head}${head.includes("?") ? "&" : "?"}${serialized}${hash}`;
@@ -111,8 +115,9 @@ export function extractUrlParams(url: string): ExtractedUrlParams {
 	const hashIndex = url.indexOf("#");
 	const head = hashIndex === -1 ? url : url.slice(0, hashIndex);
 	const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
-	const questionMarker = `?${INTERNAL_METADATA_PARAM}=`;
-	const ampersandMarker = `&${INTERNAL_METADATA_PARAM}=`;
+	const marker = `${INTERNAL_METADATA_PARAM}=${INTERNAL_METADATA_PREFIX}`;
+	const questionMarker = `?${marker}`;
+	const ampersandMarker = `&${marker}`;
 	const markerIndex = Math.max(
 		head.lastIndexOf(questionMarker),
 		head.lastIndexOf(ampersandMarker)
@@ -121,8 +126,10 @@ export function extractUrlParams(url: string): ExtractedUrlParams {
 
 	const suffix = head.slice(markerIndex + 1);
 	const suffixParams = new URLSearchParams(suffix);
-	const encoded = suffixParams.get(INTERNAL_METADATA_PARAM);
-	if (encoded === null) return { url, params: null };
+	const metadata = suffixParams.get(INTERNAL_METADATA_PARAM);
+	if (metadata === null || !metadata.startsWith(INTERNAL_METADATA_PREFIX))
+		return { url, params: null };
+	const encoded = metadata.slice(INTERNAL_METADATA_PREFIX.length);
 
 	try {
 		const entries: unknown = JSON.parse(encoded);
@@ -149,7 +156,7 @@ export function extractUrlParams(url: string): ExtractedUrlParams {
 		if (
 			suffixEntries.length !== parsedEntries.length + 1 ||
 			suffixEntries[0]?.[0] !== INTERNAL_METADATA_PARAM ||
-			suffixEntries[0]?.[1] !== encoded ||
+			suffixEntries[0]?.[1] !== metadata ||
 			parsedEntries.some(([name, value], index) => {
 				const suffixEntry = suffixEntries[index + 1];
 				return suffixEntry?.[0] !== name || suffixEntry?.[1] !== value;

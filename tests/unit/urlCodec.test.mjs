@@ -60,7 +60,7 @@ test("internal URL metadata is marked and extracted before fragments", () => {
 	});
 
 	assert.equal(proxied.endsWith("#section"), true);
-	assert.match(proxied, /__sherpa_meta__/);
+	assert.match(proxied, /dest=__sherpa_meta_v1__/);
 	assert.match(proxied, /[?&]dest=serviceworker(?:&|#|$)/);
 	assert.deepEqual(
 		{
@@ -90,9 +90,20 @@ test("internal metadata cannot collide with identity-codec target queries", () =
 	);
 });
 
+test("marked metadata stays removable by legacy workers", () => {
+	const proxied = appendUrlParams(
+		"https://proxy.test/sherpa/encoded",
+		{ type: "module" }
+	);
+	const params = new URL(proxied).searchParams;
+
+	assert.deepEqual([...params.keys()], ["dest", "type"]);
+	assert.match(params.get("dest"), /^__sherpa_meta_v1__/);
+});
+
 test("target-owned metadata lookalikes are not stripped", () => {
 	const metadataLookalike = new URLSearchParams({
-		__sherpa_meta__: JSON.stringify([["type", "module"]]),
+		dest: `__sherpa_meta_v1__${JSON.stringify([["type", "module"]])}`,
 		type: "user",
 	});
 	const target = `https://proxy.test/sherpa/https://target.test/?${metadataLookalike}`;
@@ -104,7 +115,7 @@ test("malformed or absent metadata is preserved instead of destructively parsed"
 	const plain = "https://proxy.test/sherpa/value?type=user";
 	assert.deepEqual(extractUrlParams(plain), { url: plain, params: null });
 
-	const malformed = `${plain}&__sherpa_meta__=%7Bbad&type=module`;
+	const malformed = `${plain}&dest=__sherpa_meta_v1__%7Bbad&type=module`;
 	assert.deepEqual(extractUrlParams(malformed), {
 		url: malformed,
 		params: null,
