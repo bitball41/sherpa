@@ -305,16 +305,13 @@ export class SherpaServiceWorker extends EventTarget {
 	 *   }
 	 * });
 	 */
-	async fetch({ request, clientId, resultingClientId }: FetchEvent) {
+	async fetch({ request, clientId }: FetchEvent) {
 		if (!this.config) await this.loadConfig();
 		await this.cookieStoreReady;
 
-		// The initiating client carries the virtual referrer/origin context. Direct
-		// navigations can omit it, so use the resulting client only as a fallback.
-		const fetchClientId = clientId || resultingClientId;
-		const client = fetchClientId
-			? await self.clients.get(fetchClientId)
-			: undefined;
+		// resultingClientId is reserved before a navigation commits. Waiting for
+		// that future client here can deadlock the response that would create it.
+		const client = clientId ? await self.clients.get(clientId) : undefined;
 
 		return handleFetch.call(this, request, client);
 	}
