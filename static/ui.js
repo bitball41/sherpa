@@ -234,7 +234,7 @@ function BrowserApp() {
         <button on:click=${() => frame.reload()}>&#x21bb;</button>
         <button on:click=${() => (frame.frame.src = sherpa.errorPreviewUrl)} title="Preview the Sherpa error page">error page</button>
 
-        <input class="bar" autocomplete="off" autocapitalize="off" autocorrect="off" 
+        <input class="bar" autocomplete="off" autocapitalize="off" autocorrect="off"
         bind:value=${use(this.url)} on:input=${(e) => {
 					this.url = e.target.value;
 				}} on:keyup=${(e) => e.keyCode == 13 && (store.url = this.url) && handleSubmit()}></input>
