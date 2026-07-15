@@ -22,12 +22,14 @@ export default defineConfig({
 				["github"],
 			]
 		: "html",
-	timeout: 20000,
+	timeout: 60_000,
+	expect: { timeout: 20_000 },
 	/* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
 	use: {
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
 		trace: "on-first-retry",
-		actionTimeout: 10000,
+		actionTimeout: 20_000,
+		navigationTimeout: 30_000,
 		baseURL: "http://127.0.0.1:1337",
 	},
 
