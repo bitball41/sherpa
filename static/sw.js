@@ -26,14 +26,44 @@ self.addEventListener("fetch", (event) => {
 });
 
 let playgroundData;
-self.addEventListener("message", ({ data }) => {
-	if (data && typeof data === "object" && data.type === "playgroundData") {
-		playgroundData = data;
+self.addEventListener("message", (event) => {
+	const { data, source } = event;
+	if (!data || typeof data !== "object" || data.type !== "playgroundData")
+		return;
+	if (
+		typeof source?.url !== "string" ||
+		typeof data.html !== "string" ||
+		typeof data.css !== "string" ||
+		typeof data.js !== "string" ||
+		typeof data.origin !== "string"
+	)
+		return;
+
+	try {
+		const sourceUrl = new URL(source.url);
+		const playgroundUrl = new URL("playground.html", self.registration.scope);
+		const virtualOrigin = new URL(data.origin);
+		if (
+			sourceUrl.origin !== playgroundUrl.origin ||
+			sourceUrl.pathname !== playgroundUrl.pathname ||
+			(virtualOrigin.protocol !== "http:" &&
+				virtualOrigin.protocol !== "https:")
+		)
+			return;
+
+		playgroundData = {
+			html: data.html,
+			css: data.css,
+			js: data.js,
+			origin: virtualOrigin.origin,
+		};
+	} catch {
+		// Ignore malformed or non-client playground messages.
 	}
 });
 
 sherpa.addEventListener("request", (e) => {
-	if (playgroundData && e.url.href.startsWith(playgroundData.origin)) {
+	if (playgroundData && e.url.origin === playgroundData.origin) {
 		const headers = {};
 		const origin = playgroundData.origin;
 		if (e.url.href === origin + "/") {
