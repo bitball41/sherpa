@@ -309,10 +309,9 @@ export class SherpaServiceWorker extends EventTarget {
 		if (!this.config) await this.loadConfig();
 		await this.cookieStoreReady;
 
-		// A navigation's resulting client is the document that will consume the
-		// response. Prefer it over the client that initiated the navigation so
-		// request context and response messages target the correct frame.
-		const fetchClientId = resultingClientId || clientId;
+		// The initiating client carries the virtual referrer/origin context. Direct
+		// navigations can omit it, so use the resulting client only as a fallback.
+		const fetchClientId = clientId || resultingClientId;
 		const client = fetchClientId
 			? await self.clients.get(fetchClientId)
 			: undefined;
