@@ -7,8 +7,20 @@ export async function setupPage(
 ): Promise<FrameLocator> {
 	registerInspect(page);
 
-	// Hack to disable HTTP cache.
-	await page.route("**", (route) => route.continue());
+	// Interception disables the HTTP cache. It also selects the local Bare
+	// transport so the required suite does not depend on Wisp or public egress.
+	const transport =
+		process.env.PROXY_TEST_TRANSPORT || "/baremod/index.mjs";
+	await page.route("**", (route) => {
+		if (new URL(route.request().url()).pathname === "/config.js") {
+			return route.fulfill({
+				contentType: "application/javascript",
+				body: `let _CONFIG = { transport: ${JSON.stringify(transport)} };\n`,
+			});
+		}
+
+		return route.continue();
+	});
 	// Goto base url defined in config.
 	await page.goto("/");
 	await page.waitForSelector(".version > b");
