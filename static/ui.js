@@ -197,8 +197,7 @@ function BrowserApp() {
 
 	const frame = sherpa.createFrame();
 
-	this.mount = async () => {
-		await runtimeReady;
+	this.mount = () => {
 		let body = btoa(
 			`<body style="background: #000; color: #fff">Welcome to <i>Sherpa</i>! Type in a URL in the omnibox above and press enter to get started.</body>`
 		);
