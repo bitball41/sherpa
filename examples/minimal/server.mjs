@@ -23,11 +23,9 @@ const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
 const PORT = Number(process.env.PORT) || 8989;
 const HOST = process.env.HOST || "127.0.0.1";
-const ALLOW_PRIVATE_NETWORKS =
-	process.env.ALLOW_PRIVATE_NETWORKS === "1" ||
-	["127.0.0.1", "::1", "localhost"].includes(HOST);
+const ALLOW_PRIVATE_NETWORKS = process.env.ALLOW_PRIVATE_NETWORKS === "1";
 
-// Local-only demos may reach private hosts; public bindings must opt in.
+// Private and loopback targets require an explicit opt-in.
 wisp.options.allow_loopback_ips = ALLOW_PRIVATE_NETWORKS;
 wisp.options.allow_private_ips = ALLOW_PRIVATE_NETWORKS;
 

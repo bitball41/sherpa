@@ -236,6 +236,14 @@ jobs:
       - name: Run Playwright tests
         run: pnpm test:integration
 
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics
+          path: test-results
+          if-no-files-found: ignore
+
   rewritertests:
     name: "Run Rewriter Tests"
     runs-on: ubuntu-latest

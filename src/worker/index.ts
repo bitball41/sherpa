@@ -14,6 +14,7 @@ import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
 import { getDB } from "@/shared/security/db";
 import { codecDecode, setConfig } from "@/shared";
+import { matchesSherpaRoute } from "@/shared/urlCodec";
 import { SherpaDownload } from "@client/events";
 import {
 	getClientIdentity,
@@ -283,11 +284,12 @@ export class SherpaServiceWorker extends EventTarget {
 	route({ request }: FetchEvent) {
 		if (!this.config) return false;
 
-		if (request.url.startsWith(location.origin + this.config.prefix))
-			return true;
-		else if (request.url.startsWith(location.origin + this.config.files.wasm))
-			return true;
-		else return false;
+		return matchesSherpaRoute(
+			request.url,
+			location.origin,
+			this.config.prefix,
+			this.config.files.wasm
+		);
 	}
 
 	/**
@@ -307,7 +309,9 @@ export class SherpaServiceWorker extends EventTarget {
 		if (!this.config) await this.loadConfig();
 		await this.cookieStoreReady;
 
-		const client = await self.clients.get(clientId);
+		// resultingClientId is reserved before a navigation commits. Waiting for
+		// that future client here can deadlock the response that would create it.
+		const client = clientId ? await self.clients.get(clientId) : undefined;
 
 		return handleFetch.call(this, request, client);
 	}

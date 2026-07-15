@@ -7,6 +7,7 @@
 import test from "ava";
 import { glob } from "glob";
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 
@@ -15,6 +16,33 @@ function exportTargets(value) {
 	if (!value || typeof value !== "object") return [];
 
 	return Object.values(value).flatMap(exportTargets);
+}
+
+function declarationImportCandidates(sourcePath, specifier) {
+	const target = resolve(dirname(sourcePath), specifier);
+	const withoutJsExtension = target.replace(/\.(?:c|m)?js$/, "");
+
+	return [
+		target,
+		`${target}.d.ts`,
+		`${target}.ts`,
+		resolve(target, "index.d.ts"),
+		`${withoutJsExtension}.d.ts`,
+		`${withoutJsExtension}.ts`,
+	];
+}
+
+function relativeDeclarationImports(source) {
+	const importPattern =
+		/(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["']([^"']+)["']/g;
+	const referencePattern = /<reference\s+path=["']([^"']+)["']/g;
+
+	return [...source.matchAll(importPattern), ...source.matchAll(referencePattern)]
+		.map((match) => match[1].split(/[?#]/, 1)[0])
+		.filter(
+			(specifier) =>
+				specifier.startsWith("./") || specifier.startsWith("../")
+		);
 }
 
 /**
@@ -133,6 +161,31 @@ test("Package structure is valid for distribution", async (t) => {
 	t.true(hasJsFiles, "Distribution should contain JS files");
 	t.true(hasWasmFile, "Distribution should contain WASM file");
 	t.true(hasTypeFiles, "Library should contain core type definition files");
+});
+
+test("Every packaged declaration has resolvable relative imports", async (t) => {
+	const declarations = await glob("{dist,lib}/**/*.d.ts");
+	const missingImports = [];
+
+	for (const declaration of declarations) {
+		const source = readFileSync(declaration, "utf8");
+
+		for (const specifier of relativeDeclarationImports(source)) {
+			if (
+				!declarationImportCandidates(declaration, specifier).some(
+					(candidate) => existsSync(candidate)
+				)
+			) {
+				missingImports.push(`${declaration}: ${specifier}`);
+			}
+		}
+	}
+
+	t.deepEqual(
+		missingImports,
+		[],
+		`Unresolved relative declaration imports: ${missingImports.join(", ")}`
+	);
 });
 
 test("Every declared package export exists", (t) => {

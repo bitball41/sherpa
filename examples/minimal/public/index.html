@@ -134,6 +134,7 @@
 				});
 				await sherpa.init();
 				await navigator.serviceWorker.register("/sw.js");
+				await navigator.serviceWorker.ready;
 
 				// Reuse the styled <iframe> as the proxy frame.
 				const frame = sherpa.createFrame(document.getElementById("frame"));

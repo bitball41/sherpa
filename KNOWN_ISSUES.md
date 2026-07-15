@@ -113,17 +113,3 @@ and flip the repo variable. Until then Bardo consumes Sherpa as a local
 `file:` dependency, so nothing depends on the registry.
 
 **Status:** blocked on an owner decision (name/scope + credentials).
-
-## CI integration tests depend on live Google/YouTube from datacenter IPs
-
-**File:** `.github/workflows/main.yml` (`tests` job), `tests/integration/site/`
-
-The Playwright suite drives `google.com` and `youtube.com` through the proxy
-from GitHub-hosted runners. The README itself warns those sites throttle or
-block datacenter IPs, so the job is flaky by design and once hung for six
-hours on the browser-install step (every job now carries `timeout-minutes`,
-so the worst case is bounded). A reliable gate needs either local fixtures
-(like `bench/e2e`'s deterministic origin) or a self-hosted runner with a
-residential egress.
-
-**Status:** timeouts added; making the suite hermetic is future work.

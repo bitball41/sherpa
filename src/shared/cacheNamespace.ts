@@ -22,3 +22,22 @@ export async function matchNamespacedCaches<T>(
 
 	return undefined;
 }
+
+/**
+ * Applies a Cache.addAll request rewrite without modifying the caller's
+ * sequence. Web IDL sequences use the iterable protocol, not array indexing.
+ */
+export function mapCacheRequestSequence<T>(
+	requests: Iterable<T>,
+	map: (request: T) => T
+): T[] {
+	if (
+		requests === null ||
+		requests === undefined ||
+		typeof requests[Symbol.iterator] !== "function"
+	) {
+		throw new TypeError("Cache.addAll requests must be iterable");
+	}
+
+	return Array.from(requests, map);
+}

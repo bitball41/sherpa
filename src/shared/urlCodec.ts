@@ -89,3 +89,53 @@ export function appendUrlParams(
 
 	return `${head}${head.includes("?") ? "&" : "?"}${query}${hash}`;
 }
+
+/**
+ * Tests whether a same-origin request belongs to Sherpa's encoded URL prefix
+ * or is the exact configured rewriter WASM path.
+ */
+export function matchesSherpaRoute(
+	requestUrl: string,
+	proxyOrigin: string,
+	proxyPrefix: string,
+	wasmPath: string
+): boolean {
+	try {
+		const origin = new URL(proxyOrigin).origin;
+		const request = new URL(requestUrl);
+		if (request.origin !== origin) return false;
+
+		const proxy = new URL(proxyPrefix, `${origin}/`);
+		const wasm = new URL(wasmPath, `${origin}/`);
+
+		return (
+			(proxy.origin === origin && request.href.startsWith(proxy.href)) ||
+			(wasm.origin === origin && request.pathname === wasm.pathname)
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Performs Web IDL's string conversion for URL-bearing DOM arguments.
+ * Symbols are rejected instead of being accepted by JavaScript's String()
+ * convenience special case.
+ */
+export function toWebIdlString(value: unknown): string {
+	if (typeof value === "symbol") {
+		throw new TypeError("Cannot convert a Symbol value to a string");
+	}
+
+	return String(value);
+}
+
+/**
+ * Converts History's optional nullable URL argument. Both an omitted value and
+ * explicit undefined use the Web IDL null default.
+ */
+export function normalizeHistoryUrl(value: unknown): string | null {
+	if (value === null || value === undefined) return null;
+
+	return toWebIdlString(value);
+}

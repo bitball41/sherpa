@@ -70,8 +70,8 @@ export class SherpaClient {
 
 	cookieStore = new CookieStore();
 
-	eventcallbacks: Map<
-		any,
+	eventcallbacks: WeakMap<
+		object,
 		Array<{
 			event: string;
 			originalCallback: any;
@@ -79,7 +79,7 @@ export class SherpaClient {
 			capture: boolean;
 			once: boolean;
 		}>
-	> = new Map();
+	> = new WeakMap();
 
 	meta: URLMeta;
 

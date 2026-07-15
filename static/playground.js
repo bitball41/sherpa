@@ -7,18 +7,20 @@ const sherpa = new SherpaController({
 	},
 });
 
-sherpa.init();
-navigator.serviceWorker.register("./sw.js");
-
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+const runtimeReady = Promise.all([
+	sherpa.init(),
+	navigator.serviceWorker
+		.register("./sw.js")
+		.then(() => navigator.serviceWorker.ready),
+	connection.setTransport(store.transport, sherpaTransportOptions(store.transport)),
+]);
 const flex = css`
 	display: flex;
 `;
 const col = css`
 	flex-direction: column;
 `;
-
-connection.setTransport(store.transport, [{ wisp: store.wispurl }]);
 
 function PlaygroundApp() {
 	this.css = `
@@ -74,6 +76,7 @@ function PlaygroundApp() {
 
 	this.fakeorigin = "https://sandboxedorigin.com";
 	this.mount = async () => {
+		await runtimeReady;
 		const monaco =
 			await import("https://cdn.jsdelivr.net/npm/monaco-editor/+esm");
 

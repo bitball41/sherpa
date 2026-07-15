@@ -6,6 +6,9 @@ import {
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
+	matchesSherpaRoute,
+	normalizeHistoryUrl,
+	toWebIdlString,
 	resolveBaseHref,
 } from "../../src/shared/urlCodec.ts";
 
@@ -91,4 +94,61 @@ test("restoring form parameters preserves duplicate names and order", () => {
 
 	assert.deepEqual(url.searchParams.getAll("tag"), ["first", "second"]);
 	assert.equal(url.search, "?tag=first&tag=second&page=1");
+});
+
+test("Sherpa routing matches the proxy prefix and exact WASM path only", () => {
+	const origin = "https://proxy.test";
+
+	assert.equal(
+		matchesSherpaRoute(
+			"https://proxy.test/sherpa/encoded",
+			origin,
+			"/sherpa/",
+			"/sherpa.wasm.wasm"
+		),
+		true
+	);
+	assert.equal(
+		matchesSherpaRoute(
+			"https://proxy.test/sherpa.wasm.wasm?cache=1",
+			origin,
+			"/sherpa/",
+			"/sherpa.wasm.wasm"
+		),
+		true
+	);
+	assert.equal(
+		matchesSherpaRoute(
+			"https://proxy.test/sherpa.wasm.wasm.evil",
+			origin,
+			"/sherpa/",
+			"/sherpa.wasm.wasm"
+		),
+		false
+	);
+	assert.equal(
+		matchesSherpaRoute(
+			"https://other.test/sherpa/encoded",
+			origin,
+			"/sherpa/",
+			"/sherpa.wasm.wasm"
+		),
+		false
+	);
+});
+
+test("History URL normalization preserves null defaults and falsy strings", () => {
+	assert.equal(normalizeHistoryUrl(undefined), null);
+	assert.equal(normalizeHistoryUrl(null), null);
+	assert.equal(normalizeHistoryUrl(""), "");
+	assert.equal(normalizeHistoryUrl(false), "false");
+	assert.equal(normalizeHistoryUrl(0), "0");
+	assert.equal(
+		normalizeHistoryUrl({ toString: () => "relative" }),
+		"relative"
+	);
+});
+
+test("Web IDL string conversion rejects Symbols", () => {
+	assert.throws(() => toWebIdlString(Symbol("url")), TypeError);
 });

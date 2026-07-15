@@ -201,7 +201,20 @@ pnpm build:types                # type declarations (rslib)
 pnpm dev
 ```
 
-Sherpa runs at <http://localhost:1337> and rebuilds on file changes (excluding the rewriter).
+Sherpa runs at <http://localhost:1337> and rebuilds on file changes (excluding the rewriter). Private and loopback proxy destinations are blocked by default, even when the development server itself binds to loopback. For intentional local-network testing, start it with `ALLOW_PRIVATE_NETWORKS=1 pnpm dev`; do not enable that setting on a publicly reachable deployment.
+
+### Tests
+
+```sh
+pnpm test:unit
+pnpm test:integration
+```
+
+The required Playwright suite starts a deterministic fixture origin on port 1338, so its proxy, script, nested-frame, query-string, and subresource checks do not depend on third-party sites or runner egress. The retained Google and YouTube compatibility checks are opt-in because those sites commonly throttle datacenter IPs:
+
+```sh
+LIVE_SITE_TESTS=1 pnpm test:integration
+```
 
 ### Setting up Typedoc
 

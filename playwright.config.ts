@@ -22,12 +22,14 @@ export default defineConfig({
 				["github"],
 			]
 		: "html",
-	timeout: 20000,
+	timeout: 60_000,
+	expect: { timeout: 20_000 },
 	/* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
 	use: {
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
 		trace: "on-first-retry",
-		actionTimeout: 10000,
+		actionTimeout: 20_000,
+		navigationTimeout: 30_000,
 		baseURL: "http://127.0.0.1:1337",
 	},
 
@@ -44,9 +46,16 @@ export default defineConfig({
 	],
 
 	/* Run your local dev server before starting the tests */
-	webServer: {
-		command: "HOST=127.0.0.1 pnpm run dev",
-		url: "http://127.0.0.1:1337",
-		reuseExistingServer: false,
-	},
+	webServer: [
+		{
+			command: "ALLOW_PRIVATE_NETWORKS=1 HOST=127.0.0.1 pnpm run dev",
+			url: "http://127.0.0.1:1337",
+			reuseExistingServer: false,
+		},
+		{
+			command: "node tests/fixtures/site-server.mjs",
+			url: "http://127.0.0.1:1338/health",
+			reuseExistingServer: false,
+		},
+	],
 });

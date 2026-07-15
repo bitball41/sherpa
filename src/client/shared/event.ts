@@ -4,6 +4,7 @@ import type { SherpaClient } from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
+import { withCurrentEvent } from "@/shared/currentEvent";
 
 export default function (client: SherpaClient, self: Self) {
 	const handlers = {
@@ -144,18 +145,9 @@ export default function (client: SherpaClient, self: Self) {
 					}
 				}
 
-				if (!self.event) {
-					Object.defineProperty(self, "event", {
-						get() {
-							return args[0];
-						},
-						configurable: true,
-					});
-				}
-
-				const rv = Reflect.apply(target, that, args);
-
-				return rv;
+				return withCurrentEvent(self, args[0], () =>
+					Reflect.apply(target, that, args)
+				);
 			},
 			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
 		});
@@ -196,7 +188,12 @@ export default function (client: SherpaClient, self: Self) {
 							const index = callbacks?.findIndex(
 								(entry) => entry.proxiedCallback === proxylistener
 							);
-							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+							if (index !== undefined && index >= 0) {
+								callbacks.splice(index, 1);
+								if (callbacks.length === 0) {
+									client.eventcallbacks.delete(ctx.this);
+								}
+							}
 						}
 					},
 				});
@@ -220,7 +217,12 @@ export default function (client: SherpaClient, self: Self) {
 						const index = callbacks?.findIndex(
 							(entry) => entry.proxiedCallback === proxylistener
 						);
-						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+						if (index !== undefined && index >= 0) {
+							callbacks.splice(index, 1);
+							if (callbacks.length === 0) {
+								client.eventcallbacks.delete(ctx.this);
+							}
+						}
 					},
 					{ once: true }
 				);
@@ -246,10 +248,10 @@ export default function (client: SherpaClient, self: Self) {
 			);
 			if (i === -1) return;
 
-			const r = arr.splice(i, 1);
-			client.eventcallbacks.set(ctx.this, arr);
+			const [removed] = arr.splice(i, 1);
+			if (arr.length === 0) client.eventcallbacks.delete(ctx.this);
 
-			ctx.args[1] = r[0].proxiedCallback;
+			ctx.args[1] = removed.proxiedCallback;
 		},
 	});
 

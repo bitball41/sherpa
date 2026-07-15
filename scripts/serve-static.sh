@@ -18,9 +18,9 @@ pnpm install
 if [ ! -f "rewriter/wasm/out/wasm.js" ] || [ ! -f "dist/sherpa.wasm.wasm" ]; then
     pnpm run rewriter:build
 fi
-if [ ! -f "dist/sherpa.all.js" ] || [ ! -f "dist/sherpa.sync.js" ]; then
-    pnpm run build
-fi
+# dist/ is tracked for distribution and can be older than src/. Always
+# rebuild the JavaScript bundles before assembling the static site.
+pnpm run build
 
 bash ci/download-existing-docs.sh
 bash ci/build-docs.sh

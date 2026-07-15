@@ -1,15 +1,22 @@
 import { SherpaClient } from "@client/index";
 import { SHERPACLIENT } from "@/symbols";
 import { rewriteUrl } from "@rewriters/url";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient) {
 	client.Proxy("window.open", {
 		apply(ctx) {
-			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
+			if (ctx.args.length > 0 && ctx.args[0] !== undefined) {
+				const url = toWebIdlString(ctx.args[0]);
+				ctx.args[0] = url === "" ? url : rewriteUrl(url, client.meta);
+			}
 
-			if (ctx.args[1] === "_top" || ctx.args[1] === "_unfencedTop")
-				ctx.args[1] = client.meta.topFrameName;
-			if (ctx.args[1] === "_parent") ctx.args[1] = client.meta.parentFrameName;
+			if (ctx.args[1] === "_top" || ctx.args[1] === "_unfencedTop") {
+				ctx.args[1] = client.meta.topFrameName ?? ctx.args[1];
+			}
+			if (ctx.args[1] === "_parent") {
+				ctx.args[1] = client.meta.parentFrameName ?? ctx.args[1];
+			}
 
 			const realwin = ctx.call();
 

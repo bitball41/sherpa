@@ -6,6 +6,7 @@ import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -684,7 +685,10 @@ export default function (client: SherpaClient, self: typeof window) {
 	});
 	client.Proxy("Audio", {
 		construct(ctx) {
-			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
+			if (ctx.args.length === 0 || ctx.args[0] === undefined) return;
+
+			const src = toWebIdlString(ctx.args[0]);
+			ctx.args[0] = src === "" ? src : rewriteUrl(src, client.meta);
 		},
 	});
 	client.Proxy("Text.prototype.appendData", {

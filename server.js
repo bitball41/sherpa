@@ -17,9 +17,7 @@ import { bareModulePath } from "@mercuryworkshop/bare-as-module3";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) || 1337 : 1337;
 const HOST = process.env.HOST || "127.0.0.1";
-const ALLOW_PRIVATE_NETWORKS =
-	process.env.ALLOW_PRIVATE_NETWORKS === "1" ||
-	["127.0.0.1", "::1", "localhost"].includes(HOST);
+const ALLOW_PRIVATE_NETWORKS = process.env.ALLOW_PRIVATE_NETWORKS === "1";
 
 const bare = createBareServer("/bare/", {
 	logErrors: true,
@@ -102,6 +100,11 @@ console.log(`Listening on http://localhost:${PORT}/`);
 if (!process.env.CI) {
 	const compiler = rspack(rspackConfig);
 	compiler.watch({}, (err, stats) => {
+		if (err) {
+			console.error("Sherpa build failed", err);
+			return;
+		}
+
 		console.log(
 			stats
 				? stats.toString({

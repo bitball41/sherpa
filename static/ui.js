@@ -14,18 +14,20 @@ const sherpa = new SherpaController({
 	},
 });
 
-sherpa.init();
-navigator.serviceWorker.register("./sw.js");
-
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+const runtimeReady = Promise.all([
+	sherpa.init(),
+	navigator.serviceWorker
+		.register("./sw.js")
+		.then(() => navigator.serviceWorker.ready),
+	connection.setTransport(store.transport, sherpaTransportOptions(store.transport)),
+]);
 const flex = css`
 	display: flex;
 `;
 const col = css`
 	flex-direction: column;
 `;
-
-connection.setTransport(store.transport, [{ wisp: store.wispurl }]);
 
 function Config() {
 	this.css = `
@@ -207,7 +209,8 @@ function BrowserApp() {
 		this.url = e.url;
 	});
 
-	const handleSubmit = () => {
+	const handleSubmit = async () => {
+		await runtimeReady;
 		this.url = this.url.trim();
 		//  frame.go(this.url)
 		if (!this.url.startsWith("http")) {
@@ -231,7 +234,7 @@ function BrowserApp() {
         <button on:click=${() => frame.reload()}>&#x21bb;</button>
         <button on:click=${() => (frame.frame.src = sherpa.errorPreviewUrl)} title="Preview the Sherpa error page">error page</button>
 
-        <input class="bar" autocomplete="off" autocapitalize="off" autocorrect="off" 
+        <input class="bar" autocomplete="off" autocapitalize="off" autocorrect="off"
         bind:value=${use(this.url)} on:input=${(e) => {
 					this.url = e.target.value;
 				}} on:keyup=${(e) => e.keyCode == 13 && (store.url = this.url) && handleSubmit()}></input>
