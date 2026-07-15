@@ -116,3 +116,26 @@ export function matchesSherpaRoute(
 		return false;
 	}
 }
+
+/**
+ * Performs Web IDL's string conversion for URL-bearing DOM arguments.
+ * Symbols are rejected instead of being accepted by JavaScript's String()
+ * convenience special case.
+ */
+export function toWebIdlString(value: unknown): string {
+	if (typeof value === "symbol") {
+		throw new TypeError("Cannot convert a Symbol value to a string");
+	}
+
+	return String(value);
+}
+
+/**
+ * Converts History's optional nullable URL argument. Both an omitted value and
+ * explicit undefined use the Web IDL null default.
+ */
+export function normalizeHistoryUrl(value: unknown): string | null {
+	if (value === null || value === undefined) return null;
+
+	return toWebIdlString(value);
+}
