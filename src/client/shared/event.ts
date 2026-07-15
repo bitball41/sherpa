@@ -196,7 +196,12 @@ export default function (client: SherpaClient, self: Self) {
 							const index = callbacks?.findIndex(
 								(entry) => entry.proxiedCallback === proxylistener
 							);
-							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+							if (index !== undefined && index >= 0) {
+								callbacks.splice(index, 1);
+								if (callbacks.length === 0) {
+									client.eventcallbacks.delete(ctx.this);
+								}
+							}
 						}
 					},
 				});
@@ -220,7 +225,12 @@ export default function (client: SherpaClient, self: Self) {
 						const index = callbacks?.findIndex(
 							(entry) => entry.proxiedCallback === proxylistener
 						);
-						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+						if (index !== undefined && index >= 0) {
+							callbacks.splice(index, 1);
+							if (callbacks.length === 0) {
+								client.eventcallbacks.delete(ctx.this);
+							}
+						}
 					},
 					{ once: true }
 				);
@@ -246,10 +256,10 @@ export default function (client: SherpaClient, self: Self) {
 			);
 			if (i === -1) return;
 
-			const r = arr.splice(i, 1);
-			client.eventcallbacks.set(ctx.this, arr);
+			const [removed] = arr.splice(i, 1);
+			if (arr.length === 0) client.eventcallbacks.delete(ctx.this);
 
-			ctx.args[1] = r[0].proxiedCallback;
+			ctx.args[1] = removed.proxiedCallback;
 		},
 	});
 
