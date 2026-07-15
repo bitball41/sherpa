@@ -2,6 +2,7 @@ import { SherpaClient } from "@client/index";
 import { UrlChangeEvent } from "@client/events";
 import { rewriteUrl } from "@rewriters/url";
 import { iswindow } from "@client/entry";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 export function createLocationProxy(
 	client: SherpaClient,
@@ -75,21 +76,19 @@ export function createLocationProxy(
 
 	// functions
 	fakeLocation.toString = new Proxy(self.location.toString, {
-		apply() {
+		apply(target, that, args) {
+			if (that !== fakeLocation) return Reflect.apply(target, that, args);
+
 			return client.url.href;
 		},
 	});
-
-	if (self.location.valueOf)
-		fakeLocation.valueOf = new Proxy(self.location.valueOf, {
-			apply() {
-				return client.url.href;
-			},
-		});
 	if (self.location.assign)
 		fakeLocation.assign = new Proxy(self.location.assign, {
 			apply(target, that, args) {
-				args[0] = rewriteUrl(args[0], client.meta);
+				if (that !== fakeLocation || args.length === 0) {
+					return Reflect.apply(target, that, args);
+				}
+				args[0] = rewriteUrl(toWebIdlString(args[0]), client.meta);
 				Reflect.apply(target, self.location, args);
 
 				const urlchangeev = new UrlChangeEvent(client.url.href);
@@ -99,13 +98,20 @@ export function createLocationProxy(
 	if (self.location.reload)
 		fakeLocation.reload = new Proxy(self.location.reload, {
 			apply(target, that, args) {
-				Reflect.apply(target, self.location, args);
+				return Reflect.apply(
+					target,
+					that === fakeLocation ? self.location : that,
+					args
+				);
 			},
 		});
 	if (self.location.replace)
 		fakeLocation.replace = new Proxy(self.location.replace, {
 			apply(target, that, args) {
-				args[0] = rewriteUrl(args[0], client.meta);
+				if (that !== fakeLocation || args.length === 0) {
+					return Reflect.apply(target, that, args);
+				}
+				args[0] = rewriteUrl(toWebIdlString(args[0]), client.meta);
 				Reflect.apply(target, self.location, args);
 
 				const urlchangeev = new UrlChangeEvent(client.url.href);
