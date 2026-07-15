@@ -7,6 +7,8 @@ import {
 	decodeProxyUrl,
 	encodeProxyUrl,
 	matchesSherpaRoute,
+	normalizeHistoryUrl,
+	toWebIdlString,
 	resolveBaseHref,
 } from "../../src/shared/urlCodec.ts";
 
@@ -133,4 +135,20 @@ test("Sherpa routing matches the proxy prefix and exact WASM path only", () => {
 		),
 		false
 	);
+});
+
+test("History URL normalization preserves null defaults and falsy strings", () => {
+	assert.equal(normalizeHistoryUrl(undefined), null);
+	assert.equal(normalizeHistoryUrl(null), null);
+	assert.equal(normalizeHistoryUrl(""), "");
+	assert.equal(normalizeHistoryUrl(false), "false");
+	assert.equal(normalizeHistoryUrl(0), "0");
+	assert.equal(
+		normalizeHistoryUrl({ toString: () => "relative" }),
+		"relative"
+	);
+});
+
+test("Web IDL string conversion rejects Symbols", () => {
+	assert.throws(() => toWebIdlString(Symbol("url")), TypeError);
 });
