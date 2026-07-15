@@ -14,7 +14,7 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 			const worker = ctx.call();
 			const conn = new BareMuxConnection();
 
-			(async () => {
+			void (async () => {
 				const port = await conn.getInnerPort();
 				client.natives.call(
 					"Worker.prototype.postMessage",
@@ -25,7 +25,9 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 					},
 					[port]
 				);
-			})();
+			})().catch((error) => {
+				console.error("failed to initialize Sherpa Worker transport", error);
+			});
 		},
 	});
 
@@ -54,7 +56,7 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 			const worker = ctx.call();
 			const conn = new BareMuxConnection();
 
-			(async () => {
+			void (async () => {
 				const port = await conn.getInnerPort();
 				client.natives.call(
 					"MessagePort.prototype.postMessage",
@@ -65,16 +67,22 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 					},
 					[port]
 				);
-			})();
+			})().catch((error) => {
+				console.error(
+					"failed to initialize Sherpa SharedWorker transport",
+					error
+				);
+			});
 		},
 	});
 
 	client.Proxy("Worklet.prototype.addModule", {
 		apply(ctx) {
-			if (ctx.args[0])
-				ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
-					dest: "worklet",
-				});
+			if (ctx.args.length === 0) return;
+
+			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
+				dest: "worklet",
+			});
 		},
 	});
 }
