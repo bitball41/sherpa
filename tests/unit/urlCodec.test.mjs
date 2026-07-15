@@ -90,6 +90,16 @@ test("internal metadata cannot collide with identity-codec target queries", () =
 	);
 });
 
+test("target-owned metadata lookalikes are not stripped", () => {
+	const metadataLookalike = new URLSearchParams({
+		__sherpa_meta__: JSON.stringify([["type", "module"]]),
+		type: "user",
+	});
+	const target = `https://proxy.test/sherpa/https://target.test/?${metadataLookalike}`;
+
+	assert.deepEqual(extractUrlParams(target), { url: target, params: null });
+});
+
 test("malformed or absent metadata is preserved instead of destructively parsed", () => {
 	const plain = "https://proxy.test/sherpa/value?type=user";
 	assert.deepEqual(extractUrlParams(plain), { url: plain, params: null });

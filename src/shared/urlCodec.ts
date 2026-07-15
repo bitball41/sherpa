@@ -120,13 +120,15 @@ export function extractUrlParams(url: string): ExtractedUrlParams {
 	if (markerIndex === -1) return { url, params: null };
 
 	const suffix = head.slice(markerIndex + 1);
-	const encoded = new URLSearchParams(suffix).get(INTERNAL_METADATA_PARAM);
+	const suffixParams = new URLSearchParams(suffix);
+	const encoded = suffixParams.get(INTERNAL_METADATA_PARAM);
 	if (encoded === null) return { url, params: null };
 
 	try {
 		const entries: unknown = JSON.parse(encoded);
 		if (!Array.isArray(entries)) return { url, params: null };
 		const params = Object.create(null) as Record<string, string>;
+		const parsedEntries: [string, string][] = [];
 		for (const entry of entries) {
 			if (
 				!Array.isArray(entry) ||
@@ -137,6 +139,23 @@ export function extractUrlParams(url: string): ExtractedUrlParams {
 				return { url, params: null };
 			}
 			params[entry[0]] = entry[1];
+			parsedEntries.push([entry[0], entry[1]]);
+		}
+
+		// A new Sherpa sender writes the same entries after the marker for
+		// older workers. Requiring that exact suffix prevents an old-client
+		// request from treating a target-owned lookalike parameter as metadata.
+		const suffixEntries = [...suffixParams.entries()];
+		if (
+			suffixEntries.length !== parsedEntries.length + 1 ||
+			suffixEntries[0]?.[0] !== INTERNAL_METADATA_PARAM ||
+			suffixEntries[0]?.[1] !== encoded ||
+			parsedEntries.some(([name, value], index) => {
+				const suffixEntry = suffixEntries[index + 1];
+				return suffixEntry?.[0] !== name || suffixEntry?.[1] !== value;
+			})
+		) {
+			return { url, params: null };
 		}
 
 		return { url: head.slice(0, markerIndex) + hash, params };
