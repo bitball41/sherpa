@@ -272,7 +272,7 @@ jobs:
 
       - name: Start Sherpa demo server
         run: |
-          pnpm run dev &
+          ALLOW_PRIVATE_NETWORKS=1 pnpm run dev &
           DEMO_PID="$!"
           echo "DEMO_PID=$DEMO_PID" >> "$GITHUB_ENV"
 
