@@ -1,7 +1,7 @@
 import { BareMuxConnection } from "@mercuryworkshop/bare-mux";
 import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
-import { appendUrlParams } from "@/shared/urlCodec";
+import { appendUrlParams, toWebIdlString } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient, _self: typeof globalThis) {
 	client.Proxy("Worker", {
@@ -80,9 +80,12 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 		apply(ctx) {
 			if (ctx.args.length === 0) return;
 
-			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
-				dest: "worklet",
-			});
+			ctx.args[0] = appendUrlParams(
+				rewriteUrl(toWebIdlString(ctx.args[0]), client.meta),
+				{
+					dest: "worklet",
+				}
+			);
 		},
 	});
 }
