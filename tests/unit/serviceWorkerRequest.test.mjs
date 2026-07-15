@@ -36,6 +36,15 @@ test("reconstructed requests preserve fetch-relevant internal slots", () => {
 	assert.equal(request.keepalive, true);
 });
 
+test("explicitly empty referrers remain empty", () => {
+	const request = new Request(
+		"https://proxy.test/sherpa/target",
+		createTransferredRequestInit(metadata({ referrer: "" }))
+	);
+
+	assert.equal(request.referrer, "");
+});
+
 test("browser-only navigation mode falls back to a constructible internal mode", () => {
 	const request = new Request(
 		"https://proxy.test/sherpa/target",
