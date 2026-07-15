@@ -121,10 +121,7 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("Cache.prototype.matchAll", {
 		apply(ctx) {
-			if (
-				(ctx.args[0] && typeof ctx.args[0] === "string") ||
-				(ctx.args[0] && ctx.args[0] instanceof URL)
-			) {
+			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
 				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
 			}
 		},
@@ -132,10 +129,7 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("Cache.prototype.keys", {
 		apply(ctx) {
-			if (
-				(ctx.args[0] && typeof ctx.args[0] === "string") ||
-				(ctx.args[0] && ctx.args[0] instanceof URL)
-			) {
+			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
 				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
 			}
 		},
