@@ -45,7 +45,7 @@ export default defineConfig({
 
 	/* Run your local dev server before starting the tests */
 	webServer: {
-		command: "HOST=127.0.0.1 pnpm run dev",
+		command: "ALLOW_PRIVATE_NETWORKS=1 HOST=127.0.0.1 pnpm run dev",
 		url: "http://127.0.0.1:1337",
 		reuseExistingServer: false,
 	},
