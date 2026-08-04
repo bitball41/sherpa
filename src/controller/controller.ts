@@ -7,10 +7,10 @@ import {
 } from "@/shared/index";
 import { mergeConfig } from "@/shared/config";
 import { decodeProxyUrl, encodeProxyUrl } from "@/shared/urlCodec";
-import { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
+import type { SherpaConfig, SherpaInitConfig, SherpaDB } from "@/types";
 import { SherpaFrame } from "@/controller/frame";
 import { MessageW2C } from "@/worker";
-import { IDBPDatabase } from "idb";
+import type { IDBPDatabase } from "idb";
 import { SherpaGlobalDownloadEvent, SherpaGlobalEvents } from "@client/events";
 import { getDB } from "@/shared/security/db";
 
@@ -68,6 +68,7 @@ export class SherpaController extends EventTarget {
 				interceptDownloads: false,
 				allowInvalidJs: true,
 				allowFailedIntercepts: true,
+				responseCache: true,
 			},
 			siteFlags: {},
 			errorPage: { ...DEFAULT_ERROR_PAGE },
@@ -88,12 +89,51 @@ export class SherpaController extends EventTarget {
 		setConfig(mergeConfig(defaultConfig, config));
 	}
 
+	/**
+	 * Tells the running service worker to re-read the persisted configuration.
+	 *
+	 * `navigator.serviceWorker.controller` is only set once the *controller
+	 * page itself* is controlled by the worker, which it usually isn't: a page
+	 * that registers a worker is not controlled by it until the next
+	 * navigation, unless the worker calls `clients.claim()`. Posting only to
+	 * `controller` therefore dropped the message in the ordinary setup - and
+	 * because the worker's `loadConfig()` returns early once it holds a config,
+	 * nothing else ever re-read it. Every runtime `modifyConfig` (error-page
+	 * theme, feature flags, prefix, codec) silently failed to reach the worker
+	 * until the browser restarted it.
+	 *
+	 * The active worker of the page's own registration is the same worker, and
+	 * the message is authenticated in the worker by the sending client's URL
+	 * (`isTrustedControllerClient`), not by whether it is controlled, so this
+	 * is the same trust boundary either way.
+	 */
+	private async notifyWorker(): Promise<void> {
+		const message = { sherpa$type: "loadConfig", config } as const;
+
+		const controller = navigator.serviceWorker.controller;
+		if (controller) {
+			controller.postMessage(message);
+
+			return;
+		}
+
+		try {
+			const registration = await navigator.serviceWorker.getRegistration();
+			const worker =
+				registration?.active ??
+				registration?.waiting ??
+				registration?.installing;
+			worker?.postMessage(message);
+		} catch (error) {
+			// No registration yet (or storage access denied): the worker reads the
+			// persisted config on its first fetch anyway.
+			dbg.log("couldn't reach a service worker to reload config", error);
+		}
+	}
+
 	async init(): Promise<void> {
 		await this.openIDB();
-		navigator.serviceWorker.controller?.postMessage({
-			sherpa$type: "loadConfig",
-			config,
-		});
+		await this.notifyWorker();
 		dbg.log("config loaded");
 
 		if (!this.listeningForWorkerMessages) {
@@ -168,10 +208,7 @@ export class SherpaController extends EventTarget {
 		setConfig(mergeConfig(config, newconfig));
 
 		await this.#saveConfig();
-		navigator.serviceWorker.controller?.postMessage({
-			sherpa$type: "loadConfig",
-			config,
-		});
+		await this.notifyWorker();
 	}
 
 	addEventListener<K extends keyof SherpaGlobalEvents>(

@@ -58,6 +58,38 @@ storing the **rewritten** response (so a hit skips transport _and_ rewriting),
 honoring upstream `Cache-Control`/`Vary` conservatively and invalidated on
 config change. Self-contained, no engine rewrite required.
 
+> **Done.** `src/shared/httpCache.ts` (policy) + `src/worker/cache.ts`
+> (storage), behind the `responseCache` flag, on by default; the rules are
+> documented in the repository README under "Response caching". It keys on the
+> upstream URL plus the destination, module-ness and the `Vary` headers it can
+> reproduce, refuses anything it cannot safely replay (non-200, `Set-Cookie`,
+> `Vary: Cookie`, `Authorization`, `Range`, >5 MiB), revalidates stale entries
+> with `If-None-Match`/`If-Modified-Since`, and buckets by a configuration
+> fingerprint. **Documents are still not cached** — a proxied document embeds a
+> cookie-jar snapshot for the client's synchronous `document.cookie`, so
+> replaying one could boot a page against a stale session; the table above is a
+> document, so its 230 ms row does not move. What moves is everything else on
+> the page, which is where repeat-visit weight actually lives.
+>
+> Verified end-to-end in Chromium by `bench/cache-e2e.mjs`. Each phase runs in
+> a **freshly opened page** against a **different document** of the same site:
+> a repeat navigation inside one page proves nothing, because the renderer's own
+> in-memory cache also holds service-worker responses for the life of the
+> process. With the cache on, the fresh script, stylesheet, vendor bundle and
+> image reach the origin **zero** times; flipping `responseCache` off brings
+> every one of them back, which is what attributes the hit to the engine rather
+> than to the browser. The `no-cache` script is revalidated (one conditional
+> request, `304`) instead of re-downloaded, the document is always re-fetched,
+> and the page executes and styles correctly in both modes.
+>
+> Timing, same harness, over its shaped link (60 ms RTT, 10 Mbit/s), each sample
+> being the first proxied navigation of a fresh page so both sides pay the same
+> per-page setup: **1.5–1.7×** (two runs: 394.5 → 258.6 ms, 399.3 → 231.5 ms). Unshaped on localhost the
+> same A/B is 1.03× — the fixture's ~190 ms per-page setup floor swamps the
+> ~15 ms of rewriting a hit saves, and the download it removes is free there.
+> That gap between the two is the point: what this fixes is network and rewrite
+> work proportional to page weight and latency, neither of which localhost has.
+
 ### 2. Full-response buffering — the document can't stream
 
 `rewriteBody` does `await response.arrayBuffer()` for every HTML document
@@ -191,13 +223,23 @@ done and won — Sherpa beats its upstream on every micro number. What
 bottlenecks Sherpa _as a product_ is now architectural, shared with the
 upstream design it forked:
 
-1. **Add a rewritten-response cache** (Cache API in the SW) — biggest
-   real-world win, self-contained, kills repeat network _and_ repeat CPU.
-2. **Fix the client boot decode path** (~30 of the ~45 ms per document is
-   one bad base64→bytes loop; the payload-as-script design costs the rest).
-3. **Stop shipping sourcemaps inline by default** (+43% on every script).
+1. ~~**Add a rewritten-response cache** (Cache API in the SW)~~ — **done**,
+   for every destination except documents; see the note under §1.
+2. **Fix the client boot decode path** — the decode itself is fixed
+   (`Uint8Array.fromBase64`, indexed fallback); what remains is the design:
+   695 KiB of base64 in a `<script>` the renderer parses once per document.
+   Fetching the payload as an `ArrayBuffer` is the real fix and needs the
+   synchronous-`getRewriter` requirement solved first.
+3. **Stop shipping sourcemaps inline by default** (+~20% on every script
+   since the base64 change). Decoding them is no longer on the critical path
+   — the table is materialized on the first `Function.prototype.toString`
+   that needs it rather than in every script's first statement — but the
+   bytes are still on the wire.
 4. **Stream (or early-flush) the HTML rewrite** — the hard one; the only
-   fix for time-to-first-byte on heavy documents.
+   fix for time-to-first-byte on heavy documents, and now the largest
+   remaining item.
+5. **Cache documents too**, which needs the cookie-jar snapshot out of the
+   injected document HTML first.
 
 Caveats: fixtures are single-origin (no PSL/cross-origin emulation cost in
 these numbers), the shaped link is a simple per-response latency+bandwidth

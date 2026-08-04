@@ -21,6 +21,14 @@ export type Rewrite = {
 
 export type SourceMaps = Record<string, Rewrite[]>;
 
+/**
+ * A map exactly as a rewritten script hands it over: base64 when the service
+ * worker serialized it into the script text, the rewriter's own bytes when the
+ * rewrite happened in this realm. (A plain number array is still accepted so
+ * scripts rewritten by an older worker keep working.)
+ */
+export type RawSourceMap = string | Uint8Array | Array<number>;
+
 /** Decode the compact binary rewrite map emitted by the Rust rewriter. */
 export function decodeRewrites(buf: ArrayLike<number> | Uint8Array): Rewrite[] {
 	// A Uint8Array is already exactly the byte view this needs - copying it

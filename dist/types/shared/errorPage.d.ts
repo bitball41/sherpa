@@ -1,4 +1,4 @@
-import { SherpaErrorPageConfig } from "../types";
+import type { SherpaErrorPageConfig } from "../types";
 /**
  * Sherpa's default error-page theme.
  *

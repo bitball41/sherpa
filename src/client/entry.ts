@@ -5,7 +5,7 @@ import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { SherpaContextEvent, UrlChangeEvent } from "@client/events";
 import { SherpaServiceWorkerRuntime } from "@client/swruntime";
-import { SherpaConfig } from "@/types";
+import type { SherpaConfig } from "@/types";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
 export const iswindow = "window" in globalThis && window instanceof Window;
