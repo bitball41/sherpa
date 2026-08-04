@@ -22,9 +22,17 @@ export type Rewrite = {
 export type SourceMaps = Record<string, Rewrite[]>;
 
 /** Decode the compact binary rewrite map emitted by the Rust rewriter. */
-export function decodeRewrites(buf: ArrayLike<number>): Rewrite[] {
-	const sourcemap = Uint8Array.from(buf);
-	const view = new DataView(sourcemap.buffer);
+export function decodeRewrites(buf: ArrayLike<number> | Uint8Array): Rewrite[] {
+	// A Uint8Array is already exactly the byte view this needs - copying it
+	// into a fresh one (and, before that, through an Array of numbers, which
+	// is how every rewritten script used to hand its map over) doubled peak
+	// memory for nothing.
+	const sourcemap = buf instanceof Uint8Array ? buf : Uint8Array.from(buf);
+	const view = new DataView(
+		sourcemap.buffer,
+		sourcemap.byteOffset,
+		sourcemap.byteLength
+	);
 	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let cursor = 0;
 

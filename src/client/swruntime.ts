@@ -1,5 +1,6 @@
 import { SherpaClient } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
 export class SherpaServiceWorkerRuntime {
 	recvport: MessagePort;
@@ -34,7 +35,9 @@ export class SherpaServiceWorkerRuntime {
 		// worker's own script URL (see client/dom/serviceworker.ts), since this
 		// runtime runs in its own realm with no other channel back to the
 		// registering document's state.
-		const scopePath = new URL(self.location.href).searchParams.get("scope");
+		const scopePath = new URL(self.location.href).searchParams.get(
+			INTERNAL_PARAMS.scope
+		);
 		const scope = scopePath
 			? this.client.url.origin + scopePath
 			: this.client.url.href;

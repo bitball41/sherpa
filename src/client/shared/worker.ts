@@ -2,13 +2,15 @@ import { BareMuxConnection } from "@mercuryworkshop/bare-mux";
 import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
 export default function (client: SherpaClient, _self: typeof globalThis) {
 	client.Proxy("Worker", {
 		construct(ctx) {
 			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
-				dest: "worker",
-				type: ctx.args[1]?.type === "module" ? "module" : undefined,
+				[INTERNAL_PARAMS.dest]: "worker",
+				[INTERNAL_PARAMS.type]:
+					ctx.args[1]?.type === "module" ? "module" : undefined,
 			});
 
 			const worker = ctx.call();
@@ -34,8 +36,8 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 		construct(ctx) {
 			const options = ctx.args[1];
 			ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
-				dest: "sharedworker",
-				type:
+				[INTERNAL_PARAMS.dest]: "sharedworker",
+				[INTERNAL_PARAMS.type]:
 					typeof options === "object" && options?.type === "module"
 						? "module"
 						: undefined,
@@ -73,7 +75,7 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 		apply(ctx) {
 			if (ctx.args[0])
 				ctx.args[0] = appendUrlParams(rewriteUrl(ctx.args[0], client.meta), {
-					dest: "worklet",
+					[INTERNAL_PARAMS.dest]: "worklet",
 				});
 		},
 	});

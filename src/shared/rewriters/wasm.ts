@@ -5,7 +5,7 @@ import { codecDecode, codecEncode, config, flagEnabled } from "@/shared";
 
 export type { JsRewriterOutput, Rewriter };
 
-import { rewriteUrl, URLMeta } from "@rewriters/url";
+import { rewriteUrl } from "@rewriters/url";
 import { htmlRules } from "@/shared/htmlRules";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
@@ -66,7 +66,7 @@ type PooledRewriter = {
 const rewriters: PooledRewriter[] = [];
 let poolConfig = config;
 
-export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
+export function getRewriter(base: URL): [Rewriter, () => void] {
 	initWasm();
 
 	// A WASM Rewriter snapshots the prefix, global names, and codec callback in
@@ -82,11 +82,17 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 	}
 
 	let obj: PooledRewriter;
-	const index = rewriters.findIndex((x) => !x.inUse);
 	const len = rewriters.length;
+	let index = -1;
+	for (let i = 0; i < len; i++) {
+		if (!rewriters[i].inUse) {
+			index = i;
+			break;
+		}
+	}
 
 	if (index === -1) {
-		if (flagEnabled("rewriterLogs", meta.base))
+		if (flagEnabled("rewriterLogs", base))
 			console.log(`creating new rewriter, ${len} rewriters made already`);
 
 		const rewriter = new Rewriter({
@@ -116,7 +122,7 @@ export function getRewriter(meta: URLMeta): [Rewriter, () => void] {
 		obj = { rewriter, inUse: false, stale: false };
 		rewriters.push(obj);
 	} else {
-		if (flagEnabled("rewriterLogs", meta.base))
+		if (flagEnabled("rewriterLogs", base))
 			console.log(
 				`using cached rewriter ${index} from list of ${len} rewriters`
 			);

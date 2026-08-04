@@ -2,13 +2,10 @@ import { codecDecode, codecEncode } from "@/shared";
 import { config } from "@/shared";
 import { rewriteJs } from "@rewriters/js";
 import { decodeProxyUrl, encodeProxyUrl } from "@/shared/urlCodec";
+import { snapshotMeta, type URLMeta } from "@/shared/urlMeta";
 
-export type URLMeta = {
-	origin: URL;
-	base: URL;
-	topFrameName?: string;
-	parentFrameName?: string;
-};
+export type { URLMeta };
+export { snapshotMeta };
 
 function tryCanParseURL(url: string, origin?: string | URL): URL | null {
 	try {

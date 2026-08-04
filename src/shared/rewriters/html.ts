@@ -1,7 +1,7 @@
 import { ElementType, Parser } from "htmlparser2";
 import { ChildNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
-import { URLMeta, rewriteUrl } from "@rewriters/url";
+import { URLMeta, rewriteUrl, snapshotMeta } from "@rewriters/url";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
@@ -10,7 +10,17 @@ import { CookieStore } from "@/shared/cookie";
 import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
 import { appendUrlParams, resolveBaseHref } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 import { bytesToBase64 } from "@/shared/base64";
+
+/**
+ * Prefix of the shadow attributes that keep a page's *original* attribute
+ * values readable after Sherpa rewrites them.
+ */
+export const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
+
+/** Shadow attribute holding the base64 source of a rewritten inline script. */
+export const SCRIPT_SOURCE_ATTRIBUTE = `${SHADOW_ATTRIBUTE_PREFIX}script-source-src`;
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
@@ -47,7 +57,10 @@ function rewriteHtmlInner(
 
 	parser.write(html);
 	parser.end();
-	traverseParsedHtml(handler.root, cookieStore, meta);
+	// Resolve the caller's meta once. The traversal both reads it for every
+	// URL it rewrites and *writes* to `base` when it meets a `<base href>`;
+	// the client hands us a getter-only meta, where that write throws.
+	traverseParsedHtml(handler.root, cookieStore, snapshotMeta(meta));
 
 	function findhead(node) {
 		if (node.type === ElementType.Tag && node.name === "head") {
@@ -98,6 +111,15 @@ export function rewriteHtml(
 // };
 
 export function unrewriteHtml(html: string) {
+	// Every `innerHTML`/`outerHTML`/`getHTML()` read routes through here, and
+	// the only thing this function does is undo `sherpa-attr-*` shadow
+	// attributes. Markup that carries none of them needs no work - and
+	// round-tripping it through the parser + serializer anyway was not just
+	// wasted time, it also handed the page back re-serialized markup (quoting,
+	// entities and void/self-closing tags normalized) rather than its own.
+	if (typeof html !== "string" || !html.includes(SHADOW_ATTRIBUTE_PREFIX))
+		return html;
+
 	const handler = new DomHandler((err, dom) => dom);
 	const parser = new Parser(handler);
 
@@ -107,14 +129,15 @@ export function unrewriteHtml(html: string) {
 	function traverse(node: ChildNode) {
 		if ("attribs" in node) {
 			for (const key in node.attribs) {
-				if (key == "sherpa-attr-script-source-src") {
+				if (key == SCRIPT_SOURCE_ATTRIBUTE) {
 					if (node.children[0] && "data" in node.children[0])
 						node.children[0].data = atob(node.attribs[key]);
 					continue;
 				}
 
-				if (key.startsWith("sherpa-attr-")) {
-					node.attribs[key.slice("sherpa-attr-".length)] = node.attribs[key];
+				if (key.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
+					node.attribs[key.slice(SHADOW_ATTRIBUTE_PREFIX.length)] =
+						node.attribs[key];
 					delete node.attribs[key];
 				}
 			}
@@ -159,6 +182,9 @@ function traverseParsedHtml(
 			if (resolvedBase) meta.base = resolvedBase;
 		}
 
+		// Both passes below walk the element's own attributes; the shared
+		// snapshot keeps the `sherpa-attr-*` entries they add out of their own
+		// iteration.
 		const attributes = Object.keys(attribs);
 		for (const attr of attributes) {
 			const rule = findHtmlRule(attr, name);
@@ -169,12 +195,12 @@ function traverseParsedHtml(
 
 			if (rewritten === null) delete attribs[attr];
 			else attribs[attr] = rewritten;
-			attribs[`sherpa-attr-${attr}`] = value;
+			attribs[SHADOW_ATTRIBUTE_PREFIX + attr] = value;
 		}
 		for (const attr of attributes) {
 			if (isEventAttribute(attr)) {
 				const value = attribs[attr];
-				attribs[`sherpa-attr-${attr}`] = value;
+				attribs[SHADOW_ATTRIBUTE_PREFIX + attr] = value;
 				attribs[attr] = rewriteJs(value, `(inline ${attr} on element)`, meta);
 			}
 		}
@@ -188,7 +214,9 @@ function traverseParsedHtml(
 			const essence = scriptTypeEssence(type);
 
 			if (essence === "module" && attribs.src) {
-				attribs.src = appendUrlParams(attribs.src, { type: "module" });
+				attribs.src = appendUrlParams(attribs.src, {
+					[INTERNAL_PARAMS.type]: "module",
+				});
 			}
 
 			if (essence === "importmap" && node.children[0] !== undefined) {
@@ -208,9 +236,7 @@ function traverseParsedHtml(
 			) {
 				const js = node.children[0].data;
 				const module = essence === "module";
-				attribs["sherpa-attr-script-source-src"] = bytesToBase64(
-					encoder.encode(js)
-				);
+				attribs[SCRIPT_SOURCE_ATTRIBUTE] = bytesToBase64(encoder.encode(js));
 				node.children[0].data = rewriteJs(
 					js,
 					"(inline script element)",

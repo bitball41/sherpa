@@ -46,3 +46,32 @@ test("rejects truncated and unknown source-map records", () => {
 		/unknown/
 	);
 });
+
+// Rewritten scripts hand their map over as the rewriter's own Uint8Array
+// (which may be a view into a larger buffer) rather than being copied through
+// an Array of numbers first.
+test("decodes a Uint8Array map without copying it", () => {
+	const bytes = Uint8Array.from(
+		sourceMap({ type: RewriteType.Insert, start: 7, size: 3 })
+	);
+
+	assert.deepEqual(decodeRewrites(bytes), [
+		{ type: RewriteType.Insert, start: 7, size: 3 },
+	]);
+});
+
+test("decodes a map that is a view into a larger buffer", () => {
+	const map = sourceMap({
+		type: RewriteType.Replace,
+		start: 1,
+		size: 2,
+		str: "ab",
+	});
+	const padded = Uint8Array.from([0xff, 0xff, 0xff, ...map, 0xff]);
+	const view = padded.subarray(3, 3 + map.length);
+
+	assert.equal(view.byteOffset, 3);
+	assert.deepEqual(decodeRewrites(view), [
+		{ type: RewriteType.Replace, start: 1, end: 3, str: "ab" },
+	]);
+});
