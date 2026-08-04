@@ -30,7 +30,7 @@ import {
 	shouldSendCookies,
 } from "@/worker/request";
 import { retryTransientHttp2Request } from "@/worker/retry";
-import { getDB } from "@/shared/security/db";
+import { persistCookieStore } from "@/worker/cookiePersistence";
 import {
 	isHtmlContentType,
 	isRedirectStatus,
@@ -38,6 +38,18 @@ import {
 } from "@/worker/response";
 import { appendUrlParamEntries } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS, takeInternalParams } from "@/shared/internalParams";
+import {
+	canStoreResponseFor,
+	canUseStoredResponse,
+	responseCachePolicy,
+} from "@/shared/httpCache";
+import {
+	cacheKeyUrl,
+	lookupCachedResponse,
+	refreshCachedResponse,
+	storeCachedResponse,
+	type CachedEntry,
+} from "@/worker/cache";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -400,6 +412,44 @@ export async function handleFetch(
 		);
 		this.dispatchEvent(ev);
 
+		// Rewritten-response cache. A service worker's synthesized responses are
+		// never stored in the browser's HTTP cache and the transport has none of
+		// its own, so without this every navigation re-downloads and re-rewrites
+		// every subresource a page touches, forever, whatever `Cache-Control` the
+		// origin sent. The lookup runs *after* the `request` event so a listener
+		// that overrides or redirects a request still sees every one of them.
+		const now = Date.now();
+		let cacheKey: string | null = null;
+		let cachedEntry: CachedEntry | null = null;
+		if (
+			!ev.response &&
+			flagEnabled("responseCache", ev.url) &&
+			canStoreResponseFor(ev.method, request.destination, request.headers)
+		) {
+			cacheKey = cacheKeyUrl(ev.url, request.destination, scriptType, (name) =>
+				name === "origin" ? (origin ?? null) : request.headers.get(name)
+			);
+
+			if (canUseStoredResponse(request.cache, request.headers)) {
+				cachedEntry = await lookupCachedResponse(cacheKey, now);
+				if (cachedEntry?.fresh) {
+					// The redirect tracker was opened for a request that is now
+					// never going out; leaving it behind would pin an entry until
+					// its hour-long expiry.
+					await cleanTracker(url.toString());
+
+					return cachedEntry.response;
+				}
+
+				// Stale but revalidatable: a 304 below reuses the stored rewrite
+				// instead of paying for the download and the rewrite again.
+				if (cachedEntry?.etag)
+					ev.requestHeaders["if-none-match"] = cachedEntry.etag;
+				else if (cachedEntry?.lastModified)
+					ev.requestHeaders["if-modified-since"] = cachedEntry.lastModified;
+			}
+		}
+
 		const response =
 			(await ev.response) ||
 			(await fetchWithTransientRetry(this.client, ev.url, {
@@ -417,6 +467,19 @@ export async function handleFetch(
 			}));
 		response.finalURL = ev.url.href;
 
+		// Revalidated: upstream confirmed the stored rewrite is still current, so
+		// neither the body nor the rewriter has to run again.
+		if (cachedEntry && cacheKey && response.status === 304) {
+			await cleanTracker(url.toString());
+
+			return await refreshCachedResponse(
+				cacheKey,
+				cachedEntry,
+				lowercaseHeaderRecord(response.rawHeaders),
+				now
+			);
+		}
+
 		return await handleResponse(
 			url,
 			meta,
@@ -428,7 +491,9 @@ export async function handleFetch(
 			client,
 			this.client,
 			this,
-			requestContext.referrerUrl?.href || ""
+			requestContext.referrerUrl?.href || "",
+			cacheKey,
+			now
 		);
 	} catch (err) {
 		let message = "Unknown error";
@@ -497,7 +562,9 @@ async function handleResponse(
 	client: Client,
 	bareClient: BareClient,
 	swtarget: SherpaServiceWorker,
-	referrer: string
+	referrer: string,
+	cacheKey: string | null = null,
+	now: number = Date.now()
 ): Promise<Response> {
 	let responseBody: BodyType;
 	// response.rawHeaders = {};
@@ -602,10 +669,11 @@ async function handleResponse(
 	}
 
 	await cookieStore.setCookies(setCookies, url);
-	if (setCookies.length) {
-		const db = await getDB();
-		await db.put("cookies", JSON.parse(cookieStore.dump()), "cookies");
-	}
+	// Not awaited: the in-memory jar is already current, and every later read
+	// goes through it. Blocking the response on a storage round trip only
+	// bought durability against a service-worker restart in the next few
+	// milliseconds.
+	if (setCookies.length) void persistCookieStore(cookieStore);
 
 	if (isDownload(responseHeaders, destination) && !isRedirectResponse) {
 		if (flagEnabled("interceptDownloads", url)) {
@@ -714,11 +782,38 @@ async function handleResponse(
 		await cleanTracker(url.toString());
 	}
 
-	return new Response(ev.responseBody, {
+	// The policy runs against the *unflattened* rewritten headers: flattening
+	// drops `Set-Cookie` (it is consumed by the jar and never exposed to the
+	// page), and a response that sets cookies must not be replayed from cache.
+	const storePolicy = cacheKey
+		? responseCachePolicy(ev.status, rewrittenHeaders, now)
+		: null;
+
+	const finalResponse = new Response(ev.responseBody, {
 		headers: ev.responseHeaders as HeadersInit,
 		status: ev.status,
 		statusText: ev.statusText,
 	});
+
+	// Cloning tees a streamed body, so it only happens once the policy has
+	// already said yes - `storeCachedResponse` always drains its branch.
+	if (storePolicy && cacheKey) {
+		void storeCachedResponse(cacheKey, storePolicy, finalResponse.clone(), now);
+	}
+
+	return finalResponse;
+}
+
+/** Response headers, keyed the way {@link responseCachePolicy} expects. */
+function lowercaseHeaderRecord(
+	headers: Record<string, string | string[]>
+): Record<string, string | string[]> {
+	const record: Record<string, string | string[]> = Object.create(null);
+	for (const key of Object.keys(headers)) {
+		record[key.toLowerCase()] = headers[key];
+	}
+
+	return record;
 }
 
 // Per the HTML spec's encoding-sniffing algorithm: an explicit HTTP

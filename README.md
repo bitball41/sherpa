@@ -25,6 +25,7 @@ Scramjet is what everyone already reaches for, so the fair question is why run S
 
 - **Customization is a first-class feature, not a fork-and-patch chore.** The error page is fully themeable straight from config — colors, fonts, logo, copy, or raw CSS — with no engine edits, plus a built-in way to preview it. The proxy prefix, URL codec, feature flags, per-site flag overrides, and the names of the globals Sherpa injects are all configurable too. See [Customization](#customization). And because Sherpa ships as source you own, anything config doesn't cover you can still change directly; stock Scramjet is typically consumed as an unmodifiable npm dependency.
 - **Measurably faster.** Sherpa's rewriting pipelines are 1.3–1.8× faster than Scramjet 1.x on the same inputs (up to 5× on inline-script-heavy pages), and the per-request overhead in the service worker's security emulation is gone too (upstream opened several IndexedDB connections and ran ~4 awaited IDB transactions plus a linear ~10k-rule public-suffix-list scan per proxied request). Together that measures ~1.35× faster full proxied page loads in Chromium against the published Scramjet 1.1.0 — same service worker pipeline, same transports, same fixture site, engine as the only variable. Methodology, statistics, and a reproducible harness live in [`bench/`](bench/README.md).
+- **Repeat visits are actually cached.** Responses a service worker synthesizes are never kept in the browser's HTTP cache, and neither Scramjet nor its transport has a cache of its own — so on the 1.x design every navigation re-downloads _and_ re-rewrites every script, stylesheet, font and image a page touches, forever, whatever `Cache-Control` the origin sent. Sherpa stores the **rewritten** response in the Cache API and honors the origin's own caching rules, so a hit skips the transport and the rewriter both, and a stale entry revalidates with `ETag`/`Last-Modified` instead of re-downloading. See [Response caching](#response-caching).
 - **Concrete reliability fixes over the 1.x baseline.** Charset-aware HTML decoding (follows the HTML spec's sniffing order instead of assuming UTF‑8); real Service-Worker scope tracking (upstream matched by origin only, so a single registered worker intercepted _every_ path on that origin); cross-realm `location` assignment; a reworked synchronous-XHR watchdog (upstream cut sync requests off at a hardcoded 1s); CORS/credentials and referrer-policy emulation that honors the request's real credentials mode; and non-`http(s)` scheme passthrough so `tel:`, `intent:`, `magnet:`, and friends stop getting mangled behind the proxy prefix.
 - **No size regression for the extra features.** What a page downloads (runtime bundle + WASM rewriter) is at parity with the published Scramjet 1.1.0 (within ~1%, measured raw/gzip/brotli in [`bench/`](bench/README.md)) even though Sherpa carries the fixes above. Sherpa's own dist also dropped ~30% (~2.32 MB → ~1.61 MB) early in the fork by removing a dead dependency and shipping the size-optimized WASM rewriter.
 - **Focused scope.** Sherpa's stated goals are site compatibility and performance/size. Stealth / anti-detection is explicitly a non-goal.
@@ -161,12 +162,35 @@ All on the `SherpaController` config:
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `prefix`                        | The path every proxied URL lives under (default `/sherpa/`). Rebrand or obscure your proxy routes by changing it.                                         |
 | `codec.encode` / `codec.decode` | How real URLs get encoded into proxied ones. Defaults to `encodeURIComponent`; drop in Base64, XOR, or any reversible transform to change how links look. |
-| `flags`                         | Feature flags — service workers, sync XHR, sourcemaps, error capture, download interception, and more.                                                    |
+| `flags`                         | Feature flags — service workers, sync XHR, sourcemaps, response caching, error capture, download interception, and more.                                  |
 | `siteFlags`                     | Per-site flag overrides keyed by a URL regex, so you can flip features on or off for specific origins.                                                    |
 | `globals`                       | The names of the wrapper functions Sherpa injects into rewritten pages (e.g. `$sherpa$wrap`). Rename them to avoid collisions or fingerprint your build.  |
 | `files`                         | Where the bundle, WASM, and sync runtime are served from.                                                                                                 |
 
 Because Sherpa is a source dependency you own, these are the easy, supported customizations — but you're never limited to them.
+
+## Response caching
+
+A service worker's synthesized responses are never stored in the browser's HTTP cache. Sherpa therefore keeps its own, in the Cache API, holding the **rewritten** response — so a hit costs neither a trip over the transport nor a pass through the rewriter.
+
+It is on by default and follows the origin's own rules rather than inventing its own:
+
+- Freshness comes from `Cache-Control: max-age`, then `Expires`, then RFC 9111 heuristic freshness (a tenth of the time since `Last-Modified`, capped at a day); an upstream `Age` is subtracted. It is a _private_ cache — one browser profile, not shared between users — so `private` is storable and `s-maxage` is not consulted.
+- `no-store` is never stored. `no-cache` is stored but always revalidated. A stale entry with an `ETag`/`Last-Modified` is revalidated with a conditional request, and a `304` replays the stored rewrite.
+- Not stored: anything that isn't a `200` to a `GET`, responses that set cookies, responses that `Vary` on something the engine cannot reproduce (`Cookie`, `User-Agent`, `*`), requests carrying `Authorization`, `Range` or the page's own conditional headers, and bodies over 5 MiB.
+- **Documents are never cached.** A proxied document embeds a snapshot of the cookie jar for the client's synchronous `document.cookie`, so replaying one could boot a page with a stale session. Subresources carry no such state — and they are where the repeat-visit cost is.
+- The cache key includes the request's destination and module-ness (the same URL rewrites differently as a script, a module and a stylesheet) plus the `Vary` headers it can reproduce. The bucket name embeds a fingerprint of the prefix, codec, globals, files and flags, so `modifyConfig` starts from a clean bucket instead of serving output rewritten under the old configuration.
+
+Turn it off per deployment or per site:
+
+```js
+new SherpaController({
+	flags: { responseCache: false },
+	siteFlags: { "^https://example\\.com": { responseCache: false } },
+});
+```
+
+`bench/cache-e2e.mjs` drives all of the above through a real Chromium, service worker and transport, over a shaped 60 ms / 10 Mbit link: with the cache on, a page of the site the visitor has not seen before fetches its document and revalidates one `no-cache` script, and everything else — the vendor bundle, the stylesheet, the image — is served without touching the origin. Turning `responseCache` off brings every one of those requests back. Repeat proxied navigation on that fixture, each sample the first navigation of a fresh page: **1.5–1.7×** faster (two runs: 394.5 → 258.6 ms and 399.3 → 231.5 ms).
 
 ## Development
 

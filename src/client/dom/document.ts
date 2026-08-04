@@ -20,8 +20,14 @@ export default function (client: SherpaClient, _self: Self) {
 		["Document.prototype.querySelector", "Document.prototype.querySelectorAll"],
 		{
 			apply(ctx) {
+				// A proxied element's `src`/`href` is the rewritten URL, so a
+				// prefix match (`[href^="https://…"]`) can never hit; loosening it
+				// to a substring match is what makes these selectors keep working.
+				// Without the global flag only the *first* such selector in a
+				// selector list was loosened, so `a[href^="https://x"],
+				// img[src^="https://y"]` silently stopped matching its second half.
 				ctx.args[0] = tostring(ctx.args[0]).replace(
-					/((?:^|\s)\b\w+\[(?:src|href|data-href))[\^]?(=['"]?(?:https?[:])?\/\/)/,
+					/((?:^|\s)\b\w+\[(?:src|href|data-href))[\^]?(=['"]?(?:https?[:])?\/\/)/g,
 					"$1*$2"
 				);
 			},

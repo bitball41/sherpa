@@ -1,4 +1,4 @@
-import { SherpaClient } from "./index";
+import type { SherpaClient } from "./index";
 /**
  * Union type for all global Sherpa events.
  */
@@ -7,8 +7,8 @@ export type SherpaGlobalEvent = SherpaGlobalDownloadEvent;
  * Event class for proxified download interception.
  */
 export declare class SherpaGlobalDownloadEvent extends Event {
+    type: "download";
     download: SherpaDownload;
-    type: string;
     constructor(download: SherpaDownload);
 }
 /**
@@ -43,24 +43,24 @@ export type SherpaEvents = {
  * Navigation event class fired when Sherpa frame navigates to a new proxified URL.
  */
 export declare class NavigateEvent extends Event {
+    type: "navigate";
     url: string;
-    type: string;
     constructor(url: string);
 }
 /**
  * URL change event class fired when the proxified URL changes in a Sherpa frame.
  */
 export declare class UrlChangeEvent extends Event {
+    type: "urlchange";
     url: string;
-    type: string;
     constructor(url: string);
 }
 /**
  * Event class fired when Sherpa initializes in a frame.
  */
 export declare class SherpaContextEvent extends Event {
+    type: "contextInit";
     window: Self;
     client: SherpaClient;
-    type: string;
     constructor(window: Self, client: SherpaClient);
 }

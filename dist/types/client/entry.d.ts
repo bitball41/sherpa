@@ -1,4 +1,4 @@
-import { SherpaConfig } from "../types";
+import type { SherpaConfig } from "../types";
 export declare const iswindow: boolean;
 export declare const isworker: boolean;
 export declare const issw: boolean;

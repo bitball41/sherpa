@@ -46,6 +46,7 @@ export type Trap<T> = {
     set?: (ctx: TrapCtx<T>, v: T) => void;
 };
 export declare class SherpaClient {
+    #private;
     global: typeof globalThis;
     locationProxy: any;
     serviceWorker: ServiceWorkerContainer;
@@ -54,13 +55,13 @@ export declare class SherpaClient {
     descriptors: DescriptorStore;
     wrapfn: (i: any, ...args: any) => any;
     cookieStore: CookieStore;
-    eventcallbacks: Map<any, [
-        {
-            event: string;
-            originalCallback: AnyFunction;
-            proxiedCallback: AnyFunction;
-        }
-    ]>;
+    eventcallbacks: Map<any, Array<{
+        event: string;
+        originalCallback: any;
+        proxiedCallback: AnyFunction;
+        capture: boolean;
+        once: boolean;
+    }>>;
     meta: URLMeta;
     box: SingletonBox;
     constructor(global: typeof globalThis);

@@ -9,10 +9,11 @@ import {
 } from "@/worker/fakesw";
 import { handleFetch } from "@/worker/fetch";
 import BareClient from "@mercuryworkshop/bare-mux";
-import { SherpaConfig } from "@/types";
+import type { SherpaConfig } from "@/types";
 import { asyncSetWasm } from "@rewriters/wasm";
 import { CookieStore } from "@/shared/cookie";
 import { getDB } from "@/shared/security/db";
+import { persistCookieStore } from "@/worker/cookiePersistence";
 import { codecDecode, setConfig } from "@/shared";
 import { SherpaDownload } from "@client/events";
 import {
@@ -197,8 +198,10 @@ export class SherpaServiceWorker extends EventTarget {
 		if (data.sherpa$type === "cookie") {
 			await this.cookieStoreReady;
 			this.cookieStore.setCookies([data.cookie], virtualUrl, data.fromJs);
-			const db = await getDB();
-			await db.put("cookies", JSON.parse(this.cookieStore.dump()), "cookies");
+			// Awaited here (the caller wraps this in `event.waitUntil`) but
+			// coalesced, so a burst of `document.cookie` writes costs one storage
+			// round trip rather than one each.
+			await persistCookieStore(this.cookieStore);
 		}
 	}
 

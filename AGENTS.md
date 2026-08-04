@@ -651,6 +651,119 @@ Not addressed here, and still the top of `bench/bottleneck/README.md`:
 response caching and streaming HTML rewriting. Both are architectural and
 network-bound rather than engine-CPU.
 
+### Response caching pass — the top bottleneck, plus hot-path and compat fixes
+
+`bench/bottleneck/README.md` ranked "nothing is ever cached" as the largest
+real-world cost, and it is now fixed for everything except documents.
+
+- **Rewritten-response cache** (`src/shared/httpCache.ts` policy,
+  `src/worker/cache.ts` storage, new `responseCache` flag, default on). A
+  service worker's synthesized responses are never kept in the browser's HTTP
+  cache and the transport has none, so every navigation re-downloaded _and_
+  re-rewrote every subresource forever. Sherpa now stores the **rewritten**
+  response in the Cache API, so a hit skips the transport and the rewriter
+  both. Freshness follows `max-age` → `Expires` → RFC 9111 heuristic (a tenth
+  of the `Last-Modified` age, capped at a day), minus any upstream `Age`;
+  `no-store` never stored, `no-cache` stored-but-always-revalidated, stale
+  entries revalidated with `If-None-Match`/`If-Modified-Since` and a `304`
+  replays the stored rewrite. Refused: non-`200`, non-`GET`, `Set-Cookie`,
+  `Vary` on anything unreproducible (`Cookie`, `User-Agent`, `*`),
+  `Authorization`/`Range`/page-supplied conditional requests, bodies >5 MiB.
+  The key folds in destination + module-ness + the reproducible `Vary`
+  headers; the bucket name embeds a config fingerprint so `modifyConfig`
+  starts clean. Bucket is FIFO-trimmed at 500 entries.
+  - **Documents are deliberately not cached**: `rewriteHtml` injects a
+    cookie-jar snapshot (`self.COOKIE = …`) into every proxied document, so a
+    replayed document could boot the client against a stale session. Fixing
+    that needs the jar out of the injected HTML first — that is the next step
+    if document caching is ever wanted.
+  - The lookup runs _after_ the `request` event is dispatched, so an embedder
+    listening on it still sees every request and can still override one.
+- **Verified end-to-end in a real browser** — `bench/cache-e2e.mjs` (new).
+  Every phase runs in a _freshly opened page_ against a _different document_ of
+  the same site, because a repeat navigation inside one page proves nothing:
+  the renderer's own memory cache also holds service-worker responses for the
+  life of the process. (That is exactly how the first version of this harness
+  fooled itself — the "cached" result reproduced with the engine cache emptied.)
+  With the cache on, the script, stylesheet, vendor bundle and image reach the
+  origin **zero** times; flipping `responseCache` off brings all of them back,
+  which is what attributes the hit to the engine. The `no-cache` script is
+  revalidated (one conditional request, `304`) rather than re-downloaded, the
+  document is always re-fetched, and the page works in both modes.
+  - Timing, over the harness's shaped link (60 ms RTT / 10 Mbit/s), each sample
+    the first proxied navigation of a fresh page: **1.5-1.7x** (two runs:
+    394.5 -> 258.6 ms, 399.3 -> 231.5 ms). Unshaped on localhost the same A/B is **1.03×** — the per-page
+    setup floor (~190 ms) swamps the ~15 ms of rewriting a hit saves, and the
+    download it removes is free there. Report the shaped number; the localhost
+    one is a floor, not a result.
+  - Cost: **+1.9 KiB gzipped** on `sherpa.all.js` (75,435 → 77,333).
+  - Note: `openCache()` memoizes the `Cache` handle, and a `Cache` object keeps
+    working after `caches.delete()` by design, so an external cache clear does
+    not take effect until the worker restarts. Left as is (every SW caching
+    example memoizes); worth knowing when testing.
+
+Other work in the same pass:
+
+- **Cookie persistence left the response path** (`src/worker/cookiePersistence.ts`).
+  Every response carrying a `Set-Cookie` used to serialize the whole jar,
+  `JSON.parse` it back into an object, and _await_ an IndexedDB transaction
+  before the response reached the page. Writes are coalesced now (at most one
+  in flight, one queued), the jar is stored as its JSON text rather than
+  round-tripped through a parse, and the response path fires and forgets while
+  the message handler — which has `event.waitUntil` — still awaits.
+- **Source-map decoding is lazy** (`src/client/shared/sourcemaps.ts`,
+  `singletonbox.ts`). Every rewritten script pushed its map as its first
+  statement and `decodeRewrites` ran there, allocating one object per rewrite —
+  tens of thousands for a large minified bundle — on the critical path, for a
+  table only `Function.prototype.toString` ever reads. The raw payload is kept
+  and decoded on first use. A corrupt map can no longer throw out of the script
+  that pushed it either.
+- **Runtime `modifyConfig` never reached the running service worker**
+  (`src/controller/controller.ts`). `init()`/`modifyConfig()` posted the
+  `loadConfig` message to `navigator.serviceWorker.controller`, which is null
+  whenever the _controller page itself_ is not controlled by the worker — the
+  ordinary first load after `register()` (nothing calls `clients.claim()`), and
+  any host page outside the worker's scope. `bench/cache-e2e.mjs` prints this:
+  `first page is controlled by the worker: false`. Since the worker's
+  `loadConfig()` returns early once it holds a config, nothing else ever
+  re-read it, so every runtime change — error-page theme, feature flags,
+  prefix, codec, i.e. the whole advertised customization story — silently
+  failed to apply until the browser restarted the worker. There is now a
+  `notifyWorker()` that falls back to the active worker of the page's own
+  registration. Same trust boundary: the worker authenticates the message by
+  the sending client's URL (`isTrustedControllerClient`), not by whether it is
+  controlled.
+- **`<a target="_top">` in server-rewritten markup navigated the wrong frame**
+  (`src/shared/htmlRules.ts`). `_top`/`_parent` are retargeted at the real
+  frame's name, but `URLMeta` carries no frame names in the service worker (and
+  nothing has ever set the `topFrame`/`parentFrame` params), so the rule
+  returned `undefined`, which serialized as `target=""` — i.e. `_self`. The
+  keyword is preserved when the names are unknown.
+- **`document.querySelector` attribute-selector loosening was not global**
+  (`src/client/dom/document.ts`). The `[href^="https://…"]` → `[href*=…]`
+  rewrite had no `g` flag, so in a selector list only the first one was
+  loosened and the rest silently stopped matching.
+- **`Performance.getEntries*` filtering stopped decoding every entry**
+  (`src/client/dom/performance.ts`). It read the _trapped_ `entry.name`, which
+  unrewrites a proxied URL, purely to compare against Sherpa's own file paths,
+  and rebuilt that path list per entry. Reads the native name and hoists the
+  list now.
+- **`@/shared`'s config state moved into a leaf module** (`src/shared/state.ts`,
+  re-exported so no call site changed). `@/shared` exported `config` _and_
+  `export * from "./rewriters"`, while the rewriters import `config` from
+  `@/shared` — a real cycle. Same for `src/types.ts`, which value-imported the
+  controller, client and worker entry points (two of them entirely unused) to
+  name types, making `@/types` a runtime edge into the whole engine from leaf
+  modules like `@/shared/security/db`. All type-only now.
+
+Validation: **176 unit assertions** (37 new across `httpCache`,
+`responseCache` — which exercises the real `src/worker/cache.ts` against a fake
+`CacheStorage` — and `cookiePersistence`), ESLint, full TypeScript `--noEmit`,
+the production Rspack build, and the browser run above. `tests/unit/helpers/srcResolver.mjs`
+is new: an ESM resolve hook that teaches `node --test` the `@/` aliases and
+extension-less specifiers, so engine modules can be tested directly instead of
+through a copy of their logic.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

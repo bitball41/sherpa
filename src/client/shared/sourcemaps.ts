@@ -2,6 +2,7 @@ import { config, flagEnabled } from "@/shared";
 import { ProxyCtx, SherpaClient } from "@client/index";
 import {
 	decodeRewrites,
+	RawSourceMap,
 	Rewrite,
 	RewriteType,
 	SourceMaps,
@@ -20,21 +21,38 @@ function getEnd(rewrite: Rewrite): number {
 }
 
 /**
- * A map pushed by a rewritten script: base64 when the service worker
- * serialized it into the script text, the rewriter's own bytes when the
- * rewrite happened in this realm. (A plain number array is still accepted so
- * scripts rewritten by an older worker keep working.)
+ * Materializes the rewrite table for one scramtag, decoding it the first time
+ * it is actually needed.
+ *
+ * Decoding is not cheap - it allocates a `Rewrite` object per entry, which for
+ * a large minified bundle is tens of thousands of them - and it used to run
+ * inline in every rewritten script's first statement, on the critical path,
+ * for a table that only `Function.prototype.toString` ever reads. Deferring it
+ * also means a corrupt map can no longer throw out of the script that pushed
+ * it and take the page's own code down with it.
  */
-type PushedSourceMap = string | Uint8Array | Array<number>;
+function rewritesFor(client: SherpaClient, tag: string): Rewrite[] | undefined {
+	const decoded = client.box.sourcemaps[tag];
+	if (decoded) return decoded;
 
-function registerRewrites(
-	client: SherpaClient,
-	buf: PushedSourceMap,
-	tag: string
-) {
-	client.box.sourcemaps[tag] = decodeRewrites(
-		typeof buf === "string" ? base64ToBytes(buf) : buf
-	);
+	const raw = client.box.rawSourcemaps[tag];
+	if (raw === undefined) return undefined;
+	delete client.box.rawSourcemaps[tag];
+
+	try {
+		const before = performance.now();
+		const rewrites = decodeRewrites(
+			typeof raw === "string" ? base64ToBytes(raw) : raw
+		);
+		dbg.time(client.meta, before, `scramtag parse for ${tag}`);
+		client.box.sourcemaps[tag] = rewrites;
+
+		return rewrites;
+	} catch (error) {
+		console.warn("failed to decode the source map for tag", tag, error);
+
+		return undefined;
+	}
 }
 
 const SCRAMTAG = "/*scramtag ";
@@ -77,7 +95,7 @@ function doUnrewrite(client: SherpaClient, ctx: ProxyCtx) {
 
 	const fnStart = tagStart - tagOffset;
 	const fnEnd = fnStart + stringified.length;
-	const rewrites = client.box.sourcemaps[tag];
+	const rewrites = rewritesFor(client, tag);
 
 	if (!rewrites) {
 		console.warn("failed to get rewrites for tag", tag);
@@ -127,10 +145,10 @@ export const enabled = (client: SherpaClient) =>
 export default function (client: SherpaClient, self: Self) {
 	// every script will push a sourcemap
 	Object.defineProperty(self, config.globals.pushsourcemapfn, {
-		value: (buf: PushedSourceMap, tag: string) => {
-			const before = performance.now();
-			registerRewrites(client, buf, tag);
-			dbg.time(client.meta, before, `scramtag parse for ${tag}`);
+		// Runs as the first statement of every rewritten script: it has to stay
+		// a plain assignment. The decode happens in `rewritesFor`, on demand.
+		value: (buf: RawSourceMap, tag: string) => {
+			client.box.rawSourcemaps[tag] = buf;
 		},
 		enumerable: false,
 		writable: false,

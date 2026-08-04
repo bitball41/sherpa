@@ -87,10 +87,20 @@ export const htmlRules: HtmlRule[] = [
 		style: "*",
 	},
 	{
+		// `_top`/`_parent` are emulated by retargeting at the real frame's name,
+		// because the proxied document's frame tree is not the browsing context
+		// the page thinks it is. The frame names are only known in a page realm:
+		// in the service worker, where static HTML is rewritten, `URLMeta`
+		// carries no frame names at all. Falling through to `undefined` there
+		// serialized as `target=""`, which is `_self` - so a `<a target="_top">`
+		// in server-rewritten markup silently navigated the frame it was in
+		// instead of the top one. Keeping the original keyword lets the browser
+		// (and the client's own `target` trap, which does know the names) handle
+		// it.
 		fn: (value: string, meta: URLMeta) => {
 			if (value === "_top" || value === "_unfencedTop")
-				return meta.topFrameName;
-			else if (value === "_parent") return meta.parentFrameName;
+				return meta.topFrameName ?? value;
+			else if (value === "_parent") return meta.parentFrameName ?? value;
 			else return value;
 		},
 		target: ["a", "base"],

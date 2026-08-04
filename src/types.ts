@@ -1,10 +1,15 @@
-import { SherpaClient } from "@client/index";
-import { SherpaFrame } from "@/controller/frame";
-import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
-import * as controller from "@/controller/index";
-import * as client from "@/client/entry";
-import * as worker from "@/worker/index";
-import { DBSchema } from "idb";
+// Every import here exists only to name a type. Marking them `import type`
+// keeps this module from being a runtime edge into the controller, client and
+// worker entry points - which made `@/types` (imported by leaf modules such as
+// `@/shared/security/db`) drag the whole engine in behind it, and put
+// `@/worker/index` in a cycle with its own type declarations.
+import type { SherpaClient } from "@client/index";
+import type { SherpaFrame } from "@/controller/frame";
+import type { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
+import type * as controller from "@/controller/index";
+import type * as client from "@/client/entry";
+import type * as worker from "@/worker/index";
+import type { DBSchema } from "idb";
 
 /**
  * Version information for the current Sherpa build.
@@ -33,6 +38,18 @@ export type SherpaFlags = {
 	interceptDownloads: boolean;
 	allowInvalidJs: boolean;
 	allowFailedIntercepts: boolean;
+	/**
+	 * Store rewritten subresource responses in the Cache API and reuse them
+	 * according to the origin's own `Cache-Control` (default: `true`).
+	 *
+	 * A service worker's synthesized responses are never kept in the browser's
+	 * HTTP cache, so with this off every navigation re-downloads *and*
+	 * re-rewrites every script, stylesheet, font and image the page touches.
+	 * Documents are never cached (a proxied document embeds a snapshot of the
+	 * cookie jar), and neither are responses that set cookies, carry
+	 * credentials, or `Vary` on anything Sherpa cannot reproduce.
+	 */
+	responseCache: boolean;
 };
 
 /**

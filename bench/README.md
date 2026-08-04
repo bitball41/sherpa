@@ -29,6 +29,7 @@ npm run build     # bundle Sherpa (../src) + upstream (.upstream/src) rewriters
 npm run micro     # rewriter throughput, interleaved A/B, medians + win rates
 npm run size      # wire cost: raw/gzip/brotli of every runtime artifact
 npm run e2e       # full-pipeline page loads in Chromium via Playwright
+node cache-e2e.mjs # response-cache behavior + warm repeat-navigation A/B
 BENCH_BASELINE_REF=<commit> npm run build && npm run verify
                   # byte-equivalence of rewriter output vs a pinned commit
 BENCH_BASELINE_REF=<commit> npm run build && npm run regression
@@ -87,6 +88,22 @@ understates the browser cost of every read it saves.
 
 **Wire cost (`size.mjs`)** — raw/gzip/brotli sizes of every artifact a page
 downloads, Sherpa `dist/` vs the published Scramjet dist.
+
+**Response cache (`cache-e2e.mjs`)** — behavioral first, comparative second.
+Drives a real Chromium, service worker and transport against a fixture origin
+that counts every hit, over a shaped link (60 ms RTT / 10 Mbit/s;
+`SHERPA_SHAPE=0` to disable). Every phase runs in a **freshly opened page**
+against a **different document** of the same site: a repeat navigation inside
+one page proves nothing, because the renderer's own in-memory cache also holds
+service-worker responses for the life of the process. It asserts that a fresh
+subresource is served without touching the origin, that turning `responseCache`
+off brings every one of those requests back (which is what attributes the hit
+to the engine rather than to the browser), that a `no-cache` resource is
+revalidated with a `304` instead of re-downloaded, that documents are always
+re-fetched, and that the page executes and styles correctly either way. Ends
+with an A/B where each sample is the first proxied navigation of a fresh page,
+so both sides pay the same per-page setup. Set `SHERPA_CHROMIUM` if
+playwright's pinned browser build is not the one installed.
 
 **Equivalence (`verify.mjs`)** — the optimizations must not change behavior:
 rewriter output is compared byte-for-byte against the pre-optimization

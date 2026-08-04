@@ -1,5 +1,5 @@
-import { SherpaDB } from "@/types";
-import { openDB, IDBPDatabase } from "idb";
+import type { SherpaDB } from "@/types";
+import { openDB, type IDBPDatabase } from "idb";
 
 // Opening an IndexedDB connection costs a browser-process round trip, and the
 // security emulation used to do it several times for every proxied request.
