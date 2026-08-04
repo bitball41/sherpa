@@ -5,18 +5,26 @@ import type { SherpaConfig, SherpaFlags } from "@/types";
 // compilations and invalid entries across config replacements.
 const siteFlagRegexes = new Map<string, RegExp | null>();
 
+const hasOwn = Object.prototype.hasOwnProperty;
+
 export function flagEnabledForConfig(
 	config: Pick<SherpaConfig, "flags" | "siteFlags">,
 	flag: keyof SherpaFlags,
 	url: URL
 ): boolean {
 	const value = config.flags[flag];
-	for (const regex of Object.keys(config.siteFlags)) {
-		const partialflags = config.siteFlags[regex];
+	const siteFlags = config.siteFlags;
+	// for-in rather than Object.keys: this runs several times per rewritten
+	// resource and the overwhelmingly common configuration has no per-site
+	// overrides at all, where Object.keys still allocated an empty array on
+	// every call. The own-property guard below keeps Object.keys' semantics.
+	for (const regex in siteFlags) {
+		if (!hasOwn.call(siteFlags, regex)) continue;
+		const partialflags = siteFlags[regex];
 		if (
 			!partialflags ||
 			typeof partialflags !== "object" ||
-			!Object.prototype.hasOwnProperty.call(partialflags, flag)
+			!hasOwn.call(partialflags, flag)
 		)
 			continue;
 		const override = partialflags[flag];

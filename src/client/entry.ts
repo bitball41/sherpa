@@ -6,6 +6,7 @@ import { SherpaClient } from "@client/index";
 import { SherpaContextEvent, UrlChangeEvent } from "@client/events";
 import { SherpaServiceWorkerRuntime } from "@client/swruntime";
 import { SherpaConfig } from "@/types";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
 export const iswindow = "window" in globalThis && window instanceof Window;
 export const isworker = "WorkerGlobalScope" in globalThis;
@@ -14,7 +15,7 @@ export const isdedicated = "DedicatedWorkerGlobalScope" in globalThis;
 export const isshared = "SharedWorkerGlobalScope" in globalThis;
 export const isemulatedsw =
 	"location" in globalThis &&
-	new URL(globalThis.location.href).searchParams.get("dest") ===
+	new URL(globalThis.location.href).searchParams.get(INTERNAL_PARAMS.dest) ===
 		"serviceworker";
 
 function createFrameId() {

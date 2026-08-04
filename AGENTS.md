@@ -391,8 +391,8 @@ plus `build`/`build:types`/`test:*`. What was done:
   (`if (1) return;` in `dbg.time` → a named `TIMING_ENABLED = false` module
   toggle, same disabled-by-default behavior but self-documenting and
   re-enablable); one unnecessary empty template literal (` ` ``→`""`); two
-`quotes`on font stacks that legitimately contain`"..."`— fixed at the
-config by adding`{ avoidEscape: true }`to the`quotes` rule (the idiomatic
+  `quotes`on font stacks that legitimately contain`"..."`— fixed at the
+  config by adding`{ avoidEscape: true }`to the`quotes` rule (the idiomatic
   setting: single quotes are the correct choice when the string embeds double
   quotes), so the source stays as written.
 - **Warnings (36 → 0).** `prefer-const` via `eslint --fix`; unused imports
@@ -574,6 +574,82 @@ package-validation checks pass. A live Playwright run remains unavailable in
 this sandbox because no browser binary is installed and its browser CDN is not
 reachable; this is an environment limitation, not a skipped local failure. No
 Rust source or committed WASM binary changed.
+
+### Hot-path pass: rewrite-metadata resolution, page-facing DOM traps, internal query namespace
+
+The previous performance work targeted the service worker. This pass targets
+the **page realm**, where the same shared rewriters run against a `URLMeta`
+whose `origin`/`base` are accessors — each read decodes the proxied
+`location.href` and runs a `querySelector("base")` on the document. Reading
+them once per URL touched, as the rewriters did, made that cost scale with
+page content.
+
+Fixed bugs (each one reproducible, not theoretical):
+
+- **`<base href>` in client-rewritten markup threw and silently disabled
+  rewriting.** `traverseParsedHtml` assigns `meta.base` when it meets a
+  `<base>`; the client's meta is getter-only, and the bundle is strict mode,
+  so the assignment threw `TypeError: Cannot set property base ... which has
+only a getter`. `innerHTML`/`insertAdjacentHTML`/`DOMParser`/`document.write`
+  catch and fall back to the **unrewritten** markup (URLs unproxied);
+  `outerHTML` threw into page code. `rewriteHtml` now resolves the caller's
+  meta into its own mutable object (`snapshotMeta`, `src/shared/urlMeta.ts`)
+  before traversing.
+- **A malformed `<base href>` took the whole page's rewriting down.**
+  `client.meta.base` did a bare `new URL(href, ...)`, which throws for `//`,
+  `http://` or a leftover template placeholder — out of a getter that every
+  URL rewrite reads. Now uses the same `resolveBaseHref` helper the worker
+  does and ignores an unresolvable base, per HTML.
+- **Sherpa's internal query parameters collided with site parameters.** The
+  engine claimed the bare names `type`, `dest`, `scope`, `from`, `topFrame`
+  and `parentFrame` on proxied URLs, and the worker consumed anything under
+  them. A GET form with a `type` select or a `from` date field lost that
+  field before the upstream request, and a page URL carrying
+  `?dest=serviceworker` made the client boot as an emulated service worker.
+  All six now live under a `sherpa.` namespace, defined once in
+  `src/shared/internalParams.ts`; everything outside it is the site's and is
+  passed through.
+- **A null rewriter source map discarded a successful rewrite.**
+  `Array.from(res.map)` threw on it, and the catch (with `allowInvalidJs`,
+  which defaults on) handed the page its **original, unproxied** script.
+- **`element.attributes` had no identity.** A fresh `Proxy` per read, so
+  `el.attributes !== el.attributes`. Now one wrapper per map.
+- **`RawTrap` clobbered its receiver on re-entry.** The per-trap `ctx` is
+  shared across calls for allocation reasons but `ctx.this` was never
+  restored, so a trap body that re-entered the same trap left the outer call
+  operating on the inner call's object. Saved and restored now.
+
+Performance (measured; `bench/regression.mjs`, added in this pass, A/Bs the
+working tree against any git ref through the existing `BENCH_BASELINE_REF`
+bundling):
+
+- **Meta accessor reads collapse**: 1611 → 2 per corpus `article.html`,
+  194 → 2 per corpus `site.css`. Realm-independent count; in a page each of
+  those was a proxied-URL decode + a `<base>` DOM query.
+- **`unrewriteHtml` ~90×** on markup with no `sherpa-attr-*` attributes —
+  i.e. the common `element.innerHTML` read, which used to round-trip through
+  htmlparser2 + dom-serializer unconditionally. It also stops handing pages
+  back re-serialized markup instead of their own.
+- Worker-realm rewrite throughput unchanged (that realm's meta was already a
+  plain object); the page-realm harness numbers are a floor, since a Node
+  stub cannot simulate `querySelector`.
+- **Inline source maps ~2× smaller.** In the SW path the map was serialized
+  into every rewritten script as a decimal array literal (~2.6 characters
+  per byte, and the page's JS parser had to materialize the array); it is
+  base64 now (~1.33). Same map, and in-realm pushes hand over the rewriter's
+  `Uint8Array` directly instead of copying it through an `Array` of numbers.
+- `Error.prepareStackTrace` is no longer rebuilt as a fresh closure on every
+  proxied call; `base64` uses `Uint8Array.fromBase64`/`toBase64` where the
+  engine has them (the ~534 KiB WASM decode in every document's boot);
+  `natives.call` uses `Reflect.apply` instead of re-spreading its rest array;
+  the hot `Element.prototype` attribute natives are captured once instead of
+  re-entering the `natives.store` Proxy per call; `flagEnabled` no longer
+  allocates a key array per call; and the worker's per-response destination
+  and MIME lookups are hoisted `Set`s rather than rebuilt array literals.
+
+Not addressed here, and still the top of `bench/bottleneck/README.md`:
+response caching and streaming HTML rewriting. Both are architectural and
+network-bound rather than engine-CPU.
 
 ## What's NOT done yet
 

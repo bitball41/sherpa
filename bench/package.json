@@ -8,6 +8,7 @@
 		"build": "node build.mjs",
 		"micro": "node micro.mjs",
 		"verify": "node verify.mjs",
+		"regression": "node regression.mjs",
 		"size": "node size.mjs",
 		"e2e": "node e2e/run.mjs"
 	},

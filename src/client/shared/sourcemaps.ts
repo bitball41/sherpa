@@ -6,6 +6,7 @@ import {
 	RewriteType,
 	SourceMaps,
 } from "@/shared/sourcemaps";
+import { base64ToBytes } from "@/shared/base64";
 
 export type { SourceMaps };
 
@@ -18,12 +19,22 @@ function getEnd(rewrite: Rewrite): number {
 	throw "unreachable";
 }
 
+/**
+ * A map pushed by a rewritten script: base64 when the service worker
+ * serialized it into the script text, the rewriter's own bytes when the
+ * rewrite happened in this realm. (A plain number array is still accepted so
+ * scripts rewritten by an older worker keep working.)
+ */
+type PushedSourceMap = string | Uint8Array | Array<number>;
+
 function registerRewrites(
 	client: SherpaClient,
-	buf: Array<number>,
+	buf: PushedSourceMap,
 	tag: string
 ) {
-	client.box.sourcemaps[tag] = decodeRewrites(buf);
+	client.box.sourcemaps[tag] = decodeRewrites(
+		typeof buf === "string" ? base64ToBytes(buf) : buf
+	);
 }
 
 const SCRAMTAG = "/*scramtag ";
@@ -116,7 +127,7 @@ export const enabled = (client: SherpaClient) =>
 export default function (client: SherpaClient, self: Self) {
 	// every script will push a sourcemap
 	Object.defineProperty(self, config.globals.pushsourcemapfn, {
-		value: (buf: Array<number>, tag: string) => {
+		value: (buf: PushedSourceMap, tag: string) => {
 			const before = performance.now();
 			registerRewrites(client, buf, tag);
 			dbg.time(client.meta, before, `scramtag parse for ${tag}`);

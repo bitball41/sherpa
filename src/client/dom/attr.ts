@@ -1,11 +1,20 @@
 import { SherpaClient } from "@client/index";
-
-const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
+import { SHADOW_ATTRIBUTE_PREFIX } from "@rewriters/html";
 
 export default function (client: SherpaClient, self: typeof window) {
+	// `element.attributes` returns the same live NamedNodeMap every time, and
+	// the DOM guarantees `el.attributes === el.attributes`. Building a fresh
+	// Proxy per read broke that identity (so a page caching the map compared
+	// unequal against a later read) and allocated on every access, which is
+	// hot on anything that walks attributes. One wrapper per map instead.
+	const wrappers = new WeakMap<NamedNodeMap, NamedNodeMap>();
+
 	client.Trap("Element.prototype.attributes", {
 		get(ctx) {
 			const map = ctx.get() as NamedNodeMap;
+			const cached = wrappers.get(map);
+			if (cached) return cached;
+
 			const element = ctx.this as Element;
 			const proxy = new Proxy(map, {
 				get(target, prop, _receiver) {
@@ -144,6 +153,8 @@ export default function (client: SherpaClient, self: typeof window) {
 					return Reflect.has(target, prop);
 				},
 			});
+
+			wrappers.set(map, proxy);
 
 			return proxy;
 		},

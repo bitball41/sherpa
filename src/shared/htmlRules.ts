@@ -73,21 +73,11 @@ export const htmlRules: HtmlRule[] = [
 		imagesrcset: ["link"],
 	},
 	{
+		// about:srcdoc inherits the embedding document's fallback base URL.
+		// rewriteHtml resolves the meta into its own object before traversing,
+		// so a <base> inside the srcdoc can't reach the parent document's base.
 		fn: (value: string, meta: URLMeta, cookieStore: CookieStore) =>
-			rewriteHtml(
-				value,
-				cookieStore,
-				{
-					// about:srcdoc inherits the embedding document's fallback base URL.
-					// Clone the URLs because a <base> inside the srcdoc may mutate its
-					// rewrite metadata and must not change the parent document's base.
-					origin: new URL(meta.origin),
-					base: new URL(meta.base),
-					topFrameName: meta.topFrameName,
-					parentFrameName: meta.parentFrameName,
-				},
-				true
-			),
+			rewriteHtml(value, cookieStore, meta, true),
 
 		// srcdoc
 		srcdoc: ["iframe"],

@@ -2,6 +2,7 @@ import { config, flagEnabled } from "@/shared";
 import { URLMeta } from "@rewriters/url";
 
 import { getRewriter, JsRewriterOutput, textDecoder } from "@rewriters/wasm";
+import { bytesToBase64 } from "@/shared/base64";
 
 Error.stackTraceLimit = 50;
 
@@ -15,9 +16,10 @@ function rewriteJsWasm(
 	input: string | Uint8Array,
 	source: string | null,
 	meta: URLMeta,
+	base: URL,
 	module: boolean
 ): RewriterResult {
-	const [rewriter, ret] = getRewriter(meta);
+	const [rewriter, ret] = getRewriter(base);
 
 	try {
 		let out: JsRewriterOutput;
@@ -26,14 +28,14 @@ function rewriteJsWasm(
 		if (typeof input === "string") {
 			out = rewriter.rewrite_js(
 				input,
-				meta.base.href,
+				base.href,
 				source || "(unknown)",
 				module
 			);
 		} else {
 			out = rewriter.rewrite_js_bytes(
 				input,
-				meta.base.href,
+				base.href,
 				source || "(unknown)",
 				module
 			);
@@ -70,8 +72,11 @@ export function rewriteJsInner(
 	meta: URLMeta,
 	module = false
 ) {
-	return rewriteJsWasm(js, url, meta, module);
+	return rewriteJsWasm(js, url, meta, meta.base, module);
 }
+
+// don't put the sourcemap call before "use strict"
+const strictMode = /^\s*(['"])use strict\1;?/;
 
 export function rewriteJs(
 	js: string | Uint8Array,
@@ -79,22 +84,32 @@ export function rewriteJs(
 	meta: URLMeta,
 	module = false
 ): string | Uint8Array {
+	// `meta.base` is an accessor in the client realm (DOM query + proxied-URL
+	// decode + URL parse). Every flag check and the rewriter call itself want
+	// it, so resolve it exactly once per script.
+	const base = meta.base;
 	try {
-		const res = rewriteJsInner(js, url, meta, module);
+		const res = rewriteJsWasm(js, url, meta, base, module);
 		let newjs = res.js;
 
-		if (flagEnabled("sourcemaps", meta.base)) {
+		// `map` is optional: a rewriter build without map emission returns null,
+		// and blowing up on it here used to drop the whole (already successful)
+		// rewrite and hand the page its original, unproxied script.
+		if (res.map && flagEnabled("sourcemaps", base)) {
 			const pushmap = globalThis[config.globals.pushsourcemapfn];
 			if (pushmap) {
-				pushmap(Array.from(res.map), res.tag);
+				pushmap(res.map, res.tag);
 			} else {
 				if (newjs instanceof Uint8Array) {
-					newjs = new TextDecoder().decode(newjs);
+					newjs = textDecoder.decode(newjs);
 				}
-				const sourcemapfn = `${config.globals.pushsourcemapfn}([${res.map.join(",")}], "${res.tag}");`;
+				// Serialized as base64 rather than a decimal array literal: the
+				// literal cost ~4 characters per map byte on the wire and forced
+				// the page's JS parser to materialize an array of that length
+				// before the script could run. This is the same map in ~1.34
+				// characters per byte, parsed as a single string.
+				const sourcemapfn = `${config.globals.pushsourcemapfn}("${bytesToBase64(res.map)}", "${res.tag}");`;
 
-				// don't put the sourcemap call before "use strict"
-				const strictMode = /^\s*(['"])use strict\1;?/;
 				if (strictMode.test(newjs)) {
 					newjs = newjs.replace(strictMode, `$&\n${sourcemapfn}`);
 				} else {
@@ -103,7 +118,7 @@ export function rewriteJs(
 			}
 		}
 
-		if (flagEnabled("rewriterLogs", meta.base)) {
+		if (flagEnabled("rewriterLogs", base)) {
 			for (const error of res.errors) {
 				console.error("oxc parse error", error);
 			}
@@ -117,7 +132,7 @@ export function rewriteJs(
 			err.message,
 			js instanceof Uint8Array ? textDecoder.decode(js) : js
 		);
-		if (flagEnabled("allowInvalidJs", meta.base)) {
+		if (flagEnabled("allowInvalidJs", base)) {
 			return js;
 		} else {
 			throw err;

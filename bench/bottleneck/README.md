@@ -111,6 +111,14 @@ order of magnitude faster; better still, fetch the payload as an
 `ArrayBuffer` instead of embedding 695 KiB of base64 into a `<script>` the
 renderer must also parse.
 
+> **Partly addressed since this was measured.** The per-byte mapper is an
+> indexed `charCodeAt` loop now, and `base64ToBytes` uses
+> `Uint8Array.fromBase64` where the engine has it (Chrome 140+, Safari 18.2+),
+> which is roughly another order of magnitude. What remains is the design
+> itself: 695 KiB of base64 embedded in a `<script>` the renderer must parse,
+> once per document. Fetching the payload as an `ArrayBuffer` instead is
+> still the real fix, and is not done.
+
 ### 4. Wire inflation: rewritten HTML is 2–2.5×, JS +43% under default flags
 
 From `rewrite-cost.mjs` (real rewriters, default `SherpaController` flags —
@@ -124,14 +132,20 @@ note `sourcemaps` **defaults to true**):
 | real minified bundle 176 KiB, maps on  | 252 KiB (**1.43×**) | map serialized as a decimal `[104,101,…]` literal per script      |
 | same, `sourcemaps: false`              | 181 KiB (1.03×)     | and ~25% less rewrite CPU                                         |
 
-In the SW path the sourcemap is prepended to **every script** as a decimal
-array literal (`js.ts` — the `pushsourcemapfn` global never exists in the
-worker), which the client then parses and keeps in `client.box.sourcemaps`
-for the life of the realm. On a localhost fixture this is invisible (the
-A/B measured no difference); on a real link it's +40% script download on
-the critical path, plus memory that never gets evicted. The doubled HTML
-also roughly doubles renderer `ParseHTML` time (56 ms for the 80→161 KiB
-article).
+In the SW path the sourcemap is prepended to **every script** (`js.ts` — the
+`pushsourcemapfn` global never exists in the worker), which the client then
+parses and keeps in `client.box.sourcemaps` for the life of the realm.
+
+> **Partly addressed since this was measured.** The map used to be serialized
+> as a decimal array literal (~2.6 characters per map byte, which the page's
+> JS parser then had to materialize as an array). It is base64 now (~1.33
+> characters per byte) — about **half** the bytes, parsed as a single string
+> — so the `1.43×` row above reads closer to `1.2×` today. The map is still
+> on the critical path, so the fix direction below still stands. On a localhost fixture this is invisible (the
+> A/B measured no difference); on a real link it's +40% script download on
+> the critical path, plus memory that never gets evicted. The doubled HTML
+> also roughly doubles renderer `ParseHTML` time (56 ms for the 80→161 KiB
+> article).
 
 _Fix direction:_ default `sourcemaps` off (it exists to make
 `Function.prototype.toString` fidelity work — a compat nicety, not a

@@ -31,6 +31,8 @@ npm run size      # wire cost: raw/gzip/brotli of every runtime artifact
 npm run e2e       # full-pipeline page loads in Chromium via Playwright
 BENCH_BASELINE_REF=<commit> npm run build && npm run verify
                   # byte-equivalence of rewriter output vs a pinned commit
+BENCH_BASELINE_REF=<commit> npm run build && npm run regression
+                  # this tree vs a pinned commit: did my change actually help?
 ```
 
 Raw results land in `results/*.json` (git-ignored) with environment metadata.
@@ -71,6 +73,17 @@ time for a full proxied page load in a real browser.
   page) are measured separately in fresh contexts. n=24 warm samples per
   page per engine per run; navigation retries are counted and reported
   (0 in the reported runs).
+
+**Self-regression (`regression.mjs`)** — the other harnesses compare Sherpa
+to upstream. This one compares Sherpa to _itself_ at any pinned commit, and
+splits each case by realm, which matters because the shared rewriters run in
+two very different ones: in the service worker `URLMeta` is a plain object
+built per request, while in a proxied page `origin`/`base` are accessors that
+decode the proxied location and query the document for `<base>` on every
+read. It also reports how many times each variant reads those accessors per
+stylesheet and per document — a realm-independent count, and the honest
+number, since a Node harness cannot simulate `querySelector` and so
+understates the browser cost of every read it saves.
 
 **Wire cost (`size.mjs`)** — raw/gzip/brotli sizes of every artifact a page
 downloads, Sherpa `dist/` vs the published Scramjet dist.

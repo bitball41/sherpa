@@ -2,6 +2,7 @@ import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 import { isUrlLikeSpecifier } from "@rewriters/importMap";
 
 export default function (client: SherpaClient, self: Self) {
@@ -20,7 +21,7 @@ export default function (client: SherpaClient, self: Self) {
 				// this is a url
 				return boundimport(
 					appendUrlParams(rewriteUrl(resolved, client.meta), {
-						type: "module",
+						[INTERNAL_PARAMS.type]: "module",
 					})
 				);
 			} else {

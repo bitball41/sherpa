@@ -3,6 +3,7 @@ import { type MessageC2W } from "@/worker";
 import { flagEnabled } from "@/shared";
 import { rewriteUrl } from "@rewriters/url";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 import {
 	resolveServiceWorkerRegistrationUrls,
 	ServiceWorkerRegistrationStore,
@@ -277,9 +278,10 @@ export default function (client: SherpaClient, self: Self) {
 					}
 
 					const url = appendUrlParams(rewriteUrl(scriptURL.href, client.meta), {
-						dest: "serviceworker",
-						scope: scopePath,
-						type: ctx.args[1]?.type === "module" ? "module" : undefined,
+						[INTERNAL_PARAMS.dest]: "serviceworker",
+						[INTERNAL_PARAMS.scope]: scopePath,
+						[INTERNAL_PARAMS.type]:
+							ctx.args[1]?.type === "module" ? "module" : undefined,
 					});
 					const worker = client.natives.construct("SharedWorker", url);
 					const handle = worker.port as MessagePort;

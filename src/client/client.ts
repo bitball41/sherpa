@@ -5,6 +5,8 @@ import { createLocationProxy } from "@client/location";
 import { createWrapFn } from "@client/shared/wrap";
 import { NavigateEvent } from "@client/events";
 import { rewriteUrl, unrewriteUrl, type URLMeta } from "@rewriters/url";
+import { SHADOW_ATTRIBUTE_PREFIX } from "@rewriters/html";
+import { resolveBaseHref } from "@/shared/urlCodec";
 import { config, flagEnabled } from "@/shared";
 import { CookieStore } from "@/shared/cookie";
 import { iswindow } from "./entry";
@@ -57,6 +59,33 @@ export type Trap<T> = {
 	get?: (ctx: TrapCtx<T>) => T;
 	set?: (ctx: TrapCtx<T>, v: T) => void;
 };
+
+// Installed around every trapped call so a throw from Sherpa's own handler
+// can be told apart from one raised by page code. It used to be built fresh
+// inside the apply trap, which meant a closure allocation on *every* proxied
+// call a page made; nothing in it varies per call, so it lives here instead.
+// `location.origin` is immutable for a realm, so the proxy-URL prefix is only
+// rebuilt when the configured prefix changes.
+let internalsPrefix = "";
+let internalsPrefixSource: string | null = null;
+
+// Structural, rather than NodeJS.CallSite: the user-facing declaration build
+// deliberately excludes @types/node.
+type StackFrame = { getFileName(): string | null };
+
+function internalsStackTrace(err: Error, stack: StackFrame[]) {
+	const fileName = stack[0]?.getFileName();
+	if (!fileName) return;
+
+	if (internalsPrefixSource !== config.prefix) {
+		internalsPrefixSource = config.prefix;
+		internalsPrefix = location.origin + config.prefix;
+	}
+
+	if (!fileName.startsWith(internalsPrefix)) {
+		return { stack: err.stack };
+	}
+}
 
 export class SherpaClient {
 	locationProxy: any;
@@ -176,13 +205,17 @@ export class SherpaClient {
 				const original = this.store[target];
 				if (!original) return null;
 
-				return new original(...args);
+				return Reflect.construct(original, args);
 			},
 			call(target: string, that: any, ...args) {
 				const original = this.store[target];
 				if (!original) return null;
 
-				return original.call(that, ...args);
+				// Reflect.apply over `original.call(that, ...args)`: the rest
+				// array already exists, and spreading it back out is pure
+				// overhead on a path the DOM traps take thousands of times per
+				// page.
+				return Reflect.apply(original, that, args);
 			},
 		};
 		this.descriptors = {
@@ -237,15 +270,39 @@ export class SherpaClient {
 						"Document.prototype.querySelector",
 						client.global.document,
 						"base"
-					);
+					) as Element | null;
 					if (base) {
-						let url = base.getAttribute("href");
+						// Read through the natives rather than the trapped
+						// `getAttribute`: this runs on every URL the page rewrites,
+						// and the shadow attribute holds the page's original href
+						// (the visible one is already rewritten).
+						const shadow = SHADOW_ATTRIBUTE_PREFIX + "href";
+						let url = client.natives.call(
+							"Element.prototype.hasAttribute",
+							base,
+							shadow
+						)
+							? client.natives.call(
+									"Element.prototype.getAttribute",
+									base,
+									shadow
+								)
+							: client.natives.call(
+									"Element.prototype.getAttribute",
+									base,
+									"href"
+								);
 						if (!url) return client.url;
 						const frag = url.indexOf("#");
 						url = url.substring(0, frag === -1 ? undefined : frag);
 						if (!url) return client.url;
 
-						return new URL(url, client.url.href);
+						// An unresolvable <base href> (`//`, `http://`, a leftover
+						// template placeholder) is ignored per HTML - it used to
+						// throw straight out of this getter, and since every single
+						// URL rewrite reads it, one malformed <base> took the whole
+						// page's rewriting down with it.
+						return resolveBaseHref(url, client.url) ?? client.url;
 					}
 				}
 
@@ -417,8 +474,24 @@ export class SherpaClient {
 		}
 	}
 
+	// `url` is read on essentially every proxied operation - every location
+	// property access, every URL rewrite (through `meta`), storage
+	// namespacing, cookies, websockets - and computing it costs a proxied-URL
+	// decode plus a URL parse. The realm's real `location.href` is the only
+	// input, so cache against it: a hit is one native getter read and a string
+	// compare. Callers only ever read from the result or clone it via
+	// `new URL(client.url.href)`.
+	#cachedRawUrl: string | null = null;
+	#cachedUrl: URL | null = null;
+
 	get url(): URL {
-		return new URL(unrewriteUrl(this.global.location.href));
+		const raw = this.global.location.href;
+		if (raw !== this.#cachedRawUrl) {
+			this.#cachedUrl = new URL(unrewriteUrl(raw));
+			this.#cachedRawUrl = raw;
+		}
+
+		return this.#cachedUrl;
 	}
 
 	set url(url: URL | string) {
@@ -529,14 +602,7 @@ export class SherpaClient {
 
 				const pst = Error.prepareStackTrace;
 
-				Error.prepareStackTrace = function (err, s) {
-					if (
-						s[0].getFileName() &&
-						!s[0].getFileName().startsWith(location.origin + config.prefix)
-					) {
-						return { stack: err.stack };
-					}
-				};
+				Error.prepareStackTrace = internalsStackTrace;
 
 				try {
 					try {
@@ -640,11 +706,20 @@ export class SherpaClient {
 
 		const desc: PropertyDescriptor = {};
 
+		// `ctx` is shared by every call to this trap so the common case costs no
+		// allocation, but that means the receiver has to be saved and restored:
+		// a trap body that re-enters the same trap on another object (a getter
+		// that walks the DOM, say) otherwise leaves the outer call operating on
+		// the inner call's `this`.
 		if (descriptor.get) {
 			desc.get = function () {
+				const previous = ctx.this;
 				ctx.this = this;
-
-				return descriptor.get(ctx);
+				try {
+					return descriptor.get(ctx);
+				} finally {
+					ctx.this = previous;
+				}
 			};
 		} else if (oldDescriptor?.get) {
 			desc.get = oldDescriptor.get;
@@ -652,9 +727,13 @@ export class SherpaClient {
 
 		if (descriptor.set) {
 			desc.set = function (v: T) {
+				const previous = ctx.this;
 				ctx.this = this;
-
-				descriptor.set(ctx, v);
+				try {
+					descriptor.set(ctx, v);
+				} finally {
+					ctx.this = previous;
+				}
 			};
 		} else if (oldDescriptor?.set) {
 			desc.set = oldDescriptor.set;

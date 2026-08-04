@@ -37,6 +37,7 @@ import {
 	normalizeHtmlContentType,
 } from "@/worker/response";
 import { appendUrlParamEntries } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS, takeInternalParams } from "@/shared/internalParams";
 
 async function fetchWithTransientRetry(
 	client: BareClient,
@@ -53,8 +54,22 @@ async function fetchWithTransientRetry(
 let cachedWasmPayload: Promise<string> | null = null;
 let cachedWasmPayloadPath: string | null = null;
 
+// Destinations that render a document, and the destinations that must carry
+// COOP/COEP when the page is cross-origin isolated. Hoisted out of the
+// request path: these were array literals rebuilt (and linearly scanned) for
+// every single proxied response.
+const DOCUMENT_DESTINATIONS = new Set(["document", "iframe"]);
+const ISOLATED_DESTINATIONS = new Set([
+	"document",
+	"iframe",
+	"worker",
+	"sharedworker",
+	"style",
+	"script",
+]);
+
 // displayable mime types, checked as a download fallback
-const displayableMimes = [
+const displayableMimes = new Set([
 	// Text types
 	"text/html",
 	"text/plain",
@@ -65,10 +80,10 @@ const displayableMimes = [
 	"application/json",
 	"application/xml",
 	"application/pdf",
-];
+]);
 
 function isDownload(responseHeaders: object, destination: string): boolean {
-	if (["document", "iframe"].includes(destination)) {
+	if (DOCUMENT_DESTINATIONS.has(destination)) {
 		const disposition = responseHeaders["content-disposition"];
 		const header = Array.isArray(disposition) ? disposition[0] : disposition;
 		if (header) {
@@ -90,7 +105,7 @@ function isDownload(responseHeaders: object, destination: string): boolean {
 				.toLowerCase();
 			if (
 				contentType &&
-				!displayableMimes.includes(contentType) &&
+				!displayableMimes.has(contentType) &&
 				!contentType.startsWith("text") &&
 				!contentType.startsWith("image") &&
 				!contentType.startsWith("font") &&
@@ -162,43 +177,21 @@ export async function handleFetch(
 			return renderError(sampleTrace, "https://example.com/");
 		}
 
-		let scriptType = "";
-		let topFrameName;
-		let parentFrameName;
-		let fromServiceWorkerRuntime = false;
-
-		const extraParams: Array<[string, string]> = [];
-		for (const [param, value] of [...requestUrl.searchParams.entries()]) {
-			switch (param) {
-				case "type":
-					scriptType = value;
-					break;
-				case "dest":
-					break;
-				case "scope":
-					break;
-				case "from":
-					fromServiceWorkerRuntime = value === "swruntime";
-					break;
-				case "topFrame":
-					topFrameName = value;
-					break;
-				case "parentFrame":
-					parentFrameName = value;
-					break;
-				default:
-					dbg.warn(
-						`${requestUrl.href} extraneous query parameter ${param}. Assuming <form> element`
-					);
-					extraParams.push([param, value]);
-					break;
-			}
-			requestUrl.searchParams.delete(param);
-		}
+		// Only parameters under Sherpa's own namespace are hints for the engine.
+		// Everything else belongs to the site - a GET form's fields, a link's
+		// query string - and has to survive onto the upstream request instead
+		// of being swallowed here.
+		const {
+			scriptType,
+			topFrameName,
+			parentFrameName,
+			fromServiceWorkerRuntime,
+			siteParams,
+		} = takeInternalParams(requestUrl);
 
 		const url = new URL(unrewriteUrl(requestUrl));
 		// now that we're past unrewriting it's safe to add back the params
-		appendUrlParamEntries(url, extraParams);
+		appendUrlParamEntries(url, siteParams);
 
 		const meta: URLMeta = {
 			origin: url,
@@ -269,14 +262,7 @@ export async function handleFetch(
 				// opener can only keep an equally-isolated popup.
 				if (
 					crossOriginIsolated &&
-					[
-						"document",
-						"iframe",
-						"worker",
-						"sharedworker",
-						"style",
-						"script",
-					].includes(request.destination)
+					ISOLATED_DESTINATIONS.has(request.destination)
 				) {
 					r.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
 					r.headers.set("Cross-Origin-Opener-Policy", "same-origin");
@@ -480,7 +466,7 @@ export async function handleFetch(
 		console.error("ERROR FROM SERVICE WORKER FETCH: ", errorDetails);
 		console.error(err);
 
-		if (!["document", "iframe"].includes(request.destination))
+		if (!DOCUMENT_DESTINATIONS.has(request.destination))
 			return new Response(undefined, { status: 500 });
 
 		const formattedError = Object.entries(errorDetails)
@@ -527,7 +513,7 @@ async function handleResponse(
 	// 	}
 	// }
 	const isNavigationRequest =
-		mode === "navigate" && ["document", "iframe"].includes(destination);
+		mode === "navigate" && DOCUMENT_DESTINATIONS.has(destination);
 	const rewrittenHeaders = await rewriteHeaders(
 		response.rawHeaders,
 		meta,
@@ -573,10 +559,10 @@ async function handleResponse(
 		);
 		await getMostRestrictiveSite(redirectUrl.toString(), newSiteDirective);
 
-		// ensure that ?type=module is not lost in a redirect
+		// ensure the module hint is not lost in a redirect
 		if (scriptType) {
 			const url = new URL(responseHeaders["location"]);
-			url.searchParams.set("type", scriptType);
+			url.searchParams.set(INTERNAL_PARAMS.type, scriptType);
 			responseHeaders["location"] = url.href;
 		}
 	}
@@ -706,17 +692,7 @@ async function handleResponse(
 	// sherpa runtime can use features that permissions-policy blocks
 	delete responseHeaders["permissions-policy"];
 
-	if (
-		crossOriginIsolated &&
-		[
-			"document",
-			"iframe",
-			"worker",
-			"sharedworker",
-			"style",
-			"script",
-		].includes(destination)
-	) {
+	if (crossOriginIsolated && ISOLATED_DESTINATIONS.has(destination)) {
 		responseHeaders["Cross-Origin-Embedder-Policy"] = "require-corp";
 		responseHeaders["Cross-Origin-Opener-Policy"] = "same-origin";
 	}

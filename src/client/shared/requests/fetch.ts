@@ -2,6 +2,7 @@ import { isemulatedsw } from "@client/entry";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
+import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
 export default function (client: SherpaClient) {
 	client.Proxy("fetch", {
@@ -11,7 +12,7 @@ export default function (client: SherpaClient) {
 
 				if (isemulatedsw)
 					ctx.args[0] = appendUrlParams(ctx.args[0], {
-						from: "swruntime",
+						[INTERNAL_PARAMS.from]: "swruntime",
 					});
 			}
 		},
@@ -24,7 +25,7 @@ export default function (client: SherpaClient) {
 
 				if (isemulatedsw)
 					ctx.args[0] = appendUrlParams(ctx.args[0], {
-						from: "swruntime",
+						[INTERNAL_PARAMS.from]: "swruntime",
 					});
 			}
 		},
