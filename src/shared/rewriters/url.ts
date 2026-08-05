@@ -77,7 +77,19 @@ export function rewriteUrl(url: string | URL, meta: URLMeta) {
 		return url;
 	}
 
-	return encodeProxyUrl(realUrl, proxyBase(), codecEncode);
+	const prefixed = proxyBase();
+	const href = realUrl.href;
+
+	// Rewriting is idempotent. A page hands Sherpa an already-proxied URL more
+	// often than it looks: any DOM stringifier reads the *attribute* rather
+	// than the trapped JS property, so `String(anchor)`, `${anchorElement}` and
+	// `fetch(anchor)` all produce the rewritten href. Encoding that a second
+	// time produced a URL whose inner target was the proxy itself, which the
+	// service worker then rejected as a same-origin fetch - the request failed
+	// outright instead of being served.
+	if (href.startsWith(prefixed)) return href;
+
+	return encodeProxyUrl(realUrl, prefixed, codecEncode, href);
 }
 
 export function unrewriteUrl(url: string | URL) {

@@ -1,6 +1,21 @@
 import { SherpaClient } from "@client/index";
 import { SHADOW_ATTRIBUTE_PREFIX } from "@rewriters/html";
 
+/**
+ * Array-index property name, per the spec's definition: canonical decimal
+ * digits only. `!isNaN(Number(prop))` also accepted `""`, `" "`, `"1e3"` and
+ * `"0x2"`, none of which are index properties on a `NamedNodeMap`.
+ */
+function isIndex(prop: string): boolean {
+	if (prop.length === 0 || prop.length > 10) return false;
+	for (let i = 0; i < prop.length; i++) {
+		const c = prop.charCodeAt(i);
+		if (c < 48 || c > 57) return false;
+	}
+
+	return prop.length === 1 || prop.charCodeAt(0) !== 48;
+}
+
 export default function (client: SherpaClient, self: typeof window) {
 	// `element.attributes` returns the same live NamedNodeMap every time, and
 	// the DOM guarantees `el.attributes === el.attributes`. Building a fresh
@@ -16,12 +31,55 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (cached) return cached;
 
 			const element = ctx.this as Element;
+
+			// The page-visible view of the map hides Sherpa's `sherpa-attr-*`
+			// entries, so both `length` and index access have to walk it. Doing
+			// that with `Object.keys(proxy)` re-entered this proxy's own
+			// `ownKeys`/`has` traps and materialized a key array for *every*
+			// index read - so the ordinary `for (i = 0; i < attributes.length;
+			// i++)` loop that analytics and framework code runs over an
+			// element's attributes was quadratic, with an allocation per step.
+			// Scanning the native map directly is the same answer without any
+			// of that.
+			const nativeItem = client.natives.store[
+				"NamedNodeMap.prototype.item"
+			] as typeof NamedNodeMap.prototype.item;
+			const nativeLength = client.descriptors.store[
+				"NamedNodeMap.prototype.length"
+			] as PropertyDescriptor;
+
+			function visibleAttribute(index: number): Attr | null {
+				const total = nativeLength.get.call(map) as number;
+				let seen = 0;
+				for (let i = 0; i < total; i++) {
+					const attr = nativeItem.call(map, i);
+					if (attr === null) continue;
+					if (attr.name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) continue;
+					if (seen === index) return attr;
+					seen++;
+				}
+
+				return null;
+			}
+
+			function visibleLength(): number {
+				const total = nativeLength.get.call(map) as number;
+				let visible = 0;
+				for (let i = 0; i < total; i++) {
+					const attr = nativeItem.call(map, i);
+					if (attr !== null && !attr.name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
+						visible++;
+				}
+
+				return visible;
+			}
+
 			const proxy = new Proxy(map, {
 				get(target, prop, _receiver) {
 					const value = Reflect.get(target, prop);
 
 					if (prop === "length") {
-						return Object.keys(proxy).length;
+						return visibleLength();
 					}
 
 					if (prop === "getNamedItem") {
@@ -114,6 +172,15 @@ export default function (client: SherpaClient, self: typeof window) {
 						};
 					}
 
+					// `Array.from(el.attributes)` / `[...el.attributes]` go through
+					// the value iterator WebIDL gives an indexed-getter interface,
+					// which is just `Array.prototype[Symbol.iterator]`. Rebinding it
+					// to the raw map below made it walk the *unfiltered* attribute
+					// list, so every `sherpa-attr-*` shadow attribute was handed
+					// straight to the page. Left unwrapped it iterates the proxy's
+					// own `length` and indices, which are filtered.
+					if (prop === Symbol.iterator) return value;
+
 					if (prop in NamedNodeMap.prototype && typeof value === "function") {
 						return new Proxy(value, {
 							apply(target, that, args) {
@@ -126,27 +193,55 @@ export default function (client: SherpaClient, self: typeof window) {
 						});
 					}
 
-					if (
-						(typeof prop === "string" || typeof prop === "number") &&
-						!isNaN(Number(prop))
-					) {
-						const position = Object.keys(proxy)[prop];
-
-						return map[position];
+					if (typeof prop === "string" && isIndex(prop)) {
+						return visibleAttribute(Number(prop)) ?? undefined;
 					}
 
 					if (!this.has(target, prop)) return undefined;
 
 					return value;
 				},
-				ownKeys(target) {
-					const keys = Reflect.ownKeys(target);
+				getOwnPropertyDescriptor(target, prop) {
+					// Keep descriptor reads in step with the dense index view the
+					// `get` trap presents; otherwise `Object.getOwnPropertyDescriptor
+					// (attributes, "0")` could hand back a `sherpa-attr-*` node the
+					// page is never supposed to see.
+					if (typeof prop === "string" && isIndex(prop)) {
+						const attr = visibleAttribute(Number(prop));
+						if (!attr) return undefined;
 
-					return keys.filter((key) => this.has(target, key));
+						return {
+							value: attr,
+							writable: false,
+							enumerable: true,
+							configurable: true,
+						};
+					}
+
+					if (!this.has(target, prop)) return undefined;
+
+					return Reflect.getOwnPropertyDescriptor(target, prop);
+				},
+				ownKeys(target) {
+					// Indices are renumbered densely so `length`, index access and
+					// key enumeration agree. Filtering the target's own indices
+					// left holes wherever a shadow attribute sat.
+					const keys: (string | symbol)[] = [];
+					const visible = visibleLength();
+					for (let i = 0; i < visible; i++) keys.push(String(i));
+
+					for (const key of Reflect.ownKeys(target)) {
+						if (typeof key === "string" && isIndex(key)) continue;
+						if (!this.has(target, key)) continue;
+						keys.push(key);
+					}
+
+					return keys;
 				},
 				has(target, prop) {
 					if (typeof prop === "symbol") return Reflect.has(target, prop);
 					if (prop.startsWith(SHADOW_ATTRIBUTE_PREFIX)) return false;
+					if (isIndex(prop)) return visibleAttribute(Number(prop)) !== null;
 					if (map[prop]?.name?.startsWith(SHADOW_ATTRIBUTE_PREFIX))
 						return false;
 

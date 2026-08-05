@@ -1,6 +1,7 @@
 import { rewriteHtml } from "@rewriters/html";
 import { SherpaClient } from "@client/index";
 import { unrewriteUrl } from "@rewriters/url";
+import { rewriteSelectorText } from "@/shared/selectors";
 
 export default function (client: SherpaClient, _self: Self) {
 	const tostring = String;
@@ -16,20 +17,31 @@ export default function (client: SherpaClient, _self: Self) {
 			} catch {}
 		}
 	};
+	// A proxied element's `src`/`href` attribute holds the *rewritten* URL, so
+	// every selector a site writes against its own URLs matched nothing. The
+	// previous approach - loosening `^=` to `*=` - could not work with the
+	// default codec either, since the rewritten value is percent-encoded and
+	// no longer contains the site's URL as a substring at all. Sherpa already
+	// keeps the authored value in a `sherpa-attr-*` shadow attribute, so point
+	// the selector at that instead; see `rewriteSelectorText`.
 	client.Proxy(
-		["Document.prototype.querySelector", "Document.prototype.querySelectorAll"],
+		[
+			"Document.prototype.querySelector",
+			"Document.prototype.querySelectorAll",
+			// The same selectors run against elements far more often than
+			// against the document, and trapping only `Document.prototype` left
+			// every `el.querySelectorAll("a[href^='/']")` broken.
+			"Element.prototype.querySelector",
+			"Element.prototype.querySelectorAll",
+			"Element.prototype.matches",
+			"Element.prototype.closest",
+			"DocumentFragment.prototype.querySelector",
+			"DocumentFragment.prototype.querySelectorAll",
+		],
 		{
 			apply(ctx) {
-				// A proxied element's `src`/`href` is the rewritten URL, so a
-				// prefix match (`[href^="https://…"]`) can never hit; loosening it
-				// to a substring match is what makes these selectors keep working.
-				// Without the global flag only the *first* such selector in a
-				// selector list was loosened, so `a[href^="https://x"],
-				// img[src^="https://y"]` silently stopped matching its second half.
-				ctx.args[0] = tostring(ctx.args[0]).replace(
-					/((?:^|\s)\b\w+\[(?:src|href|data-href))[\^]?(=['"]?(?:https?[:])?\/\/)/g,
-					"$1*$2"
-				);
+				if (ctx.args.length === 0) return;
+				ctx.args[0] = rewriteSelectorText(tostring(ctx.args[0]));
 			},
 		}
 	);

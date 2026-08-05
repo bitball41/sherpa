@@ -764,6 +764,106 @@ is new: an ESM resolve hook that teaches `node --test` the `@/` aliases and
 extension-less specifiers, so engine modules can be tested directly instead of
 through a copy of their logic.
 
+### Client-runtime hot-path pass + selector, request and event correctness
+
+Everything measured before this pass was service-worker-side. This one went
+after the _other_ half of a proxy's cost — what a page pays while its own
+JavaScript runs — and picked up a set of real compat bugs on the way. New
+harness: `bench/client-hotpath.mjs` runs workloads **inside a real proxied
+document** in Chromium and A/Bs two dists
+(`SHERPA_BASELINE_DIST=/path/to/dist`); numbers and the structural diagnosis
+live in `bench/bottleneck/README.md` §6. Medians vs the pre-pass build:
+URL-valued `setAttribute` **4.4×**, `addEventListener`/`removeEventListener`
+**6.7×**, `element.attributes` iteration **23.5×**, wrapped local identifiers
+**55×**, `dispatchEvent` 1.4×; full proxied navigation flat (0.98–1.04× across
+runs, i.e. noise — it is the control here), and the
+shared rewriters unchanged-to-slightly-faster on `bench/regression.mjs`
+(`rewriteHtml` 1.02–1.06×).
+
+Performance:
+
+- `client.meta.base` ran `document.querySelector("base")` on **every URL the
+  page rewrote** — a whole-document traversal whenever the page has no
+  `<base>`, which is almost all of them, making URL rewriting O(nodes) per
+  URL. Now a live `HTMLCollection` (the browser maintains and invalidates it,
+  so this is not a staleness trade) plus memoized resolution on (href,
+  document URL).
+- `client.eventcallbacks` was a strong `Map<EventTarget, Entry[]>`: O(n) scan
+  per registration _and_ a hard reference to every element that ever received
+  a listener, for the life of the realm. Now a `WeakMap` keyed by target then
+  by the page's own callback.
+- The `element.attributes` proxy computed `Object.keys(proxy)` per index read,
+  re-entering its own `ownKeys`/`has` traps and allocating a key array each
+  time. Replaced with a direct native scan; indices are also dense now, and
+  `getOwnPropertyDescriptor`/`ownKeys` agree with `length`.
+- `wrapfn` read `location`, `eval`, `parent` and `top` off the window on every
+  call — the last two walk the frame tree — even for primitives, which
+  minified code produces constantly (`top`/`parent` are ordinary local names).
+  Primitives now return immediately; the two `indirectEval` bindings are built
+  once instead of per read.
+- `getInjectScripts` re-serialized the whole config and re-base64'd the boot
+  script for every document and iframe; both are memoized.
+- `traverseParsedHtml` walked each element's attributes twice; merged into one
+  pass, and `isEventAttribute` rejects on two character codes before
+  lowercasing.
+
+Correctness (each covered by `tests/behavior/`, which asserts from inside the
+proxied page):
+
+- **Attribute selectors matched nothing.** `a[href^="/help/"]`,
+  `img[src$=".svg"]`, `[href="…"]` — a proxied element's `href` holds the
+  rewritten URL, so none of them could hit. The old mitigation (loosen `^=`
+  to `*=`) could not work with the default codec either, since the rewritten
+  value is percent-encoded and no longer contains the site's URL as a
+  substring. New `src/shared/selectors.ts` rewrites each attribute selector to
+  `:is([sherpa-attr-name…],[name…])`, so the authored value is matched with
+  the operator the site wrote. Applied to `Element.prototype` and
+  `DocumentFragment.prototype` too — only `Document.prototype` was trapped, so
+  `el.querySelectorAll(…)` was broken outright.
+- **`fetch(x)`/`new Request(x)` escaped the proxy** for any `x` that is
+  neither a string nor a `URL`. WebIDL stringifies those (an `<a>` element, a
+  URL-like wrapper), so the request left for the site's real origin.
+- **URL rewriting was not idempotent.** DOM stringifiers read the _attribute_,
+  not the trapped property, so `String(anchor)` and `fetch(anchor)` yield an
+  already-rewritten href; encoding it twice produced a URL whose inner target
+  was the proxy, which the worker then rejected as a same-origin fetch.
+- **`document.baseURI` leaked the proxy origin.** It read `base.href`, the
+  reflected property the browser had already resolved against the proxied
+  document's URL. Resolves the authored attribute against the real URL now.
+- **`window.event` was pinned to the first event ever dispatched** — the
+  accessor closed over one invocation's arguments behind an `if (!self.event)`
+  guard, and ran `defineProperty` on the global per dispatch until then.
+- **Non-ASCII inline scripts mojibake'd** when read back through `innerHTML`:
+  `unrewriteHtml` used `atob` alone on a source that had been UTF-8 encoded
+  before base64.
+- `window.open(url, "_top")` opened a window literally named `"null"` whenever
+  the frame was already the top of the Sherpa context (same `?? value` fix the
+  `target` attribute rule already had).
+- `Array.from(el.attributes)` handed the page every `sherpa-attr-*` shadow
+  attribute: the map proxy rebound `Symbol.iterator` to the _unfiltered_
+  native map.
+- Response cache: `storeCachedResponse` buffered the entire body before
+  checking the 5 MiB limit, so a chunked response had no bound and an endless
+  one was accumulated forever; it reads incrementally and cancels now. Every
+  give-up path also cancels its branch of the tee (an abandoned one keeps the
+  browser buffering the page's copy). `text/event-stream` is refused outright.
+- Removed a dead `responseHeaders["accept"]` check in `worker/fetch.ts` that
+  read a _request_ header name out of the response headers.
+
+New: `tests/behavior/` (`pnpm test:behavior`) — 32 assertions run inside a
+proxied document against the real pipeline (service worker, WASM rewriter,
+bare-mux over wisp, local fixture origin). This is the only place the client
+traps can be observed as a site sees them; the unit tests can only reach leaf
+modules. It found three of the bugs above that code reading had missed.
+
+**Note on `dist/`:** it is a build artifact but _is_ tracked. The bundle
+embeds the WASM rewriter, and the wasm-bindgen glue in `rewriter/wasm/out/`
+must come from the same rewriter build as `dist/sherpa.wasm.wasm` — pairing a
+glue from one build with a binary from another does not fail loudly, it
+silently disables JS rewriting (the behavior suite catches it: the `location`
+trap check fails while everything else passes). Always `RELEASE=1 pnpm
+rewriter:build` before `pnpm build` when regenerating dist.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

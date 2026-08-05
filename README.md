@@ -25,9 +25,10 @@ Scramjet is what everyone already reaches for, so the fair question is why run S
 
 - **Customization is a first-class feature, not a fork-and-patch chore.** The error page is fully themeable straight from config — colors, fonts, logo, copy, or raw CSS — with no engine edits, plus a built-in way to preview it. The proxy prefix, URL codec, feature flags, per-site flag overrides, and the names of the globals Sherpa injects are all configurable too. See [Customization](#customization). And because Sherpa ships as source you own, anything config doesn't cover you can still change directly; stock Scramjet is typically consumed as an unmodifiable npm dependency.
 - **Measurably faster.** Sherpa's rewriting pipelines are 1.3–1.8× faster than Scramjet 1.x on the same inputs (up to 5× on inline-script-heavy pages), and the per-request overhead in the service worker's security emulation is gone too (upstream opened several IndexedDB connections and ran ~4 awaited IDB transactions plus a linear ~10k-rule public-suffix-list scan per proxied request). Together that measures ~1.35× faster full proxied page loads in Chromium against the published Scramjet 1.1.0 — same service worker pipeline, same transports, same fixture site, engine as the only variable. Methodology, statistics, and a reproducible harness live in [`bench/`](bench/README.md).
+- **Proxied pages run their own JavaScript far faster.** Everything above is service-worker-side. The other half of a proxy's cost is what the page pays _while it runs_: every trapped DOM call and every wrapped global access, on a bill proportional to how much the site does rather than how big it is. Sherpa cut the hot ones by large multiples — resolving the document base no longer walks the whole DOM per rewritten URL, registering a listener no longer scans every listener already on the target (and no longer pins every element that ever had one in memory), walking `element.attributes` no longer re-enters a `Proxy` per index, and a wrapped identifier holding a primitive returns without touching the window at all. Measured in Chromium inside a real proxied page by [`bench/client-hotpath.mjs`](bench/README.md).
 - **Repeat visits are actually cached.** Responses a service worker synthesizes are never kept in the browser's HTTP cache, and neither Scramjet nor its transport has a cache of its own — so on the 1.x design every navigation re-downloads _and_ re-rewrites every script, stylesheet, font and image a page touches, forever, whatever `Cache-Control` the origin sent. Sherpa stores the **rewritten** response in the Cache API and honors the origin's own caching rules, so a hit skips the transport and the rewriter both, and a stale entry revalidates with `ETag`/`Last-Modified` instead of re-downloading. See [Response caching](#response-caching).
 - **Concrete reliability fixes over the 1.x baseline.** Charset-aware HTML decoding (follows the HTML spec's sniffing order instead of assuming UTF‑8); real Service-Worker scope tracking (upstream matched by origin only, so a single registered worker intercepted _every_ path on that origin); cross-realm `location` assignment; a reworked synchronous-XHR watchdog (upstream cut sync requests off at a hardcoded 1s); CORS/credentials and referrer-policy emulation that honors the request's real credentials mode; and non-`http(s)` scheme passthrough so `tel:`, `intent:`, `magnet:`, and friends stop getting mangled behind the proxy prefix.
-- **No size regression for the extra features.** What a page downloads (runtime bundle + WASM rewriter) is at parity with the published Scramjet 1.1.0 (within ~1%, measured raw/gzip/brotli in [`bench/`](bench/README.md)) even though Sherpa carries the fixes above. Sherpa's own dist also dropped ~30% (~2.32 MB → ~1.61 MB) early in the fork by removing a dead dependency and shipping the size-optimized WASM rewriter.
+- **The extra features cost single-digit percent on the wire.** What a page downloads (runtime bundle + WASM rewriter) is ~747 KiB raw / ~274 KiB gzip / ~214 KiB brotli, against ~701 / ~258 / ~199 for the published Scramjet 1.1.0 — about **5–7% larger** for everything above, essentially all of it in the runtime bundle rather than the rewriter (the WASM is within ~1%). Measured raw/gzip/brotli by [`bench/size.mjs`](bench/README.md); re-run it rather than trusting this line, since it moves with every pass. Sherpa's own dist also dropped ~30% (~2.32 MB → ~1.61 MB) early in the fork by removing a dead dependency and shipping the size-optimized WASM rewriter.
 - **Focused scope.** Sherpa's stated goals are site compatibility and performance/size. Stealth / anti-detection is explicitly a non-goal.
 
 Everything past the rename is tracked in this repo's commit history; [`AGENTS.md`](AGENTS.md) has the full rationale.
@@ -218,6 +219,27 @@ RELEASE=1 pnpm rewriter:build   # always use RELEASE=1 — the default skips was
 pnpm build                      # bundle (rspack)
 pnpm build:types                # type declarations (rslib)
 ```
+
+### Testing
+
+```sh
+pnpm test:unit        # leaf modules, in node
+pnpm test:behavior    # the real pipeline, in Chromium
+pnpm test             # unit + package validation + playwright integration
+```
+
+`tests/behavior/` boots the shipped `dist/` — service worker, WASM rewriter,
+bare-mux over wisp — against a local fixture origin and runs its assertions
+_inside_ the proxied document, which is the only place the client-side traps
+can be observed as a site sees them. It needs a Chromium; set
+`SHERPA_CHROMIUM=/path/to/chrome` if `npx playwright install` isn't an option.
+
+> **The `dist/` it loads is a build artifact.** Run `pnpm build` first, or the
+> suite tests whatever was last committed. The bundle embeds the WASM
+> rewriter, and the wasm-bindgen glue in `rewriter/wasm/out/` has to come from
+> the same rewriter build as `dist/sherpa.wasm.wasm` — mixing a glue from one
+> build with a binary from another silently disables JS rewriting rather than
+> failing loudly.
 
 ### Running Sherpa locally
 

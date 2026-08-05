@@ -7,9 +7,32 @@ import { indirectEval } from "@client/shared/eval";
 import { evaluateAssignment } from "@/shared/assignment";
 
 export function createWrapFn(client: SherpaClient, self: typeof globalThis) {
+	// `indirectEval.bind(...)` allocated a fresh bound function every time a
+	// page so much as *mentioned* `eval`. There are only two possible results,
+	// and neither depends on anything but `client`, so build them once.
+	// (also fixes an identity bug: `eval === eval` was false through the trap,
+	// because each read handed back a freshly bound function)
+	let strictEval: ((js: any) => any) | null = null;
+	let sloppyEval: ((js: any) => any) | null = null;
+
 	return function (identifier: any, strict: boolean) {
+		// The rewriter emits a call to this around every `location`, `parent`,
+		// `top` and `eval` *identifier*, which in minified code means a great
+		// many values that are none of those four objects. All four are
+		// objects or functions, so anything primitive can be handed straight
+		// back without touching the global at all - four property reads on the
+		// window (two of which, `parent` and `top`, walk the frame tree) used
+		// to happen per call regardless of what was passed in.
+		if (identifier === null) return identifier;
+		const type = typeof identifier;
+		if (type !== "object" && type !== "function") return identifier;
+
 		if (identifier === self.location) return client.locationProxy;
-		if (identifier === self.eval) return indirectEval.bind(client, strict);
+		if (identifier === self.eval) {
+			if (strict) return (strictEval ??= indirectEval.bind(client, true));
+
+			return (sloppyEval ??= indirectEval.bind(client, false));
+		}
 
 		if (iswindow) {
 			if (identifier === self.parent) {

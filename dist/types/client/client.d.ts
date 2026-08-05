@@ -20,6 +20,13 @@ export type SherpaModule = {
     order: number | undefined;
     default: (client: SherpaClient, self: typeof globalThis) => void;
 };
+export type EventCallbackEntry = {
+    event: string;
+    originalCallback: any;
+    proxiedCallback: AnyFunction;
+    capture: boolean;
+    once: boolean;
+};
 export type ProxyCtx = {
     fn: AnyFunction;
     this: any;
@@ -55,13 +62,20 @@ export declare class SherpaClient {
     descriptors: DescriptorStore;
     wrapfn: (i: any, ...args: any) => any;
     cookieStore: CookieStore;
-    eventcallbacks: Map<any, Array<{
-        event: string;
-        originalCallback: any;
-        proxiedCallback: AnyFunction;
-        capture: boolean;
-        once: boolean;
-    }>>;
+    /**
+     * Every listener a page has registered, so `removeEventListener` can find
+     * the proxy that was installed in its place.
+     *
+     * A `WeakMap` keyed by the target, whose entries are keyed by the page's
+     * own callback. It used to be a strong `Map<EventTarget, Entry[]>`, which
+     * meant two things: every element that ever received a listener was
+     * retained for the life of the realm (a single-page app that mounts and
+     * discards views leaked all of them), and both `addEventListener` and
+     * `removeEventListener` scanned the whole array for the target - so
+     * registering n listeners on `document` or `window`, which large sites do
+     * by the thousand, cost O(n^2).
+     */
+    eventcallbacks: WeakMap<any, Map<any, EventCallbackEntry[]>>;
     meta: URLMeta;
     box: SingletonBox;
     constructor(global: typeof globalThis);

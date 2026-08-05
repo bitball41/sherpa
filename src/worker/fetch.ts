@@ -753,9 +753,11 @@ async function handleResponse(
 			delete responseHeaders["content-length"];
 	}
 
-	if (responseHeaders["accept"] === "text/event-stream") {
-		responseHeaders["content-type"] = "text/event-stream";
-	}
+	// (An `Accept: text/event-stream` check used to live here, reading a
+	// *request* header name out of the response headers - so it never once
+	// fired. Nothing needs it: the upstream `Content-Type` survives
+	// `rewriteHeaders`, and an event stream's body is passed through
+	// unbuffered by `rewriteBody`'s default case.)
 
 	// sherpa runtime can use features that permissions-policy blocks
 	delete responseHeaders["permissions-policy"];

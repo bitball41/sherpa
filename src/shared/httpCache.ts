@@ -165,6 +165,13 @@ export function responseCachePolicy(
 
 	if (!isStorableVary(headers["vary"])) return null;
 
+	// A server-sent-event body is a connection that stays open, not a resource.
+	// Storing one means holding it open and buffering it for as long as it
+	// lives, and replaying it later would hand the page a finished stream.
+	const contentType = headerValue(headers, "content-type");
+	if (contentType?.split(";")[0].trim().toLowerCase() === "text/event-stream")
+		return null;
+
 	const cc = parseCacheControl(headers["cache-control"]);
 	if (cc.has("no-store")) return null;
 

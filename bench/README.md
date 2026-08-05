@@ -34,6 +34,8 @@ BENCH_BASELINE_REF=<commit> npm run build && npm run verify
                   # byte-equivalence of rewriter output vs a pinned commit
 BENCH_BASELINE_REF=<commit> npm run build && npm run regression
                   # this tree vs a pinned commit: did my change actually help?
+node ../bench/client-hotpath.mjs
+                  # client-side trap cost inside a real proxied page
 ```
 
 Raw results land in `results/*.json` (git-ignored) with environment metadata.
@@ -59,6 +61,25 @@ Raw results land in `results/*.json` (git-ignored) with environment metadata.
   modeled on common page archetypes, **plus real captured pages** (Wikipedia
   article, MDN reference page) dropped into `fixtures-live/` as a realism
   check. Both fixture families agree.
+
+**Client hot paths (`client-hotpath.mjs`)** — every harness above measures
+the _service worker_ side. This one measures what a proxied page pays while
+its own JavaScript runs: trapped DOM calls and wrapped global accesses, a cost
+proportional to how much the site does rather than how big it is, and
+therefore invisible to a page-load benchmark.
+
+- Runs from the repository root, driving the committed `dist/` through the
+  real pipeline in Chromium (`node bench/client-hotpath.mjs`).
+- Workloads execute **inside the proxied document**, so every trap is live:
+  URL-valued `setAttribute`, `addEventListener`/`removeEventListener` churn,
+  `element.attributes` iteration, wrapped local identifiers, event dispatch,
+  and a full proxied navigation.
+- `SHERPA_BASELINE_DIST=/path/to/dist` adds a second, identical proxy host
+  serving another build. Both engines are then run in alternating blocks
+  (direction rotates per round) with a discarded warmup per workload, and the
+  medians are reported side by side with a speedup column.
+- Build a baseline dist from any commit with a worktree:
+  `git worktree add /tmp/base <ref> && (cd /tmp/base && npm run build)`.
 
 **End-to-end benchmark (`e2e/`)** — the number that actually matters: wall
 time for a full proxied page load in a real browser.
