@@ -21,6 +21,12 @@ function eq(actual, expected, what) {
 		throw new Error((what || "value") + ": expected " + JSON.stringify(expected) + ", got " + JSON.stringify(actual));
 	return actual;
 }
+/** First url() target in a css rule, as the page sees it (i.e. unrewritten). */
+function cssUrl(cssText) {
+	const m = /url\(\s*['"]?([^'")]+)/.exec(cssText);
+	if (!m) throw new Error("no url() in: " + cssText);
+	return m[1];
+}
 
 // ---------------------------------------------------------------- selectors
 check("querySelector matches a prefix on an authored href", () => {
@@ -236,6 +242,168 @@ check("the inline script actually executed with its unicode intact", () => {
 	return eq(window.__unicodeValue, "café – 日本語 🏔", "value");
 });
 
+// ------------------------------------------------------------- shadow dom
+// 'innerHTML' is not one property: 'Element' and 'ShadowRoot' each implement
+// the 'InnerHTML' mixin separately, so trapping only 'Element''s left every
+// web component writing markup straight past the rewriter.
+function shadowHost(html) {
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	const root = host.attachShadow({ mode: "open" });
+	root.innerHTML = html;
+	return root;
+}
+
+check("shadowRoot.innerHTML rewrites a subresource url", () => {
+	const root = shadowHost('<img id="si" src="/img/pixel-a.png">');
+	// the reflected property unrewrites, so a rewritten src reads back as the
+	// site's own absolute url; an un-rewritten one resolves against the proxy
+	return eq(root.getElementById("si").src, "http://127.0.0.1:4720/img/pixel-a.png", "src");
+});
+
+check("shadowRoot.innerHTML rewrites a <style> url()", () => {
+	const root = shadowHost('<style>#s{background:url(/img/pixel-a.png)}</style>');
+	return eq(cssUrl(root.styleSheets[0].cssRules[0].cssText), "http://127.0.0.1:4720/img/pixel-a.png", "url()");
+});
+
+check("shadowRoot.setHTMLUnsafe rewrites a subresource url", () => {
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	const root = host.attachShadow({ mode: "open" });
+	if (!root.setHTMLUnsafe) return "unsupported";
+	root.setHTMLUnsafe('<img id="su" src="/img/pixel-a.png">');
+	return eq(root.getElementById("su").src, "http://127.0.0.1:4720/img/pixel-a.png", "src");
+});
+
+check("shadowRoot.innerHTML reads back the authored markup", () => {
+	const root = shadowHost('<img id="sr" src="/img/pixel-a.png">');
+	if (root.innerHTML.indexOf("sherpa-attr-") !== -1)
+		throw new Error("shadow attribute leaked: " + root.innerHTML);
+	return eq(root.innerHTML.indexOf('src="/img/pixel-a.png"') !== -1, true, "authored src");
+});
+
+// ------------------------------------------------------------ <style> text
+// A <style> element's text *is* its stylesheet, and every way of writing that
+// text has to reach rewriteCss - not just textContent/innerHTML. The paths
+// below are the ones CSS-in-JS actually uses.
+function styleWith(write) {
+	const style = document.createElement("style");
+	document.head.appendChild(style);
+	write(style);
+	return cssUrl(style.sheet.cssRules[0].cssText);
+}
+const CSS = "#probe{background:url(/img/pixel-a.png)}";
+const CSS_RESOLVED = "http://127.0.0.1:4720/img/pixel-a.png";
+
+check("style.appendChild(createTextNode(css)) rewrites url()", () => {
+	return eq(styleWith((s) => s.appendChild(document.createTextNode(CSS))), CSS_RESOLVED, "url()");
+});
+
+check("style.append(css) rewrites url()", () => {
+	return eq(styleWith((s) => s.append(CSS)), CSS_RESOLVED, "url()");
+});
+
+check("style.replaceChildren(css) rewrites url()", () => {
+	return eq(styleWith((s) => s.replaceChildren(CSS)), CSS_RESOLVED, "url()");
+});
+
+check("style.insertBefore(textNode) rewrites url()", () => {
+	return eq(
+		styleWith((s) => s.insertBefore(document.createTextNode(CSS), null)),
+		CSS_RESOLVED,
+		"url()"
+	);
+});
+
+check("style.insertAdjacentText rewrites url()", () => {
+	return eq(styleWith((s) => s.insertAdjacentText("beforeend", CSS)), CSS_RESOLVED, "url()");
+});
+
+check("writing a style's text node .data rewrites url()", () => {
+	return eq(
+		styleWith((s) => {
+			s.textContent = "#probe{color:red}";
+			s.firstChild.data = CSS;
+		}),
+		CSS_RESOLVED,
+		"url()"
+	);
+});
+
+check("a style's text node reads back the authored css", () => {
+	const style = document.createElement("style");
+	document.head.appendChild(style);
+	style.appendChild(document.createTextNode(CSS));
+	// the page must never see the proxied url it never wrote
+	if (style.firstChild.data.indexOf("/proxied/") !== -1)
+		throw new Error("proxy url leaked: " + style.firstChild.data);
+	return eq(style.firstChild.nodeValue.indexOf("/proxied/"), -1, "nodeValue too");
+});
+
+check("text nodes outside a <style> are left completely alone", () => {
+	const p = document.createElement("p");
+	document.body.appendChild(p);
+	p.appendChild(document.createTextNode("url(/img/pixel-a.png)"));
+	eq(p.firstChild.data, "url(/img/pixel-a.png)", "data");
+	p.firstChild.nodeValue = "url(/other.png)";
+	return eq(p.textContent, "url(/other.png)", "textContent");
+});
+
+check("a rule added inside @media is rewritten too", () => {
+	const style = document.createElement("style");
+	style.textContent = "@media all{}";
+	document.head.appendChild(style);
+	style.sheet.cssRules[0].insertRule(CSS, 0);
+	return eq(cssUrl(style.sheet.cssRules[0].cssRules[0].cssText), CSS_RESOLVED, "url()");
+});
+
+// ----------------------------------------------------------------- svg/legacy
+check("<use xlink:href> is rewritten like <use href>", () => {
+	// SVG 1.1 spells the reference xlink:href, which is what every icon sprite
+	// in the wild uses; only the SVG 2 spelling was being rewritten.
+	// no ids on these, so the selector checks above keep counting what they meant to
+	const uses = document.getElementsByTagName("use");
+	eq(uses[1].href.baseVal, "http://127.0.0.1:4720/sprite.svg#icon", "href");
+	return eq(uses[0].href.baseVal, "http://127.0.0.1:4720/sprite.svg#icon", "xlink:href");
+});
+
+check("a <style> the browser won't parse as css is left exactly as authored", () => {
+	// Per HTML a style element is only a stylesheet when its type is absent,
+	// empty or text/css. Anything else is inert markup a library reads for
+	// itself - Tailwind's browser build keeps its input in
+	// <style type="text/tailwindcss"> - so rewriting it corrupts that library's
+	// own source. It must come back byte-for-byte.
+	const inert = document.getElementById("inert-style");
+	eq(inert.sheet, null, "really inert (no stylesheet)");
+	eq(inert.textContent, ".inert{background:url(/img/pixel-a.png)}", "textContent");
+	return eq(inert.firstChild.data, ".inert{background:url(/img/pixel-a.png)}", "text node");
+});
+
+check("<body background> keeps the value the page authored", () => {
+	return eq(document.body.getAttribute("background"), "/img/pixel-a.png", "authored");
+});
+
+// ------------------------------------------------------- streamed documents
+// A document response is flushed in two parts: its own doctype plus the boot
+// scripts as soon as the first ~1 KiB has arrived, then the rewritten
+// remainder. The doctype has to survive that split byte-exactly, because it is
+// what decides the document's rendering mode, and the parser has to merge the
+// <html>/<body> attributes that now arrive after the injected scripts.
+check("a streamed document keeps standards mode", () => {
+	return eq(document.compatMode, "CSS1Compat", "compatMode");
+});
+
+check("<html> and <body> attributes survive the early flush", () => {
+	eq(document.documentElement.lang, "en", "html lang");
+	return eq(document.body.className, "fixture-body", "body class");
+});
+
+check("the boot scripts still come before the page's own", () => {
+	// window.__firstInlineRan is set by the first inline script in the document;
+	// if the runtime had not hooked by then, the checks in it could not have run
+	return eq(window.__firstInlineRan, true, "first inline script ran hooked");
+});
+
 // -------------------------------------------------------------------- base
 check("a <base href> still resolves relative urls", () => {
 	const a = document.getElementById("based");
@@ -343,9 +511,112 @@ const ASYNC_CHECKS = String.raw`
 		return "ok";
 	});
 
+	await check("a worker's own location carries none of sherpa's hints", async () => {
+		// The engine threads 'sherpa.dest'/'sherpa.type' through the query string
+		// of the URLs it hands the browser. They are stripped before the upstream
+		// request, but they used to survive into what the *page* reads back, so a
+		// worker configured by its own search params saw one it never set.
+		const worker = new Worker("/worker.js");
+		const data = await new Promise((resolveMsg, rejectMsg) => {
+			worker.onmessage = (event) => resolveMsg(event.data);
+			worker.onerror = (event) => rejectMsg(new Error("worker error: " + event.message));
+			setTimeout(() => rejectMsg(new Error("worker timed out")), 10000);
+		});
+		worker.terminate();
+		if (data.href.indexOf("sherpa.") !== -1)
+			throw new Error("internal hint leaked into location.href: " + data.href);
+		eq(data.search, "", "location.search");
+		return eq(data.href, "http://127.0.0.1:4720/worker.js", "location.href");
+	});
+
+	await check("document rendering mode survives every doctype shape", async () => {
+		// Each of these is a real proxied document (destination "iframe"), so it
+		// goes through the same response path as a top-level navigation.
+		const cases = [
+			["/doc/standards.html", "CSS1Compat", "html5 doctype, streamed"],
+			["/doc/quirks.html", "BackCompat", "no doctype at all"],
+			["/doc/legacy.html", "CSS1Compat", "html 4.01 strict doctype"],
+			["/doc/commented.html", "CSS1Compat", "comment before the doctype"],
+			["/doc/tiny.html", "CSS1Compat", "under the flush threshold"],
+			["/doc/tiny-quirks.html", "BackCompat", "tiny and doctype-less"],
+		];
+		const seen = [];
+		for (const [path, expected, what] of cases) {
+			const frame = document.createElement("iframe");
+			document.body.appendChild(frame);
+			await new Promise((done, fail) => {
+				frame.addEventListener("load", done, { once: true });
+				frame.addEventListener("error", fail, { once: true });
+				setTimeout(() => fail(new Error("timed out loading " + path)), 15000);
+				frame.src = path;
+			});
+			const doc = frame.contentDocument;
+			eq(doc.compatMode, expected, what);
+			eq(doc.getElementById("marker").textContent, "marker", what + " body");
+			// and the document is still rewritten: its image must resolve to the site
+			eq(doc.getElementById("pic").src, "http://127.0.0.1:4720/img/pixel-a.png", what + " img");
+			seen.push(what);
+			frame.remove();
+		}
+		return seen.length + " shapes";
+	});
+
+	await check("a non-utf8 document still decodes correctly", async () => {
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("timed out")), 15000);
+			frame.src = "/doc/shiftjis.html";
+		});
+		const text = frame.contentDocument.getElementById("jp").textContent;
+		frame.remove();
+		return eq(text, "\u3053\u3093\u306b\u3061\u306f", "shift_jis text");
+	});
+
+	await check("nothing on the page was fetched from the proxy's own origin", async () => {
+		// The single assertion every rewriting gap above shows up in: a url the
+		// engine failed to rewrite resolves against the proxy origin instead of
+		// the site's, and the request escapes there. Resource names are
+		// unrewritten by the performance trap, so anything still pointing at the
+		// proxy host is either an engine file or a leak.
+		await new Promise((r) => setTimeout(r, 500));
+		const leaked = performance
+			.getEntriesByType("resource")
+			.map((entry) => entry.name)
+			.filter((name) => name.indexOf("http://127.0.0.1:4721/") === 0)
+			.filter((name) => name.indexOf("/engine/") === -1 && name.indexOf("/baremux/") === -1 && name.indexOf("/epoxy/") === -1);
+		if (leaked.length)
+			throw new Error("escaped to the proxy origin: " + leaked.join(", "));
+		return "none";
+	});
+
 	window.__sherpaDone = true;
 })();
 `;
+
+/**
+ * Document variants for the streamed-response checks: each one is a different
+ * doctype shape, and the padding pushes the interesting ones past the flush
+ * threshold so they take the streaming path rather than the buffered fallback.
+ */
+const PADDING = `<p>${"filler ".repeat(220)}</p>`;
+const docBody = `<p id="marker">marker</p><img id="pic" src="/img/pixel-a.png">`;
+
+function docPage(doctype, { pad = true } = {}) {
+	return `${doctype}<html><head><meta charset="utf-8"><title>doc</title></head><body>${docBody}${pad ? PADDING : ""}</body></html>`;
+}
+
+const documentShapes = {
+	"/doc/standards.html": docPage("<!DOCTYPE html>"),
+	"/doc/quirks.html": docPage(""),
+	"/doc/legacy.html": docPage(
+		`<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">`
+	),
+	"/doc/commented.html": docPage("<!-- a leading comment -->\n<!DOCTYPE html>"),
+	"/doc/tiny.html": docPage("<!DOCTYPE html>", { pad: false }),
+	"/doc/tiny-quirks.html": docPage("", { pad: false }),
+};
 
 export const pages = {
 	"/index.html": `<!DOCTYPE html>
@@ -355,7 +626,7 @@ export const pages = {
 <base href="/base-root/">
 <title>sherpa behavior fixture</title>
 </head>
-<body>
+<body class="fixture-body" background="/img/pixel-a.png">
 <ul>
 	<li><a id="intro" href="/docs/intro.html" data-kind="link">Intro</a></li>
 	<li><a href="/blog/post.html">Blog</a></li>
@@ -369,15 +640,47 @@ export const pages = {
 <img src="/img/pixel-b.png" alt="b">
 <img src="/img/other-b.png" alt="c">
 <a id="based" href="relative.html">relative</a>
+<style id="inert-style" type="text/tailwindcss">.inert{background:url(/img/pixel-a.png)}</style>
+<svg width="10" height="10">
+	<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/sprite.svg#icon"></use>
+	<use href="/sprite.svg#icon"></use>
+</svg>
+<script>window.__firstInlineRan = typeof location.href === "string" && location.href.indexOf("/proxied/") === -1;</script>
 <div id="scripts"><script id="unicode-script">window.__unicodeValue = "café – 日本語 🏔";</script></div>
 <script>${CHECKS}</script>
 <script>${ASYNC_CHECKS}</script>
 </body>
 </html>`,
+	...documentShapes,
 };
 
 export const textRoutes = {
 	"/api/echo": { body: "echo", type: "text/plain" },
+	"/sprite.svg": {
+		body: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="icon"><rect width="4" height="4"/></symbol></svg>`,
+		type: "image/svg+xml",
+	},
+	"/worker.js": {
+		body: `postMessage({ href: self.location.href, search: self.location.search });`,
+		type: "text/javascript",
+	},
+	// A real non-UTF-8 document: the streamed path has to sniff the charset from
+	// the bytes it flushed on and decode the whole body with it.
+	"/doc/shiftjis.html": {
+		body: Buffer.concat([
+			Buffer.from(
+				`<!DOCTYPE html><html><head><title>sjis</title></head><body><p id="jp">`,
+				"latin1"
+			),
+			// "こんにちは" in Shift_JIS
+			Buffer.from([0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]),
+			Buffer.from(
+				`</p><p>${"filler ".repeat(220)}</p></body></html>`,
+				"latin1"
+			),
+		]),
+		type: "text/html; charset=shift_jis",
+	},
 };
 
 /** 1x1 transparent PNG, so the fixture's images are real responses. */

@@ -14,13 +14,21 @@ import {
 	getReferrerPolicy,
 } from "@/shared/security/forceReferrer";
 
-import { unrewriteBlob, unrewriteUrl, type URLMeta } from "@rewriters/url";
+import {
+	rewriteUrl,
+	snapshotMeta,
+	unrewriteBlob,
+	unrewriteUrl,
+	type URLMeta,
+} from "@rewriters/url";
 import { rewriteJs } from "@rewriters/js";
 import { flattenResponseHeaders, SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
-import { bytesToBase64, rewriteHtml } from "@rewriters/html";
+import { bytesToBase64 } from "@rewriters/html";
+import { rewriteHtmlResponse } from "@/worker/htmlStream";
 import { rewriteCss } from "@rewriters/css";
+import { rewriteManifest } from "@rewriters/manifest";
 import { rewriteWorkers } from "@rewriters/worker";
 import { SherpaDownload } from "@client/events";
 import {
@@ -818,55 +826,6 @@ function lowercaseHeaderRecord(
 	return record;
 }
 
-// Per the HTML spec's encoding-sniffing algorithm: an explicit HTTP
-// charset wins, then a BOM, then a <meta charset> declaration sniffed from
-// the first 1024 bytes (decoded as windows-1252, which never throws since
-// every byte maps to some character - this matches how browsers prescan).
-const headerCharsetRegex = /charset=["']?([\w-]+)/i;
-const metaCharsetRegex = /<meta[^>]+charset=["']?([\w-]+)/i;
-const prescanDecoder = new TextDecoder("windows-1252");
-const utf8Decoder = new TextDecoder("utf-8");
-const decodersByCharset = new Map<string, TextDecoder>();
-
-function detectHtmlCharset(
-	buf: ArrayBuffer,
-	contentTypeHeader: string | null
-): string {
-	const headerCharset = contentTypeHeader?.match(headerCharsetRegex)?.[1];
-	if (headerCharset) return headerCharset.toLowerCase();
-
-	const bytes = new Uint8Array(buf);
-	if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)
-		return "utf-8";
-	if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
-	if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
-
-	const prefix = prescanDecoder.decode(
-		bytes.subarray(0, Math.min(1024, bytes.length))
-	);
-	const metaCharset = prefix.match(metaCharsetRegex)?.[1];
-	if (metaCharset) return metaCharset.toLowerCase();
-
-	return "utf-8";
-}
-
-function decodeWithCharset(buf: ArrayBuffer, charset: string): string {
-	let decoder = decodersByCharset.get(charset);
-	if (!decoder) {
-		try {
-			decoder = new TextDecoder(charset);
-		} catch {
-			// unrecognized/unsupported charset label - fall back rather than
-			// throwing and breaking the page entirely
-			decoder = utf8Decoder;
-		}
-		// charset labels seen by one worker form a tiny set, but cap it anyway
-		if (decodersByCharset.size < 64) decodersByCharset.set(charset, decoder);
-	}
-
-	return decoder.decode(buf);
-}
-
 async function rewriteBody(
 	response: BareResponseFetch,
 	meta: URLMeta,
@@ -879,23 +838,21 @@ async function rewriteBody(
 		case "iframe":
 		case "document":
 			if (isHtmlContentType(response.headers.get("content-type"))) {
-				const buf = await response.arrayBuffer();
-				const charset = detectHtmlCharset(
-					buf,
-					response.headers.get("content-type")
-				);
-				const htmlContent = decodeWithCharset(buf, charset);
-
-				// The rewritten body always goes back out as a UTF-8-encoded
-				// string regardless of the upstream charset, so the outgoing
-				// header must say so - an explicit HTTP charset takes priority
-				// over any now-stale in-document <meta charset> declaration,
-				// so this alone is enough to stop the browser re-mojibake-ing it.
+				// The rewritten body always goes back out as UTF-8 regardless of
+				// the upstream charset, so the outgoing header must say so - an
+				// explicit HTTP charset takes priority over any now-stale
+				// in-document <meta charset> declaration, so this alone is
+				// enough to stop the browser re-mojibake-ing it.
 				responseHeaders["content-type"] = normalizeHtmlContentType(
 					responseHeaders["content-type"]
 				);
 
-				return rewriteHtml(htmlContent, cookieStore, meta, true);
+				return rewriteHtmlResponse(
+					response.body,
+					response.headers.get("content-type"),
+					cookieStore,
+					meta
+				);
 			} else {
 				return response.body;
 			}
@@ -909,6 +866,16 @@ async function rewriteBody(
 		}
 		case "style":
 			return rewriteCss(await response.text(), meta);
+		case "manifest": {
+			// The manifest's own URL is the base every relative member resolves
+			// against, and it can't change while the document is being read, so
+			// resolve the meta once for the whole file.
+			const resolved = snapshotMeta(meta);
+
+			return rewriteManifest(await response.text(), (url) =>
+				rewriteUrl(url, resolved)
+			);
+		}
 		case "sharedworker":
 		case "worker":
 			return rewriteWorkers(

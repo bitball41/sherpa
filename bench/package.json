@@ -10,10 +10,12 @@
 		"verify": "node verify.mjs",
 		"regression": "node regression.mjs",
 		"size": "node size.mjs",
-		"e2e": "node e2e/run.mjs"
+		"e2e": "node e2e/run.mjs",
+		"tailwind": "node tailwind.mjs"
 	},
 	"dependencies": {
 		"@mercuryworkshop/scramjet": "1.1.0",
+		"@tailwindcss/browser": "^4.3.3",
 		"esbuild": "^0.25.9"
 	}
 }

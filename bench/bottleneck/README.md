@@ -121,6 +121,37 @@ htmlparser2 can stream, but the current rewriter round-trips a full DOM.
 Even a two-phase "flush injected head early" would let the runtime boot in
 parallel with the body download.
 
+> **Done, as the two-phase variant** — `src/worker/htmlStream.ts`. The document
+> response is a stream: once the first ~1 KiB of the upstream body has arrived
+> (enough for the encoding sniff and the leading doctype) Sherpa writes that
+> doctype plus the three boot script tags immediately, then buffers, rewrites
+> and writes the rest. The runtime downloads, parses and compiles while the
+> remainder of the document is still on the wire. Rewriting itself is
+> unchanged — the remainder is still parsed as one tree, so `<base href>`
+> resolution and every rule behave exactly as before; only the flush point
+> moves. The doctype is reproduced byte-exactly because it decides the
+> rendering mode, and when it cannot be read from the first chunk (UTF-16, a
+> very long leading comment) or the whole document already arrived, the old
+> buffered path runs unchanged.
+>
+> Same harness, same machine, before against after, over the shaped link, n=4:
+>
+> | page                  | doc TTFB before | after       | total load         |
+> | --------------------- | --------------- | ----------- | ------------------ |
+> | landing.html 5 KiB    | 54.3 ms         | 52.3 ms     | 200.6 → 196.2 ms   |
+> | article.html 80 KiB   | 123.4 ms        | **51.6 ms** | 275.6 → 255.2 ms   |
+> | big/page.html 1.2 MiB | 1207.7 ms       | **52.2 ms** | 2279.1 → 2199.9 ms |
+>
+> Proxied TTFB is flat in document size now, and at parity with an unproxied
+> load (48–49 ms direct on the same link). Total load on the big page barely
+> moves, and that is the honest read: what remains there is the 1 MiB script's
+> own download and oxc rewrite, which this does not touch. What it removes is
+> the blank page in front of it.
+>
+> It also takes a bite out of §5: the big document's `handleFetch` went from
+> 116.8 ms to 4.9 ms, because the rewrite no longer holds the service worker's
+> dispatch loop while every other response on the page queues behind it.
+
 ### 3. Per-document client boot: ~45–60 ms of serial main-thread work
 
 Every proxied document (including every iframe) loads three parser-blocking
@@ -282,10 +313,11 @@ upstream design it forked:
    — the table is materialized on the first `Function.prototype.toString`
    that needs it rather than in every script's first statement — but the
    bytes are still on the wire.
-4. **Stream (or early-flush) the HTML rewrite** — the hard one; the only
-   fix for time-to-first-byte on heavy documents, and now the largest
-   remaining item. Untouched: `rewriteBody` still buffers the whole document
-   before the renderer sees byte 0.
+4. ~~**Stream (or early-flush) the HTML rewrite**~~ — **done** as the
+   early-flush variant; see the note under §2. Document TTFB is flat in
+   document size now. Fully incremental rewriting (parse and emit as chunks
+   arrive) is still open, and is what would cut the _remaining_ proxied-load
+   overhead on heavy pages.
 5. **Cache documents too**, which needs the cookie-jar snapshot out of the
    injected document HTML first.
 

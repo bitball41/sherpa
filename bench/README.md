@@ -36,6 +36,7 @@ BENCH_BASELINE_REF=<commit> npm run build && npm run regression
                   # this tree vs a pinned commit: did my change actually help?
 node ../bench/client-hotpath.mjs
                   # client-side trap cost inside a real proxied page
+npm run tailwind  # drive the real @tailwindcss/browser build through the pipeline
 ```
 
 Raw results land in `results/*.json` (git-ignored) with environment metadata.
@@ -106,6 +107,17 @@ read. It also reports how many times each variant reads those accessors per
 stylesheet and per document — a realm-independent count, and the honest
 number, since a Node harness cannot simulate `querySelector` and so
 understates the browser cost of every read it saves.
+
+**Framework check (`tailwind.mjs`)** — not a benchmark: a pass/fail check that
+a real framework survives the pipeline. It serves the published
+`@tailwindcss/browser` bundle from the fixture origin and loads a page whose
+styles exist only as Tailwind classes, so the assertions can only pass if
+Tailwind read its own `<style type="text/tailwindcss">` input intact, compiled
+utilities by scanning the proxied DOM, injected the result, and had the `url()`
+in its output rewritten to reach the site. Against the build before the
+non-CSS-`<style>` fix it reports 2/6 — Tailwind compiles nothing at all,
+because its `@import "tailwindcss"` had been rewritten into an absolute URL it
+refuses.
 
 **Wire cost (`size.mjs`)** — raw/gzip/brotli sizes of every artifact a page
 downloads, Sherpa `dist/` vs the published Scramjet dist.

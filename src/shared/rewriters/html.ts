@@ -2,7 +2,7 @@ import { ElementType, Parser } from "htmlparser2";
 import { ChildNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
 import { URLMeta, rewriteUrl, snapshotMeta } from "@rewriters/url";
-import { rewriteCss } from "@rewriters/css";
+import { isCssStyleType, rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
 import { rewriteRefresh } from "@rewriters/refresh";
@@ -131,6 +131,65 @@ export function rewriteHtml(
 	return ret;
 }
 
+function attributeValue(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/"/g, "&quot;");
+}
+
+/**
+ * The boot scripts as literal markup, for the early-flush document path in
+ * `worker/htmlStream.ts`: they are written out before the document has finished
+ * downloading, so there is no parsed tree to unshift them into yet.
+ */
+export function renderInjectScripts(cookieStore: CookieStore): string {
+	return getInjectScripts(
+		cookieStore,
+		(src) => `<script src="${attributeValue(src)}"></script>`
+	).join("");
+}
+
+/**
+ * Rewrites a document whose doctype and boot scripts have already been written
+ * out, so it emits neither: the scripts are not injected, and a leading doctype
+ * is dropped rather than repeated.
+ *
+ * Parsing is unchanged - the whole document is still parsed and traversed as
+ * one tree, so `<base href>` resolution and every rewriting rule behave exactly
+ * as they do on the buffered path. Only the point at which the renderer gets
+ * its first bytes moves.
+ */
+export function rewriteHtmlAfterPrelude(
+	html: string,
+	cookieStore: CookieStore,
+	meta: URLMeta
+): string {
+	const before = performance.now();
+	const handler = new DomHandler((err, dom) => dom);
+	const parser = new Parser(handler);
+
+	parser.write(html);
+	parser.end();
+	traverseParsedHtml(handler.root, cookieStore, snapshotMeta(meta));
+
+	const children = handler.root.children;
+	for (let i = 0; i < children.length; i++) {
+		const node = children[i] as { type?: string; name?: string };
+		if (node.type !== ElementType.Directive) continue;
+		if (node.name?.toLowerCase() === "!doctype") children.splice(i, 1);
+		break;
+	}
+
+	const ret = render(handler.root, {
+		encodeEntities: "utf8",
+		decodeEntities: false,
+	});
+	dbg.time(meta, before, "html rewrite");
+
+	return ret;
+}
+
 // type ParseState = {
 // 	base: string;
 // 	origin?: URL;
@@ -240,7 +299,9 @@ function traverseParsedHtml(
 		}
 
 		if (name === "style") {
-			if (node.children[0] !== undefined)
+			// A style element with a non-CSS `type` is inert markup a library
+			// reads for itself, not a stylesheet - see `isCssStyleType`.
+			if (node.children[0] !== undefined && isCssStyleType(attribs.type))
 				node.children[0].data = rewriteCss(node.children[0].data, meta);
 		} else if (name === "script") {
 			// the type's MIME essence decides everything below; compute it once

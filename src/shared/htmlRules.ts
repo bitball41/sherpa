@@ -9,6 +9,29 @@ export type HtmlRule = {
 	fn: (value: string, meta: URLMeta, cookieStore: CookieStore) => string | null;
 };
 
+/**
+ * SVG elements whose `href` / `xlink:href` is a resource reference the browser
+ * resolves and fetches. `<use>` is the one that matters most in practice (icon
+ * sprites), but a gradient's or filter's `href` is fetched the same way.
+ */
+const SVG_URL_ELEMENTS = [
+	"use",
+	"image",
+	"feimage",
+	"filter",
+	"pattern",
+	"lineargradient",
+	"radialgradient",
+	"textpath",
+	"mpath",
+	"animate",
+	"animatemotion",
+	"animatetransform",
+	"set",
+	"cursor",
+	"tref",
+];
+
 export const htmlRules: HtmlRule[] = [
 	{
 		fn: (value: string, meta: URLMeta) => {
@@ -17,12 +40,25 @@ export const htmlRules: HtmlRule[] = [
 
 		// url rewrites
 		src: ["embed", "script", "img", "frame", "source", "input", "track"],
-		href: ["a", "link", "area", "use", "image"],
+		href: [
+			"a",
+			"link",
+			"area",
+			// SVG resource references. SVG 2 spells them `href`, SVG 1.1 spells
+			// them `xlink:href`, and real-world markup is full of both - an icon
+			// sprite is almost always `<use xlink:href="sprite.svg#id">`, which
+			// was left alone and so resolved against the *proxy's* origin.
+			...SVG_URL_ELEMENTS,
+		],
+		"xlink:href": SVG_URL_ELEMENTS,
 		data: ["object"],
 		action: ["form"],
 		formaction: ["button", "input", "textarea", "submit"],
 		poster: ["video"],
-		"xlink:href": ["image"],
+		// Obsolete but still honored by every engine, and still present on
+		// older pages: `<body background=...>` and its table equivalents load
+		// an image exactly like `<img src>` does.
+		background: ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"],
 	},
 	{
 		fn: (value: string, meta: URLMeta) => {
@@ -108,18 +144,29 @@ export const htmlRules: HtmlRule[] = [
 	},
 ];
 
-// Attribute rewriting runs for every element parsed from a page and for every
-// dynamic setAttribute call. Index the small rule table once instead of
-// repeatedly scanning every rule and every selector on those hot paths.
-const htmlRulesByAttribute = new Map<string, HtmlRule[]>();
+// Attribute rewriting runs for every attribute of every element in every
+// document, and for every dynamic `setAttribute` a page makes. The rule table
+// is indexed once here rather than scanned per lookup - and each rule's
+// element list becomes a Set, so widening one (the SVG `href`/`xlink:href`
+// list is fifteen elements) costs nothing at the lookup.
+type IndexedRule = { rule: HtmlRule; elements: Set<string> | null };
+
+const htmlRulesByAttribute = new Map<string, IndexedRule[]>();
 
 for (const rule of htmlRules) {
 	for (const attribute in rule) {
 		if (attribute === "fn") continue;
 
+		const selector = rule[attribute];
+		const indexed: IndexedRule = {
+			rule,
+			// `null` stands for the `"*"` selector: matches every element.
+			elements: Array.isArray(selector) ? new Set(selector) : null,
+		};
+
 		const rules = htmlRulesByAttribute.get(attribute);
-		if (rules) rules.push(rule);
-		else htmlRulesByAttribute.set(attribute, [rule]);
+		if (rules) rules.push(indexed);
+		else htmlRulesByAttribute.set(attribute, [indexed]);
 	}
 }
 
@@ -131,17 +178,30 @@ for (const attribute of htmlRulesByAttribute.keys()) {
 	shadowedAttributeNames.add(attribute);
 }
 
+/**
+ * ASCII-lowercases only when it has to. Attribute names arrive already
+ * lowercased from the HTML parser, and from `setAttribute` on an HTML element,
+ * so the usual answer is "no change" - and `toLowerCase()` allocates a copy
+ * either way, while this scan does not.
+ */
+function lowerAttributeName(attribute: string): string {
+	for (let i = 0; i < attribute.length; i++) {
+		const code = attribute.charCodeAt(i);
+		if (code >= 65 && code <= 90) return attribute.toLowerCase();
+	}
+
+	return attribute;
+}
+
 export function findHtmlRule(
 	attribute: string,
 	elementName: string
 ): HtmlRule | undefined {
-	const normalizedAttribute = attribute.toLowerCase();
-	const rules = htmlRulesByAttribute.get(normalizedAttribute);
+	const rules = htmlRulesByAttribute.get(lowerAttributeName(attribute));
 	if (!rules) return;
 
-	for (const rule of rules) {
-		const selector = rule[normalizedAttribute];
-		if (selector === "*") return rule;
-		if (Array.isArray(selector) && selector.includes(elementName)) return rule;
+	for (let i = 0; i < rules.length; i++) {
+		const { rule, elements } = rules[i];
+		if (elements === null || elements.has(elementName)) return rule;
 	}
 }
