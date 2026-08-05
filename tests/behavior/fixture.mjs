@@ -383,6 +383,27 @@ check("<body background> keeps the value the page authored", () => {
 	return eq(document.body.getAttribute("background"), "/img/pixel-a.png", "authored");
 });
 
+// ------------------------------------------------------- streamed documents
+// A document response is flushed in two parts: its own doctype plus the boot
+// scripts as soon as the first ~1 KiB has arrived, then the rewritten
+// remainder. The doctype has to survive that split byte-exactly, because it is
+// what decides the document's rendering mode, and the parser has to merge the
+// <html>/<body> attributes that now arrive after the injected scripts.
+check("a streamed document keeps standards mode", () => {
+	return eq(document.compatMode, "CSS1Compat", "compatMode");
+});
+
+check("<html> and <body> attributes survive the early flush", () => {
+	eq(document.documentElement.lang, "en", "html lang");
+	return eq(document.body.className, "fixture-body", "body class");
+});
+
+check("the boot scripts still come before the page's own", () => {
+	// window.__firstInlineRan is set by the first inline script in the document;
+	// if the runtime had not hooked by then, the checks in it could not have run
+	return eq(window.__firstInlineRan, true, "first inline script ran hooked");
+});
+
 // -------------------------------------------------------------------- base
 check("a <base href> still resolves relative urls", () => {
 	const a = document.getElementById("based");
@@ -508,6 +529,51 @@ const ASYNC_CHECKS = String.raw`
 		return eq(data.href, "http://127.0.0.1:4720/worker.js", "location.href");
 	});
 
+	await check("document rendering mode survives every doctype shape", async () => {
+		// Each of these is a real proxied document (destination "iframe"), so it
+		// goes through the same response path as a top-level navigation.
+		const cases = [
+			["/doc/standards.html", "CSS1Compat", "html5 doctype, streamed"],
+			["/doc/quirks.html", "BackCompat", "no doctype at all"],
+			["/doc/legacy.html", "CSS1Compat", "html 4.01 strict doctype"],
+			["/doc/commented.html", "CSS1Compat", "comment before the doctype"],
+			["/doc/tiny.html", "CSS1Compat", "under the flush threshold"],
+			["/doc/tiny-quirks.html", "BackCompat", "tiny and doctype-less"],
+		];
+		const seen = [];
+		for (const [path, expected, what] of cases) {
+			const frame = document.createElement("iframe");
+			document.body.appendChild(frame);
+			await new Promise((done, fail) => {
+				frame.addEventListener("load", done, { once: true });
+				frame.addEventListener("error", fail, { once: true });
+				setTimeout(() => fail(new Error("timed out loading " + path)), 15000);
+				frame.src = path;
+			});
+			const doc = frame.contentDocument;
+			eq(doc.compatMode, expected, what);
+			eq(doc.getElementById("marker").textContent, "marker", what + " body");
+			// and the document is still rewritten: its image must resolve to the site
+			eq(doc.getElementById("pic").src, "http://127.0.0.1:4720/img/pixel-a.png", what + " img");
+			seen.push(what);
+			frame.remove();
+		}
+		return seen.length + " shapes";
+	});
+
+	await check("a non-utf8 document still decodes correctly", async () => {
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("timed out")), 15000);
+			frame.src = "/doc/shiftjis.html";
+		});
+		const text = frame.contentDocument.getElementById("jp").textContent;
+		frame.remove();
+		return eq(text, "\u3053\u3093\u306b\u3061\u306f", "shift_jis text");
+	});
+
 	await check("nothing on the page was fetched from the proxy's own origin", async () => {
 		// The single assertion every rewriting gap above shows up in: a url the
 		// engine failed to rewrite resolves against the proxy origin instead of
@@ -529,6 +595,29 @@ const ASYNC_CHECKS = String.raw`
 })();
 `;
 
+/**
+ * Document variants for the streamed-response checks: each one is a different
+ * doctype shape, and the padding pushes the interesting ones past the flush
+ * threshold so they take the streaming path rather than the buffered fallback.
+ */
+const PADDING = `<p>${"filler ".repeat(220)}</p>`;
+const docBody = `<p id="marker">marker</p><img id="pic" src="/img/pixel-a.png">`;
+
+function docPage(doctype, { pad = true } = {}) {
+	return `${doctype}<html><head><meta charset="utf-8"><title>doc</title></head><body>${docBody}${pad ? PADDING : ""}</body></html>`;
+}
+
+const documentShapes = {
+	"/doc/standards.html": docPage("<!DOCTYPE html>"),
+	"/doc/quirks.html": docPage(""),
+	"/doc/legacy.html": docPage(
+		`<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">`
+	),
+	"/doc/commented.html": docPage("<!-- a leading comment -->\n<!DOCTYPE html>"),
+	"/doc/tiny.html": docPage("<!DOCTYPE html>", { pad: false }),
+	"/doc/tiny-quirks.html": docPage("", { pad: false }),
+};
+
 export const pages = {
 	"/index.html": `<!DOCTYPE html>
 <html lang="en">
@@ -537,7 +626,7 @@ export const pages = {
 <base href="/base-root/">
 <title>sherpa behavior fixture</title>
 </head>
-<body background="/img/pixel-a.png">
+<body class="fixture-body" background="/img/pixel-a.png">
 <ul>
 	<li><a id="intro" href="/docs/intro.html" data-kind="link">Intro</a></li>
 	<li><a href="/blog/post.html">Blog</a></li>
@@ -556,11 +645,13 @@ export const pages = {
 	<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/sprite.svg#icon"></use>
 	<use href="/sprite.svg#icon"></use>
 </svg>
+<script>window.__firstInlineRan = typeof location.href === "string" && location.href.indexOf("/proxied/") === -1;</script>
 <div id="scripts"><script id="unicode-script">window.__unicodeValue = "café – 日本語 🏔";</script></div>
 <script>${CHECKS}</script>
 <script>${ASYNC_CHECKS}</script>
 </body>
 </html>`,
+	...documentShapes,
 };
 
 export const textRoutes = {
@@ -572,6 +663,23 @@ export const textRoutes = {
 	"/worker.js": {
 		body: `postMessage({ href: self.location.href, search: self.location.search });`,
 		type: "text/javascript",
+	},
+	// A real non-UTF-8 document: the streamed path has to sniff the charset from
+	// the bytes it flushed on and decode the whole body with it.
+	"/doc/shiftjis.html": {
+		body: Buffer.concat([
+			Buffer.from(
+				`<!DOCTYPE html><html><head><title>sjis</title></head><body><p id="jp">`,
+				"latin1"
+			),
+			// "こんにちは" in Shift_JIS
+			Buffer.from([0x82, 0xb1, 0x82, 0xf1, 0x82, 0xc9, 0x82, 0xbf, 0x82, 0xcd]),
+			Buffer.from(
+				`</p><p>${"filler ".repeat(220)}</p></body></html>`,
+				"latin1"
+			),
+		]),
+		type: "text/html; charset=shift_jis",
 	},
 };
 
