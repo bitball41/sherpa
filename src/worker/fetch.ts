@@ -14,13 +14,20 @@ import {
 	getReferrerPolicy,
 } from "@/shared/security/forceReferrer";
 
-import { unrewriteBlob, unrewriteUrl, type URLMeta } from "@rewriters/url";
+import {
+	rewriteUrl,
+	snapshotMeta,
+	unrewriteBlob,
+	unrewriteUrl,
+	type URLMeta,
+} from "@rewriters/url";
 import { rewriteJs } from "@rewriters/js";
 import { flattenResponseHeaders, SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
 import { bytesToBase64, rewriteHtml } from "@rewriters/html";
 import { rewriteCss } from "@rewriters/css";
+import { rewriteManifest } from "@rewriters/manifest";
 import { rewriteWorkers } from "@rewriters/worker";
 import { SherpaDownload } from "@client/events";
 import {
@@ -909,6 +916,16 @@ async function rewriteBody(
 		}
 		case "style":
 			return rewriteCss(await response.text(), meta);
+		case "manifest": {
+			// The manifest's own URL is the base every relative member resolves
+			// against, and it can't change while the document is being read, so
+			// resolve the meta once for the whole file.
+			const resolved = snapshotMeta(meta);
+
+			return rewriteManifest(await response.text(), (url) =>
+				rewriteUrl(url, resolved)
+			);
+		}
 		case "sharedworker":
 		case "worker":
 			return rewriteWorkers(

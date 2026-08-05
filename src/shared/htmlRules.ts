@@ -9,6 +9,29 @@ export type HtmlRule = {
 	fn: (value: string, meta: URLMeta, cookieStore: CookieStore) => string | null;
 };
 
+/**
+ * SVG elements whose `href` / `xlink:href` is a resource reference the browser
+ * resolves and fetches. `<use>` is the one that matters most in practice (icon
+ * sprites), but a gradient's or filter's `href` is fetched the same way.
+ */
+const SVG_URL_ELEMENTS = [
+	"use",
+	"image",
+	"feimage",
+	"filter",
+	"pattern",
+	"lineargradient",
+	"radialgradient",
+	"textpath",
+	"mpath",
+	"animate",
+	"animatemotion",
+	"animatetransform",
+	"set",
+	"cursor",
+	"tref",
+];
+
 export const htmlRules: HtmlRule[] = [
 	{
 		fn: (value: string, meta: URLMeta) => {
@@ -17,12 +40,25 @@ export const htmlRules: HtmlRule[] = [
 
 		// url rewrites
 		src: ["embed", "script", "img", "frame", "source", "input", "track"],
-		href: ["a", "link", "area", "use", "image"],
+		href: [
+			"a",
+			"link",
+			"area",
+			// SVG resource references. SVG 2 spells them `href`, SVG 1.1 spells
+			// them `xlink:href`, and real-world markup is full of both - an icon
+			// sprite is almost always `<use xlink:href="sprite.svg#id">`, which
+			// was left alone and so resolved against the *proxy's* origin.
+			...SVG_URL_ELEMENTS,
+		],
+		"xlink:href": SVG_URL_ELEMENTS,
 		data: ["object"],
 		action: ["form"],
 		formaction: ["button", "input", "textarea", "submit"],
 		poster: ["video"],
-		"xlink:href": ["image"],
+		// Obsolete but still honored by every engine, and still present on
+		// older pages: `<body background=...>` and its table equivalents load
+		// an image exactly like `<img src>` does.
+		background: ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"],
 	},
 	{
 		fn: (value: string, meta: URLMeta) => {

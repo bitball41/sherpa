@@ -21,6 +21,12 @@ function eq(actual, expected, what) {
 		throw new Error((what || "value") + ": expected " + JSON.stringify(expected) + ", got " + JSON.stringify(actual));
 	return actual;
 }
+/** First url() target in a css rule, as the page sees it (i.e. unrewritten). */
+function cssUrl(cssText) {
+	const m = /url\(\s*['"]?([^'")]+)/.exec(cssText);
+	if (!m) throw new Error("no url() in: " + cssText);
+	return m[1];
+}
 
 // ---------------------------------------------------------------- selectors
 check("querySelector matches a prefix on an authored href", () => {
@@ -236,6 +242,147 @@ check("the inline script actually executed with its unicode intact", () => {
 	return eq(window.__unicodeValue, "café – 日本語 🏔", "value");
 });
 
+// ------------------------------------------------------------- shadow dom
+// 'innerHTML' is not one property: 'Element' and 'ShadowRoot' each implement
+// the 'InnerHTML' mixin separately, so trapping only 'Element''s left every
+// web component writing markup straight past the rewriter.
+function shadowHost(html) {
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	const root = host.attachShadow({ mode: "open" });
+	root.innerHTML = html;
+	return root;
+}
+
+check("shadowRoot.innerHTML rewrites a subresource url", () => {
+	const root = shadowHost('<img id="si" src="/img/pixel-a.png">');
+	// the reflected property unrewrites, so a rewritten src reads back as the
+	// site's own absolute url; an un-rewritten one resolves against the proxy
+	return eq(root.getElementById("si").src, "http://127.0.0.1:4720/img/pixel-a.png", "src");
+});
+
+check("shadowRoot.innerHTML rewrites a <style> url()", () => {
+	const root = shadowHost('<style>#s{background:url(/img/pixel-a.png)}</style>');
+	return eq(cssUrl(root.styleSheets[0].cssRules[0].cssText), "http://127.0.0.1:4720/img/pixel-a.png", "url()");
+});
+
+check("shadowRoot.setHTMLUnsafe rewrites a subresource url", () => {
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	const root = host.attachShadow({ mode: "open" });
+	if (!root.setHTMLUnsafe) return "unsupported";
+	root.setHTMLUnsafe('<img id="su" src="/img/pixel-a.png">');
+	return eq(root.getElementById("su").src, "http://127.0.0.1:4720/img/pixel-a.png", "src");
+});
+
+check("shadowRoot.innerHTML reads back the authored markup", () => {
+	const root = shadowHost('<img id="sr" src="/img/pixel-a.png">');
+	if (root.innerHTML.indexOf("sherpa-attr-") !== -1)
+		throw new Error("shadow attribute leaked: " + root.innerHTML);
+	return eq(root.innerHTML.indexOf('src="/img/pixel-a.png"') !== -1, true, "authored src");
+});
+
+// ------------------------------------------------------------ <style> text
+// A <style> element's text *is* its stylesheet, and every way of writing that
+// text has to reach rewriteCss - not just textContent/innerHTML. The paths
+// below are the ones CSS-in-JS actually uses.
+function styleWith(write) {
+	const style = document.createElement("style");
+	document.head.appendChild(style);
+	write(style);
+	return cssUrl(style.sheet.cssRules[0].cssText);
+}
+const CSS = "#probe{background:url(/img/pixel-a.png)}";
+const CSS_RESOLVED = "http://127.0.0.1:4720/img/pixel-a.png";
+
+check("style.appendChild(createTextNode(css)) rewrites url()", () => {
+	return eq(styleWith((s) => s.appendChild(document.createTextNode(CSS))), CSS_RESOLVED, "url()");
+});
+
+check("style.append(css) rewrites url()", () => {
+	return eq(styleWith((s) => s.append(CSS)), CSS_RESOLVED, "url()");
+});
+
+check("style.replaceChildren(css) rewrites url()", () => {
+	return eq(styleWith((s) => s.replaceChildren(CSS)), CSS_RESOLVED, "url()");
+});
+
+check("style.insertBefore(textNode) rewrites url()", () => {
+	return eq(
+		styleWith((s) => s.insertBefore(document.createTextNode(CSS), null)),
+		CSS_RESOLVED,
+		"url()"
+	);
+});
+
+check("style.insertAdjacentText rewrites url()", () => {
+	return eq(styleWith((s) => s.insertAdjacentText("beforeend", CSS)), CSS_RESOLVED, "url()");
+});
+
+check("writing a style's text node .data rewrites url()", () => {
+	return eq(
+		styleWith((s) => {
+			s.textContent = "#probe{color:red}";
+			s.firstChild.data = CSS;
+		}),
+		CSS_RESOLVED,
+		"url()"
+	);
+});
+
+check("a style's text node reads back the authored css", () => {
+	const style = document.createElement("style");
+	document.head.appendChild(style);
+	style.appendChild(document.createTextNode(CSS));
+	// the page must never see the proxied url it never wrote
+	if (style.firstChild.data.indexOf("/proxied/") !== -1)
+		throw new Error("proxy url leaked: " + style.firstChild.data);
+	return eq(style.firstChild.nodeValue.indexOf("/proxied/"), -1, "nodeValue too");
+});
+
+check("text nodes outside a <style> are left completely alone", () => {
+	const p = document.createElement("p");
+	document.body.appendChild(p);
+	p.appendChild(document.createTextNode("url(/img/pixel-a.png)"));
+	eq(p.firstChild.data, "url(/img/pixel-a.png)", "data");
+	p.firstChild.nodeValue = "url(/other.png)";
+	return eq(p.textContent, "url(/other.png)", "textContent");
+});
+
+check("a rule added inside @media is rewritten too", () => {
+	const style = document.createElement("style");
+	style.textContent = "@media all{}";
+	document.head.appendChild(style);
+	style.sheet.cssRules[0].insertRule(CSS, 0);
+	return eq(cssUrl(style.sheet.cssRules[0].cssRules[0].cssText), CSS_RESOLVED, "url()");
+});
+
+// ----------------------------------------------------------------- svg/legacy
+check("<use xlink:href> is rewritten like <use href>", () => {
+	// SVG 1.1 spells the reference xlink:href, which is what every icon sprite
+	// in the wild uses; only the SVG 2 spelling was being rewritten.
+	// no ids on these, so the selector checks above keep counting what they meant to
+	const uses = document.getElementsByTagName("use");
+	eq(uses[1].href.baseVal, "http://127.0.0.1:4720/sprite.svg#icon", "href");
+	return eq(uses[0].href.baseVal, "http://127.0.0.1:4720/sprite.svg#icon", "xlink:href");
+});
+
+check("a <style> the browser won't parse as css is left exactly as authored", () => {
+	// Per HTML a style element is only a stylesheet when its type is absent,
+	// empty or text/css. Anything else is inert markup a library reads for
+	// itself - Tailwind's browser build keeps its input in
+	// <style type="text/tailwindcss"> - so rewriting it corrupts that library's
+	// own source. It must come back byte-for-byte.
+	const inert = document.getElementById("inert-style");
+	eq(inert.sheet, null, "really inert (no stylesheet)");
+	eq(inert.textContent, ".inert{background:url(/img/pixel-a.png)}", "textContent");
+	return eq(inert.firstChild.data, ".inert{background:url(/img/pixel-a.png)}", "text node");
+});
+
+check("<body background> keeps the value the page authored", () => {
+	return eq(document.body.getAttribute("background"), "/img/pixel-a.png", "authored");
+});
+
 // -------------------------------------------------------------------- base
 check("a <base href> still resolves relative urls", () => {
 	const a = document.getElementById("based");
@@ -343,6 +490,41 @@ const ASYNC_CHECKS = String.raw`
 		return "ok";
 	});
 
+	await check("a worker's own location carries none of sherpa's hints", async () => {
+		// The engine threads 'sherpa.dest'/'sherpa.type' through the query string
+		// of the URLs it hands the browser. They are stripped before the upstream
+		// request, but they used to survive into what the *page* reads back, so a
+		// worker configured by its own search params saw one it never set.
+		const worker = new Worker("/worker.js");
+		const data = await new Promise((resolveMsg, rejectMsg) => {
+			worker.onmessage = (event) => resolveMsg(event.data);
+			worker.onerror = (event) => rejectMsg(new Error("worker error: " + event.message));
+			setTimeout(() => rejectMsg(new Error("worker timed out")), 10000);
+		});
+		worker.terminate();
+		if (data.href.indexOf("sherpa.") !== -1)
+			throw new Error("internal hint leaked into location.href: " + data.href);
+		eq(data.search, "", "location.search");
+		return eq(data.href, "http://127.0.0.1:4720/worker.js", "location.href");
+	});
+
+	await check("nothing on the page was fetched from the proxy's own origin", async () => {
+		// The single assertion every rewriting gap above shows up in: a url the
+		// engine failed to rewrite resolves against the proxy origin instead of
+		// the site's, and the request escapes there. Resource names are
+		// unrewritten by the performance trap, so anything still pointing at the
+		// proxy host is either an engine file or a leak.
+		await new Promise((r) => setTimeout(r, 500));
+		const leaked = performance
+			.getEntriesByType("resource")
+			.map((entry) => entry.name)
+			.filter((name) => name.indexOf("http://127.0.0.1:4721/") === 0)
+			.filter((name) => name.indexOf("/engine/") === -1 && name.indexOf("/baremux/") === -1 && name.indexOf("/epoxy/") === -1);
+		if (leaked.length)
+			throw new Error("escaped to the proxy origin: " + leaked.join(", "));
+		return "none";
+	});
+
 	window.__sherpaDone = true;
 })();
 `;
@@ -355,7 +537,7 @@ export const pages = {
 <base href="/base-root/">
 <title>sherpa behavior fixture</title>
 </head>
-<body>
+<body background="/img/pixel-a.png">
 <ul>
 	<li><a id="intro" href="/docs/intro.html" data-kind="link">Intro</a></li>
 	<li><a href="/blog/post.html">Blog</a></li>
@@ -369,6 +551,11 @@ export const pages = {
 <img src="/img/pixel-b.png" alt="b">
 <img src="/img/other-b.png" alt="c">
 <a id="based" href="relative.html">relative</a>
+<style id="inert-style" type="text/tailwindcss">.inert{background:url(/img/pixel-a.png)}</style>
+<svg width="10" height="10">
+	<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/sprite.svg#icon"></use>
+	<use href="/sprite.svg#icon"></use>
+</svg>
 <div id="scripts"><script id="unicode-script">window.__unicodeValue = "café – 日本語 🏔";</script></div>
 <script>${CHECKS}</script>
 <script>${ASYNC_CHECKS}</script>
@@ -378,6 +565,14 @@ export const pages = {
 
 export const textRoutes = {
 	"/api/echo": { body: "echo", type: "text/plain" },
+	"/sprite.svg": {
+		body: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="icon"><rect width="4" height="4"/></symbol></svg>`,
+		type: "image/svg+xml",
+	},
+	"/worker.js": {
+		body: `postMessage({ href: self.location.href, search: self.location.search });`,
+		type: "text/javascript",
+	},
 };
 
 /** 1x1 transparent PNG, so the fixture's images are real responses. */

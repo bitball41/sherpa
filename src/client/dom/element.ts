@@ -1,5 +1,5 @@
 import { findHtmlRule } from "@/shared/htmlRules";
-import { rewriteCss, unrewriteCss } from "@rewriters/css";
+import { isCssStyleType, rewriteCss, unrewriteCss } from "@rewriters/css";
 import {
 	isEventAttribute,
 	rewriteHtml,
@@ -60,6 +60,10 @@ export default function (client: SherpaClient, self: typeof window) {
 		poster: [self.HTMLVideoElement],
 		imageSrcset: [self.HTMLLinkElement],
 		srcset: [self.HTMLImageElement, self.HTMLSourceElement],
+		// `<body background>` reflects the content attribute verbatim (no URL
+		// resolution), so the page has to be handed the value it authored
+		// rather than the rewritten one htmlRules put in the attribute.
+		background: [self.HTMLBodyElement],
 	};
 	const propertyAttributes = {
 		formAction: "formaction",
@@ -86,6 +90,17 @@ export default function (client: SherpaClient, self: typeof window) {
 	];
 
 	const attrs = Object.keys(attrObject);
+
+	// SVG carries its own `<style>` interface, so "is this element a stylesheet"
+	// can't be a single `instanceof HTMLStyleElement`. An `<svg><style>` whose
+	// text was assigned through `innerHTML`/`textContent` was run through the
+	// *HTML* rewriter instead of the CSS one.
+	const isStyleElement = (node: unknown): boolean =>
+		(node instanceof self.HTMLStyleElement ||
+			(self.SVGStyleElement !== undefined &&
+				node instanceof self.SVGStyleElement)) &&
+		// ...and only when its `type` makes the browser parse it as CSS
+		isCssStyleType((node as HTMLStyleElement).type);
 
 	// Captured before the traps below replace them. Every attribute getter,
 	// setter and shadow-attribute probe goes through these, so resolving them
@@ -561,50 +576,59 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
-	client.Trap("Element.prototype.innerHTML", {
-		set(ctx, value: string) {
-			let newval;
-			if (ctx.this instanceof self.HTMLScriptElement) {
-				newval = rewriteJs(value, "(anonymous script element)", client.meta);
-				nativeSetAttribute.call(
-					ctx.this,
-					SCRIPT_SOURCE_ATTRIBUTE,
-					bytesToBase64(encoder.encode(value))
-				);
-			} else if (ctx.this instanceof self.HTMLStyleElement) {
-				newval = rewriteCss(value, client.meta);
-			} else {
-				try {
-					newval = rewriteHtml(value, client.cookieStore, client.meta);
-				} catch {
-					newval = value;
-				}
-			}
-
-			ctx.set(newval);
-		},
-		get(ctx) {
-			if (ctx.this instanceof self.HTMLScriptElement) {
-				const scriptSource = nativeGetAttribute.call(
-					ctx.this,
-					SCRIPT_SOURCE_ATTRIBUTE
-				);
-
-				if (scriptSource) {
-					return base64ToString(scriptSource);
+	// `innerHTML` is not one property: the `InnerHTML` mixin is implemented by
+	// `Element` *and* by `ShadowRoot`, each with its own accessor. Trapping only
+	// the `Element` one left every shadow root - the entire web-components half
+	// of the platform - writing markup straight past the rewriter, so a custom
+	// element's `shadowRoot.innerHTML = "<img src=/logo.png>"` fetched from the
+	// proxy's own origin instead of the site's.
+	client.Trap(
+		["Element.prototype.innerHTML", "ShadowRoot.prototype.innerHTML"],
+		{
+			set(ctx, value: string) {
+				let newval;
+				if (ctx.this instanceof self.HTMLScriptElement) {
+					newval = rewriteJs(value, "(anonymous script element)", client.meta);
+					nativeSetAttribute.call(
+						ctx.this,
+						SCRIPT_SOURCE_ATTRIBUTE,
+						bytesToBase64(encoder.encode(value))
+					);
+				} else if (isStyleElement(ctx.this)) {
+					newval = rewriteCss(value, client.meta);
+				} else {
+					try {
+						newval = rewriteHtml(value, client.cookieStore, client.meta);
+					} catch {
+						newval = value;
+					}
 				}
 
-				return ctx.get();
-			}
-			if (ctx.this instanceof self.HTMLStyleElement) {
-				// the setter rewrites CSS through innerHTML, so the getter must
-				// unrewrite it (mirrors the textContent trap below)
-				return unrewriteCss(ctx.get() as string);
-			}
+				ctx.set(newval);
+			},
+			get(ctx) {
+				if (ctx.this instanceof self.HTMLScriptElement) {
+					const scriptSource = nativeGetAttribute.call(
+						ctx.this,
+						SCRIPT_SOURCE_ATTRIBUTE
+					);
 
-			return unrewriteHtml(ctx.get());
-		},
-	});
+					if (scriptSource) {
+						return base64ToString(scriptSource);
+					}
+
+					return ctx.get();
+				}
+				if (isStyleElement(ctx.this)) {
+					// the setter rewrites CSS through innerHTML, so the getter must
+					// unrewrite it (mirrors the textContent trap below)
+					return unrewriteCss(ctx.get() as string);
+				}
+
+				return unrewriteHtml(ctx.get());
+			},
+		}
+	);
 
 	client.Trap("Node.prototype.textContent", {
 		set(ctx, value: string) {
@@ -622,7 +646,7 @@ export default function (client: SherpaClient, self: typeof window) {
 				);
 
 				return ctx.set(newval);
-			} else if (ctx.this instanceof self.HTMLStyleElement) {
+			} else if (isStyleElement(ctx.this)) {
 				return ctx.set(rewriteCss(value, client.meta));
 			} else {
 				return ctx.set(value);
@@ -641,7 +665,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 				return ctx.get();
 			}
-			if (ctx.this instanceof self.HTMLStyleElement) {
+			if (isStyleElement(ctx.this)) {
 				return unrewriteCss(ctx.get() as string);
 			}
 
@@ -658,20 +682,25 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
-	client.Proxy("Element.prototype.setHTMLUnsafe", {
-		apply(ctx) {
-			try {
-				ctx.args[0] = rewriteHtml(
-					ctx.args[0],
-					client.cookieStore,
-					client.meta,
-					false
-				);
-			} catch {}
-		},
-	});
+	// Same mixin, same reason as `innerHTML` above: `ShadowRoot` carries its own
+	// copies of these, so a shadow root's markup has to be intercepted there too.
+	client.Proxy(
+		["Element.prototype.setHTMLUnsafe", "ShadowRoot.prototype.setHTMLUnsafe"],
+		{
+			apply(ctx) {
+				try {
+					ctx.args[0] = rewriteHtml(
+						ctx.args[0],
+						client.cookieStore,
+						client.meta,
+						false
+					);
+				} catch {}
+			},
+		}
+	);
 
-	client.Proxy("Element.prototype.getHTML", {
+	client.Proxy(["Element.prototype.getHTML", "ShadowRoot.prototype.getHTML"], {
 		apply(ctx) {
 			ctx.return(unrewriteHtml(ctx.call()));
 		},
@@ -695,46 +724,11 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
 		},
 	});
-	client.Proxy("Text.prototype.appendData", {
-		apply(ctx) {
-			if (ctx.this.parentElement?.tagName === "STYLE") {
-				ctx.args[0] = rewriteCss(ctx.args[0], client.meta);
-			}
-		},
-	});
-
-	client.Proxy("Text.prototype.insertData", {
-		apply(ctx) {
-			if (ctx.this.parentElement?.tagName === "STYLE") {
-				ctx.args[1] = rewriteCss(ctx.args[1], client.meta);
-			}
-		},
-	});
-
-	client.Proxy("Text.prototype.replaceData", {
-		apply(ctx) {
-			if (ctx.this.parentElement?.tagName === "STYLE") {
-				ctx.args[2] = rewriteCss(ctx.args[2], client.meta);
-			}
-		},
-	});
-
-	client.Trap("Text.prototype.wholeText", {
-		get(ctx) {
-			if (ctx.this.parentElement?.tagName === "STYLE") {
-				return unrewriteCss(ctx.get() as string);
-			}
-
-			return ctx.get();
-		},
-		set(ctx, v) {
-			if (ctx.this.parentElement?.tagName === "STYLE") {
-				return ctx.set(rewriteCss(v as string, client.meta));
-			}
-
-			return ctx.set(v);
-		},
-	});
+	// The `<style>` text traps that used to live here (`appendData`,
+	// `insertData`, `replaceData`, `wholeText`) moved to `dom/css.ts`, next to
+	// the rest of the stylesheet interception and the node-insertion paths they
+	// were missing - one predicate for "is this text a stylesheet" instead of
+	// two that had already drifted apart.
 
 	client.Trap(
 		[

@@ -2,7 +2,7 @@ import { ElementType, Parser } from "htmlparser2";
 import { ChildNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
 import { URLMeta, rewriteUrl, snapshotMeta } from "@rewriters/url";
-import { rewriteCss } from "@rewriters/css";
+import { isCssStyleType, rewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
 import { rewriteRefresh } from "@rewriters/refresh";
@@ -240,7 +240,9 @@ function traverseParsedHtml(
 		}
 
 		if (name === "style") {
-			if (node.children[0] !== undefined)
+			// A style element with a non-CSS `type` is inert markup a library
+			// reads for itself, not a stylesheet - see `isCssStyleType`.
+			if (node.children[0] !== undefined && isCssStyleType(attribs.type))
 				node.children[0].data = rewriteCss(node.children[0].data, meta);
 		} else if (name === "script") {
 			// the type's MIME essence decides everything below; compute it once

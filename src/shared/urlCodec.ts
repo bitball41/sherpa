@@ -1,4 +1,51 @@
+import { INTERNAL_PARAM_PREFIX } from "@/shared/internalParams";
+
 export type UrlCodec = (value: string) => string;
+
+/**
+ * Removes Sherpa's own query parameters from a decoded URL.
+ *
+ * The hints Sherpa threads through the query string (`sherpa.type`,
+ * `sherpa.dest`, ...) are stripped before the upstream request, but they were
+ * still part of what the *page* saw when it read a URL back: a worker's
+ * `self.location.href` came out as `.../worker.js?sherpa.dest=worker`, and a
+ * module's `import.meta.url` carried `?sherpa.type=module`. Any site that
+ * parses its own query string - workers configured by search params are the
+ * usual case - saw a parameter it never set.
+ */
+export function stripInternalParams(url: string): string {
+	// The overwhelming majority of URLs carry none of these, and this runs on
+	// every unrewrite; reject on a substring scan before doing any parsing.
+	if (url.indexOf(INTERNAL_PARAM_PREFIX) === -1) return url;
+
+	const queryIndex = url.indexOf("?");
+	if (queryIndex === -1) return url;
+
+	const hashIndex = url.indexOf("#", queryIndex);
+	const query = url.slice(
+		queryIndex + 1,
+		hashIndex === -1 ? undefined : hashIndex
+	);
+	if (query.indexOf(INTERNAL_PARAM_PREFIX) === -1) return url;
+
+	// The prefix ends in `.`, which `URLSearchParams` serialization leaves
+	// as-is, so the raw parameter name can be tested without decoding it.
+	const kept: string[] = [];
+	let removed = false;
+	for (const pair of query.split("&")) {
+		if (pair === "") continue;
+		const equals = pair.indexOf("=");
+		const name = equals === -1 ? pair : pair.slice(0, equals);
+		if (name.startsWith(INTERNAL_PARAM_PREFIX)) removed = true;
+		else kept.push(pair);
+	}
+	if (!removed) return url;
+
+	const head = url.slice(0, queryIndex);
+	const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
+
+	return kept.length ? `${head}?${kept.join("&")}${hash}` : head + hash;
+}
 
 /**
  * Encodes an HTTP(S) URL behind a proxy prefix without mutating the URL.
@@ -41,9 +88,13 @@ export function decodeProxyUrl(
 	if (/^(?:blob|data):/i.test(encoded)) return encoded;
 
 	const hashIndex = encoded.indexOf("#");
-	if (hashIndex === -1) return decode(encoded);
+	// Sherpa's own hints are appended to the proxied URL in cleartext, *after*
+	// the codec-encoded target, so they are stripped before decoding - the same
+	// place and the same way the service worker takes them off an incoming
+	// request, and independent of what the configured codec does to a `?`.
+	if (hashIndex === -1) return decode(stripInternalParams(encoded));
 
-	const decodedUrl = decode(encoded.slice(0, hashIndex));
+	const decodedUrl = decode(stripInternalParams(encoded.slice(0, hashIndex)));
 	const decodedHash = decode(encoded.slice(hashIndex + 1));
 
 	return decodedUrl + (decodedHash ? `#${decodedHash}` : "");

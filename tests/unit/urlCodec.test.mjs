@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
 
-import {
+register("./helpers/srcResolver.mjs", import.meta.url);
+
+const {
 	appendUrlParamEntries,
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
 	resolveBaseHref,
-} from "../../src/shared/urlCodec.ts";
+	stripInternalParams,
+} = await import("../../src/shared/urlCodec.ts");
 
 const encode = encodeURIComponent;
 const decode = decodeURIComponent;
@@ -91,4 +95,42 @@ test("restoring form parameters preserves duplicate names and order", () => {
 
 	assert.deepEqual(url.searchParams.getAll("tag"), ["first", "second"]);
 	assert.equal(url.search, "?tag=first&tag=second&page=1");
+});
+
+test("decoding strips sherpa's own query hints but keeps the site's", () => {
+	// The hints are appended to the *proxied* URL in cleartext, after the
+	// encoded target - exactly how the client builds a worker or module URL.
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker&sherpa.type=module`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/w.js?id=3"
+	);
+});
+
+test("a site parameter that merely looks internal is preserved", () => {
+	const proxied = `/sherpa/${encode("https://example.com/a")}?sherpadest=1&other=2`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/a?sherpadest=1&other=2"
+	);
+});
+
+test("stripping hints leaves the fragment alone", () => {
+	assert.equal(
+		stripInternalParams("https://example.com/a?sherpa.type=module#frag"),
+		"https://example.com/a#frag"
+	);
+	assert.equal(
+		stripInternalParams("https://example.com/a?x=1&sherpa.type=module#frag"),
+		"https://example.com/a?x=1#frag"
+	);
+	// nothing internal: returned by identity, no re-serialization
+	const untouched = "https://example.com/a?x=1&y=2#z";
+	assert.equal(stripInternalParams(untouched), untouched);
+	assert.equal(
+		stripInternalParams("https://example.com/sherpa.js"),
+		"https://example.com/sherpa.js"
+	);
 });
