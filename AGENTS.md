@@ -850,11 +850,31 @@ proxied page):
 - Removed a dead `responseHeaders["accept"]` check in `worker/fetch.ts` that
   read a _request_ header name out of the response headers.
 
-New: `tests/behavior/` (`pnpm test:behavior`) — 32 assertions run inside a
+Selector rewriting sits in front of essentially every DOM query a site makes,
+so it carries a fallback: a rewritten selector is validated with the _native_
+`Element.prototype.matches` (captured before the trap is installed, or it would
+recurse — and `CSS.supports("selector(...)")` is no good here, since it takes a
+single complex selector and rejects an ordinary selector list), and anything the
+parser refuses falls back to the page's own selector, which is exactly the
+pre-pass behavior. Results are memoized per selector string, so the scan and the
+validation stay off repeat queries.
+
+`pnpm test:behavior` also runs in CI now, _before_ the live-site Playwright
+suite. That suite drives real google.com/youtube.com from GitHub runners and is
+flaky by design from datacenter IPs (see `KNOWN_ISSUES.md`); two runs of this
+branch's identical commit failed on _different_ tests, each passing on retry in
+the other run — which is what flakiness looks like and what a real regression
+does not. Putting a hermetic gate ahead of it means an actual engine regression
+is reported on its own rather than lost in that noise: the missing local-fixture
+gate `KNOWN_ISSUES.md` asks for.
+
+New: `tests/behavior/` (`pnpm test:behavior`) — 34 assertions run inside a
 proxied document against the real pipeline (service worker, WASM rewriter,
 bare-mux over wisp, local fixture origin). This is the only place the client
 traps can be observed as a site sees them; the unit tests can only reach leaf
-modules. It found three of the bugs above that code reading had missed.
+modules. It found three of the bugs above that code reading had missed, plus a fourth
+during the fallback work: `CSS.supports("selector(...)")` silently rejects
+selector lists.
 
 **Note on `dist/`:** it is a build artifact but _is_ tracked. The bundle
 embeds the WASM rewriter, and the wasm-bindgen glue in `rewriter/wasm/out/`

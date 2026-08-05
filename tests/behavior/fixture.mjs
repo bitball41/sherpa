@@ -59,6 +59,25 @@ check("selectors on attributes sherpa never rewrites still work", () => {
 	return eq(document.querySelectorAll('input[type="text"]').length, 1, "type");
 });
 
+check("an unparseable rewrite falls back to the page's own selector", () => {
+	// The rewriter turns an attribute selector into :is(shadow, real). If a
+	// selector ever rewrote into something the CSS parser rejects, throwing a
+	// SyntaxError out of querySelector would take the page down; these are the
+	// awkward shapes that would find such a bug, and all of them must behave
+	// exactly as an unproxied browser would.
+	eq(document.querySelectorAll('a[href^="/docs/"]:not([href$="deep.html"])').length, 1, "not()");
+	eq(document.querySelectorAll('[href][id]').length, 2, "two attribute selectors");
+	eq(document.querySelectorAll('a[href][data-kind="link"]').length, 1, "mixed shadowed/plain");
+	eq(document.querySelectorAll('img[src][alt="a"]').length, 1, "img");
+	return "ok";
+});
+
+check("selectors still work when queried repeatedly (cache path)", () => {
+	let n = 0;
+	for (let i = 0; i < 5; i++) n += document.querySelectorAll('a[href^="/docs/"]').length;
+	return eq(n, 10, "repeat count");
+});
+
 check("a selector list rewrites every member", () => {
 	return eq(
 		document.querySelectorAll('a[href^="/docs/"], img[src$="-b.png"]').length,

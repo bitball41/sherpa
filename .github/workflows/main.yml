@@ -233,6 +233,13 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
+      # Hermetic: a local fixture origin driven through the real pipeline, with
+      # no external network. Runs before the live-site suite below so a genuine
+      # engine regression is always reported, rather than being hidden behind
+      # whatever Google and YouTube decided to serve this datacenter IP.
+      - name: Run behavior tests
+        run: pnpm test:behavior
+
       - name: Run Playwright tests
         run: pnpm test:integration
 

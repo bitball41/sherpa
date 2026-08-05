@@ -233,6 +233,9 @@ bare-mux over wisp — against a local fixture origin and runs its assertions
 _inside_ the proxied document, which is the only place the client-side traps
 can be observed as a site sees them. It needs a Chromium; set
 `SHERPA_CHROMIUM=/path/to/chrome` if `npx playwright install` isn't an option.
+It runs in CI ahead of the live-site Playwright suite, which drives real
+Google/YouTube and is flaky by design from datacenter IPs — so an actual engine
+regression is reported on its own rather than lost in that noise.
 
 > **The `dist/` it loads is a build artifact.** Run `pnpm build` first, or the
 > suite tests whatever was last committed. The bundle embeds the WASM
