@@ -876,6 +876,103 @@ modules. It found three of the bugs above that code reading had missed, plus a f
 during the fallback work: `CSS.supports("selector(...)")` silently rejects
 selector lists.
 
+### Rewriting-gap pass + streamed document responses
+
+Two halves. The first went after URLs the engine never rewrote at all — every
+one of them resolved against the _proxy's_ origin instead of the site's, so the
+request escaped there and 404'd. They were found by probing a real proxied page
+and reading what the **fixture origin actually received**, which is why the
+behavior suite now carries the same assertion as a permanent gate: _nothing on
+the page was fetched from the proxy's own origin_. That single check is the one
+every gap of this shape shows up in.
+
+- **`ShadowRoot.prototype.innerHTML` / `setHTMLUnsafe` / `getHTML` were not
+  trapped.** `innerHTML` is not one property — the `InnerHTML` mixin is
+  implemented by `Element` _and_ by `ShadowRoot`, each with its own accessor —
+  so every web component wrote markup straight past the rewriter.
+- **Text written into a `<style>` by any node-insertion API was never
+  rewritten.** `style.appendChild(document.createTextNode(css))` is how
+  Emotion, JSS and styled-components inject rules outside their `insertRule`
+  mode, and it is the oldest hand-rolled idiom there is; `append`, `prepend`,
+  `insertBefore`, `replaceChild`, `replaceChildren` and `insertAdjacentText`
+  were equally uncovered, as were writes through the text node's own
+  `data`/`nodeValue`. The interception is installed on
+  `HTMLStyleElement`/`SVGStyleElement`'s **own prototypes**, shadowing
+  `Node.prototype`, so `appendChild` and friends stay completely untrapped for
+  every other element — this costs nothing on the hottest DOM methods there
+  are. `CSSGroupingRule.prototype.insertRule` (a rule added inside `@media`)
+  and `CSSStyleSheet.prototype.addRule` were missing too.
+- **`xlink:href` was only rewritten on `<image>`.** SVG 1.1 spells a resource
+  reference `xlink:href` and SVG 2 spells it `href`; every icon-sprite
+  `<use xlink:href="sprite.svg#id">` in the wild uses the first.
+- `<body background>` and its table equivalents.
+- **Sherpa's own query hints leaked into what the page reads back.**
+  `sherpa.dest`/`sherpa.type` are stripped before the upstream request but
+  survived into `unrewriteUrl`, so a worker's `self.location.search` reported
+  a parameter it never set. Stripped in `decodeProxyUrl`, before the codec
+  runs — the same place and order the worker takes them off an incoming
+  request, so it holds for any codec.
+- **Web app manifests** — the one _data_ format the platform resolves URLs out
+  of — were passed through untouched (`src/shared/rewriters/manifest.ts`, on
+  the `manifest` destination). Takes the URL rewriter as a callback like
+  `importMap.ts` does, so it stays free of the WASM rewriter and unit-testable.
+
+And one that went the other way: **a `<style>` whose `type` is not a CSS type
+is inert markup per HTML**, not a stylesheet. Rewriting those bodies broke
+exactly the tools that use the idiom — Tailwind's browser build keeps its input
+in `<style type="text/tailwindcss">`, and rewriting turned its
+`@import "tailwindcss"` into a proxied absolute URL Tailwind could not resolve.
+They are left exactly as authored now, which is what makes the real
+`@tailwindcss/browser` compile through the proxy (verified end-to-end against
+the published bundle: utilities, `@theme` variables and a `url()` in a
+`@layer components` block all resolve correctly).
+
+The `<style>` text traps that lived in `dom/element.ts` moved into
+`dom/css.ts`, so there is one predicate for "is this text a stylesheet"
+instead of two that had drifted apart — and it recognizes SVG's `<style>` now.
+The setter on `Text.prototype.wholeText` is gone: the property is read-only, so
+the trap turned a silent no-op into a throw from inside Sherpa.
+
+The second half is **`src/worker/htmlStream.ts`** — bottleneck §2, the largest
+remaining item on the list and the one the README called "the hard one".
+
+A service worker's response does not exist until its body does, so a proxied
+document's time-to-first-byte was the document's entire download time, and the
+three parser-blocking boot scripts every proxied page needs could not even be
+_requested_ until after that. Document responses are a stream now: once the
+first ~1 KiB of the upstream body has arrived — enough for the HTML spec's
+encoding sniff and to read the leading doctype — Sherpa writes that doctype and
+the three script tags immediately, then buffers, rewrites and writes the rest.
+The runtime downloads, parses and compiles while the remainder is still on the
+wire.
+
+Rewriting is unchanged: the remainder is still parsed and traversed as one
+tree, so `<base href>` resolution and every rule behave exactly as before. Only
+the flush point moves. The doctype is reproduced byte-exactly from the origin's
+own bytes because it decides the document's rendering mode; when it cannot be
+determined from the first chunk (UTF-16, a very long leading comment) or the
+whole document already arrived, the old buffered path runs unchanged.
+
+`bench/bottleneck/e2e-phases.mjs`, one machine, before vs after, shaped link
+(60 ms RTT / 10 Mbit/s), n=4:
+
+| page                  | doc TTFB before | after       | total load         |
+| --------------------- | --------------- | ----------- | ------------------ |
+| landing.html 5 KiB    | 54.3 ms         | 52.3 ms     | 200.6 → 196.2 ms   |
+| article.html 80 KiB   | 123.4 ms        | **51.6 ms** | 275.6 → 255.2 ms   |
+| big/page.html 1.2 MiB | 1207.7 ms       | **52.2 ms** | 2279.1 → 2199.9 ms |
+
+Proxied TTFB is flat in document size now and at parity with an unproxied load
+(48–49 ms direct). A second effect falls out of it: the big document's
+`handleFetch` went from 116.8 ms to 4.9 ms, because the rewrite no longer holds
+the worker's dispatch loop while every other response on the page queues behind
+it (bottleneck §5).
+
+The behavior suite gained the doctype shapes this splits on — html5, absent,
+HTML 4.01, comment-preceded, under-threshold — plus a Shift_JIS document,
+each as a real proxied response, asserting rendering mode, decoded text and
+that the document is still rewritten. 34 → 57 assertions.
+
 **Note on `dist/`:** it is a build artifact but _is_ tracked. The bundle
 embeds the WASM rewriter, and the wasm-bindgen glue in `rewriter/wasm/out/`
 must come from the same rewriter build as `dist/sherpa.wasm.wasm` — pairing a

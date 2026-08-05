@@ -89,6 +89,34 @@ theoretical leak.
 
 **Status:** deferred. Do not implement without a concrete failing site and a test.
 
+## `@import` in a non-CSS `<style>` still resolves against the proxy origin
+
+**File:** `src/shared/rewriters/css.ts` (`isCssStyleType`), `src/client/dom/css.ts`
+
+Per HTML, a `<style>` element is only a stylesheet when its `type` is absent,
+empty, or `text/css`. Anything else — `<style type="text/tailwindcss">`, which is
+how Tailwind's browser build carries its input — is inert markup a library reads
+for itself, and Sherpa deliberately leaves those bodies exactly as authored:
+rewriting them corrupts the library's own source (it turned Tailwind's
+`@import "tailwindcss"` into a proxied absolute URL Tailwind could not resolve,
+which broke the whole compile).
+
+Chromium, however, still _fetches_ the target of an `@import` inside such an
+element, even though it then discards the sheet. Confirmed against a plain
+origin with no proxy in the picture. Because the body is unrewritten, that
+request resolves against the proxy's origin and gets a 500 rather than reaching
+the site.
+
+Nothing depends on it: the sheet is never applied either way, so the only cost
+is one failed request per inert `@import`. The alternative — rewriting the body
+so that request resolves correctly — breaks the library the markup belongs to,
+which is a much worse trade. There is no third option available from userland:
+unlike an attribute, text content has no shadow copy the page could be handed
+back instead.
+
+**Status:** accepted. Revisit if a browser ever applies these sheets, or if a
+site is found where the stray request matters.
+
 ## npm publish can never succeed under the current package name
 
 **File:** `.github/workflows/main.yml` (`publish` job), `package.json` (`name`)
