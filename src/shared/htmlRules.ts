@@ -144,18 +144,29 @@ export const htmlRules: HtmlRule[] = [
 	},
 ];
 
-// Attribute rewriting runs for every element parsed from a page and for every
-// dynamic setAttribute call. Index the small rule table once instead of
-// repeatedly scanning every rule and every selector on those hot paths.
-const htmlRulesByAttribute = new Map<string, HtmlRule[]>();
+// Attribute rewriting runs for every attribute of every element in every
+// document, and for every dynamic `setAttribute` a page makes. The rule table
+// is indexed once here rather than scanned per lookup - and each rule's
+// element list becomes a Set, so widening one (the SVG `href`/`xlink:href`
+// list is fifteen elements) costs nothing at the lookup.
+type IndexedRule = { rule: HtmlRule; elements: Set<string> | null };
+
+const htmlRulesByAttribute = new Map<string, IndexedRule[]>();
 
 for (const rule of htmlRules) {
 	for (const attribute in rule) {
 		if (attribute === "fn") continue;
 
+		const selector = rule[attribute];
+		const indexed: IndexedRule = {
+			rule,
+			// `null` stands for the `"*"` selector: matches every element.
+			elements: Array.isArray(selector) ? new Set(selector) : null,
+		};
+
 		const rules = htmlRulesByAttribute.get(attribute);
-		if (rules) rules.push(rule);
-		else htmlRulesByAttribute.set(attribute, [rule]);
+		if (rules) rules.push(indexed);
+		else htmlRulesByAttribute.set(attribute, [indexed]);
 	}
 }
 
@@ -167,17 +178,30 @@ for (const attribute of htmlRulesByAttribute.keys()) {
 	shadowedAttributeNames.add(attribute);
 }
 
+/**
+ * ASCII-lowercases only when it has to. Attribute names arrive already
+ * lowercased from the HTML parser, and from `setAttribute` on an HTML element,
+ * so the usual answer is "no change" - and `toLowerCase()` allocates a copy
+ * either way, while this scan does not.
+ */
+function lowerAttributeName(attribute: string): string {
+	for (let i = 0; i < attribute.length; i++) {
+		const code = attribute.charCodeAt(i);
+		if (code >= 65 && code <= 90) return attribute.toLowerCase();
+	}
+
+	return attribute;
+}
+
 export function findHtmlRule(
 	attribute: string,
 	elementName: string
 ): HtmlRule | undefined {
-	const normalizedAttribute = attribute.toLowerCase();
-	const rules = htmlRulesByAttribute.get(normalizedAttribute);
+	const rules = htmlRulesByAttribute.get(lowerAttributeName(attribute));
 	if (!rules) return;
 
-	for (const rule of rules) {
-		const selector = rule[normalizedAttribute];
-		if (selector === "*") return rule;
-		if (Array.isArray(selector) && selector.includes(elementName)) return rule;
+	for (let i = 0; i < rules.length; i++) {
+		const { rule, elements } = rules[i];
+		if (elements === null || elements.has(elementName)) return rule;
 	}
 }
