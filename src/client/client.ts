@@ -33,6 +33,14 @@ export type SherpaModule = {
 	default: (client: SherpaClient, self: typeof globalThis) => void;
 };
 
+export type EventCallbackEntry = {
+	event: string;
+	originalCallback: any;
+	proxiedCallback: AnyFunction;
+	capture: boolean;
+	once: boolean;
+};
+
 export type ProxyCtx = {
 	fn: AnyFunction;
 	this: any;
@@ -99,16 +107,20 @@ export class SherpaClient {
 
 	cookieStore = new CookieStore();
 
-	eventcallbacks: Map<
-		any,
-		Array<{
-			event: string;
-			originalCallback: any;
-			proxiedCallback: AnyFunction;
-			capture: boolean;
-			once: boolean;
-		}>
-	> = new Map();
+	/**
+	 * Every listener a page has registered, so `removeEventListener` can find
+	 * the proxy that was installed in its place.
+	 *
+	 * A `WeakMap` keyed by the target, whose entries are keyed by the page's
+	 * own callback. It used to be a strong `Map<EventTarget, Entry[]>`, which
+	 * meant two things: every element that ever received a listener was
+	 * retained for the life of the realm (a single-page app that mounts and
+	 * discards views leaked all of them), and both `addEventListener` and
+	 * `removeEventListener` scanned the whole array for the target - so
+	 * registering n listeners on `document` or `window`, which large sites do
+	 * by the thousand, cost O(n^2).
+	 */
+	eventcallbacks: WeakMap<any, Map<any, EventCallbackEntry[]>> = new WeakMap();
 
 	meta: URLMeta;
 
@@ -266,18 +278,33 @@ export class SherpaClient {
 			},
 			get base() {
 				if (iswindow) {
-					const base = client.natives.call(
-						"Document.prototype.querySelector",
-						client.global.document,
-						"base"
-					) as Element | null;
+					// `document.querySelector("base")` walks the document until it
+					// finds a match - and when the page has no <base> at all (the
+					// overwhelmingly common case) that is a full tree walk. This
+					// getter is read once per URL the page rewrites, so a page that
+					// assigns a few thousand `img.src`/`a.href` values paid a few
+					// thousand whole-document traversals.
+					//
+					// A live HTMLCollection is the fix the DOM already provides: the
+					// browser caches its contents against the document's own tree
+					// version and invalidates them itself, so this stays exactly as
+					// correct as the query it replaces (first <base> in tree order)
+					// while costing O(1) whenever the DOM hasn't changed.
+					if (client.#baseElements === null) {
+						client.#baseElements = client.natives.call(
+							"Document.prototype.getElementsByTagName",
+							client.global.document,
+							"base"
+						) as HTMLCollectionOf<Element>;
+					}
+					const base = client.#baseElements[0] as Element | undefined;
 					if (base) {
 						// Read through the natives rather than the trapped
 						// `getAttribute`: this runs on every URL the page rewrites,
 						// and the shadow attribute holds the page's original href
 						// (the visible one is already rewritten).
 						const shadow = SHADOW_ATTRIBUTE_PREFIX + "href";
-						let url = client.natives.call(
+						const url = client.natives.call(
 							"Element.prototype.hasAttribute",
 							base,
 							shadow
@@ -293,16 +320,35 @@ export class SherpaClient {
 									"href"
 								);
 						if (!url) return client.url;
-						const frag = url.indexOf("#");
-						url = url.substring(0, frag === -1 ? undefined : frag);
-						if (!url) return client.url;
 
-						// An unresolvable <base href> (`//`, `http://`, a leftover
-						// template placeholder) is ignored per HTML - it used to
-						// throw straight out of this getter, and since every single
-						// URL rewrite reads it, one malformed <base> took the whole
-						// page's rewriting down with it.
-						return resolveBaseHref(url, client.url) ?? client.url;
+						// Resolving is a URL parse, and the same <base href> resolves
+						// against the same document URL to the same thing every time.
+						// Memoize on the pair rather than re-parsing per rewrite.
+						const documentUrl = client.url;
+						if (
+							client.#cachedBaseHref !== url ||
+							client.#cachedBaseDocumentUrl !== documentUrl
+						) {
+							client.#cachedBaseHref = url;
+							client.#cachedBaseDocumentUrl = documentUrl;
+
+							const frag = url.indexOf("#");
+							const withoutFragment = url.substring(
+								0,
+								frag === -1 ? undefined : frag
+							);
+
+							// An unresolvable <base href> (`//`, `http://`, a leftover
+							// template placeholder) is ignored per HTML - it used to
+							// throw straight out of this getter, and since every single
+							// URL rewrite reads it, one malformed <base> took the whole
+							// page's rewriting down with it.
+							client.#cachedBaseUrl = withoutFragment
+								? (resolveBaseHref(withoutFragment, documentUrl) ?? documentUrl)
+								: documentUrl;
+						}
+
+						return client.#cachedBaseUrl;
 					}
 				}
 
@@ -483,6 +529,15 @@ export class SherpaClient {
 	// `new URL(client.url.href)`.
 	#cachedRawUrl: string | null = null;
 	#cachedUrl: URL | null = null;
+
+	/**
+	 * Live `<base>` collection for this realm's document, plus the memoized
+	 * resolution of its href. See the `meta.base` getter.
+	 */
+	#baseElements: HTMLCollectionOf<Element> | null = null;
+	#cachedBaseHref: string | null = null;
+	#cachedBaseDocumentUrl: URL | null = null;
+	#cachedBaseUrl: URL | null = null;
 
 	get url(): URL {
 		const raw = this.global.location.href;

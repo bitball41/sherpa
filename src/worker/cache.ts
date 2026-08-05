@@ -172,6 +172,79 @@ export async function lookupCachedResponse(
 	}
 }
 
+/** Releases a cloned body this side is never going to read. */
+async function discardBody(response: Response): Promise<void> {
+	try {
+		await response.body?.cancel();
+	} catch {
+		// Already errored or locked; nothing left to release.
+	}
+}
+
+/**
+ * Reads a response body, giving up as soon as it exceeds `limit`.
+ *
+ * `await response.arrayBuffer()` then checking the size only rejects an
+ * oversized body *after* holding all of it in memory - and the caller's
+ * `clone()` tees the page's own stream, so whatever this branch reads ahead is
+ * buffered by the browser too. A body with no `content-length` (any chunked
+ * response) therefore had no bound at all, and one that never ends would have
+ * been accumulated for as long as it ran. Cancelling the moment the limit is
+ * passed both frees the tee and tears the read side down.
+ */
+async function readBounded(
+	response: Response,
+	limit: number
+): Promise<Uint8Array<ArrayBuffer> | null> {
+	if (!response.body) return new Uint8Array(await response.arrayBuffer());
+
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	let overLimit = false;
+
+	try {
+		for (;;) {
+			// eslint-disable-next-line no-await-in-loop
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+
+			total += value.byteLength;
+			if (total > limit) {
+				overLimit = true;
+				break;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		// A torn-down transport mid-body is not a cache entry.
+		return null;
+	}
+
+	if (overLimit) {
+		try {
+			await reader.cancel();
+		} catch {
+			// Already gone; the point was only to stop the tee from growing.
+		}
+
+		return null;
+	}
+
+	// Stream chunks in a service worker are always ArrayBuffer-backed.
+	if (chunks.length === 1) return chunks[0] as Uint8Array<ArrayBuffer>;
+
+	const body = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		body.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+
+	return body;
+}
+
 /**
  * Stores a rewritten response under an already-approved {@link StorePolicy}.
  *
@@ -189,15 +262,16 @@ export async function storeCachedResponse(
 	try {
 		const declaredLength = Number(response.headers.get("content-length"));
 		if (Number.isFinite(declaredLength) && declaredLength > MAX_ENTRY_BYTES)
-			return;
+			return await discardBody(response);
 
 		const cache = await openCache();
-		if (!cache) return;
+		// Every path that gives up has to release this branch of the tee. An
+		// abandoned one keeps the browser buffering the page's own copy of the
+		// body for as long as the response lives.
+		if (!cache) return await discardBody(response);
 
-		// The body has to be materialized either way to bound its size, and the
-		// caller handed over a clone it does not read.
-		const body = await response.arrayBuffer();
-		if (body.byteLength > MAX_ENTRY_BYTES) return;
+		const body = await readBounded(response, MAX_ENTRY_BYTES);
+		if (!body) return;
 
 		const headers = new Headers(response.headers);
 		headers.set(EXPIRES_HEADER, String(policy.expiresAt));

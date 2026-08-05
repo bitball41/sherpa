@@ -1,4 +1,4 @@
-import { SherpaClient } from "@client/index";
+import { SherpaClient, type EventCallbackEntry } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
 
@@ -79,7 +79,12 @@ function handleMessage(
 ) {
 	const port = this.recvport;
 	const type = data.sherpa$type;
-	const handlers = client.eventcallbacks.get(self);
+	// Entries are indexed by target then by the page's own callback, so the
+	// worker's `fetch` listeners have to be gathered out of that.
+	const byCallback = client.eventcallbacks.get(self);
+	const handlers: EventCallbackEntry[] = [];
+	if (byCallback)
+		for (const entries of byCallback.values()) handlers.push(...entries);
 
 	if (type === "message") {
 		const event = new MessageEvent("message", {
@@ -95,9 +100,7 @@ function handleMessage(
 	if (type === "fetch") {
 		const token = data.sherpa$token;
 		dbg.log("ee", data);
-		const fetchhandlers = (handlers || []).filter(
-			(event) => event.event === "fetch"
-		);
+		const fetchhandlers = handlers.filter((event) => event.event === "fetch");
 		const request = data.sherpa$request;
 		const Request = client.natives.store.Request;
 		const init: RequestInit = {

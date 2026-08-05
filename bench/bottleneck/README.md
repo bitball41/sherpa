@@ -210,7 +210,54 @@ _Fix direction:_ response caching (#1) removes most repeat cost; beyond
 that, memoizing per-origin emulation state further, and eventually moving
 rewrites off the SW dispatch loop.
 
-### 6. Cold start: ~590 ms (not the main pain)
+### 6. Client-side trap tax: what the page pays while it runs
+
+Everything above is per-_resource_ cost. This one is per-_operation_: a
+proxied page runs its JavaScript against Sherpa's traps, so the bill scales
+with how much the site does, not with how big it is — which is exactly why a
+page-load harness cannot see it. `client-hotpath.mjs` (repo root:
+`node bench/client-hotpath.mjs`) runs workloads inside a real proxied
+document and A/Bs two dists.
+
+Four structural costs were found and removed. Medians in Chromium, this tree
+against the pre-fix build, n=9 alternating rounds:
+
+| workload                                         | before   | after  | speedup   |
+| ------------------------------------------------ | -------- | ------ | --------- |
+| 20 000 URL-valued `setAttribute`                 | 587 ms   | 134 ms | **4.4×**  |
+| 4 000 `addEventListener` + `removeEventListener` | 130 ms   | 19 ms  | **6.7×**  |
+| 20 000 `element.attributes` walks                | 6 677 ms | 284 ms | **23.5×** |
+| 300 000 wrapped local identifiers                | 248 ms   | 4.5 ms | **55×**   |
+| 30 000 `dispatchEvent`                           | 66 ms    | 46 ms  | 1.4×      |
+| first proxied navigation                         | 323 ms   | 330 ms | 0.98×     |
+
+The navigation row is the control: nothing here was supposed to move it, and
+across runs it lands between 0.98× and 1.04× — run-to-run noise. These
+workloads are synthetic hot loops, so read the multiples as "this cost is
+gone", not as a prediction for any particular site.
+
+What each was:
+
+- **Resolving the document base ran `querySelector("base")` per rewritten
+  URL** — and when a page has no `<base>` (almost all of them) that is a full
+  document traversal, so URL rewriting was O(nodes) per URL. It reads a live
+  `HTMLCollection` now, which the browser maintains and invalidates itself,
+  and the resolution is memoized on (href, document URL).
+- **The listener registry was a strong `Map<EventTarget, Entry[]>`.** Two
+  problems in one: registering the n-th listener on a target scanned the
+  other n−1, and every element that ever received a listener was retained for
+  the life of the realm. It is a `WeakMap` keyed by target, then by the
+  page's own callback.
+- **`element.attributes` index access rebuilt `Object.keys(proxy)`** — which
+  re-entered the proxy's own `ownKeys`/`has` traps and allocated a key array
+  _per index read_, making the ordinary `for (i < attributes.length)` loop
+  quadratic with an allocation per step.
+- **The wrap function read four window properties on every call**, two of
+  which (`parent`, `top`) walk the frame tree. Minified code reuses `top` and
+  `parent` as ordinary local names, so this ran constantly on values that
+  could not possibly be any of them. Primitives now return immediately.
+
+### 7. Cold start: ~590 ms (not the main pain)
 
 `controller.init` 17 ms + SW install 45 ms + `setTransport` 42 ms + first
 navigation 302 ms (epoxy WASM init + engine first-fetch setup + first page
@@ -237,13 +284,14 @@ upstream design it forked:
    bytes are still on the wire.
 4. **Stream (or early-flush) the HTML rewrite** — the hard one; the only
    fix for time-to-first-byte on heavy documents, and now the largest
-   remaining item.
+   remaining item. Untouched: `rewriteBody` still buffers the whole document
+   before the renderer sees byte 0.
 5. **Cache documents too**, which needs the cookie-jar snapshot out of the
    injected document HTML first.
 
 Caveats: fixtures are single-origin (no PSL/cross-origin emulation cost in
-these numbers), the shaped link is a simple per-response latency+bandwidth
-model at the origin (both paths shaped identically), and the client-side
-Proxy/trap tax on page JS _execution_ (every rewritten global access) is
-not measured here — it needs a JS-heavy interactive workload rather than a
-page-load harness, and is the natural next measurement.
+these numbers), and the shaped link is a simple per-response latency+bandwidth
+model at the origin (both paths shaped identically). The client-side trap tax
+on page JS _execution_ used to be the missing measurement here; it now has
+its own harness (§6), though its workloads are synthetic hot loops rather
+than a recorded real-site session.

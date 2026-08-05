@@ -4,7 +4,7 @@ export type UrlCodec = (value: string) => string;
  * The fragment is encoded separately so it remains a browser-visible hash
  * instead of being sent to the service worker.
  */
-export declare function encodeProxyUrl(url: URL, prefix: string, encode: UrlCodec): string;
+export declare function encodeProxyUrl(url: URL, prefix: string, encode: UrlCodec, serialized?: string): string;
 /**
  * Decodes a URL that starts with the supplied proxy prefix. Non-proxy URLs
  * are returned unchanged, making this safe for page-facing URL getters.

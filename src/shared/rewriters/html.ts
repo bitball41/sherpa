@@ -11,16 +11,33 @@ import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
 import { appendUrlParams, resolveBaseHref } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
-import { bytesToBase64 } from "@/shared/base64";
+import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
+import {
+	SCRIPT_SOURCE_ATTRIBUTE,
+	SHADOW_ATTRIBUTE_PREFIX,
+} from "@/shared/shadowAttributes";
 
-/**
- * Prefix of the shadow attributes that keep a page's *original* attribute
- * values readable after Sherpa rewrites them.
- */
-export const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
+export { SCRIPT_SOURCE_ATTRIBUTE, SHADOW_ATTRIBUTE_PREFIX };
 
-/** Shadow attribute holding the base64 source of a rewritten inline script. */
-export const SCRIPT_SOURCE_ATTRIBUTE = `${SHADOW_ATTRIBUTE_PREFIX}script-source-src`;
+// `JSON.stringify(config)` walks the whole configuration (flags, per-site flag
+// overrides, the error-page theme, both codec sources) and it is embedded,
+// unchanged, in the boot script of every single proxied document and iframe.
+// The configuration object is replaced wholesale by `setConfig`, never mutated
+// in place, so identity is a sound cache key.
+let serializedConfig = "";
+let serializedConfigSource: object | null = null;
+
+let lastInjectedSource: string | null = null;
+let lastInjectedBase64 = "";
+
+function configLiteral(): string {
+	if (serializedConfigSource !== config) {
+		serializedConfigSource = config;
+		serializedConfig = JSON.stringify(config);
+	}
+
+	return serializedConfig;
+}
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
@@ -29,14 +46,22 @@ export function getInjectScripts<T>(
 	const dump = JSON.stringify(cookieStore.dump());
 	const injected = `
 		self.COOKIE = ${dump};
-		$sherpaLoadClient().loadAndHook(${JSON.stringify(config)});
+		$sherpaLoadClient().loadAndHook(${configLiteral()});
 		if ("document" in self && document?.currentScript) {
 			document.currentScript.remove();
 		}
 	`;
 
 	// for compatibility purpose
-	const base64Injected = bytesToBase64(encoder.encode(injected));
+	//
+	// A page and every iframe on it are rewritten against the same jar and the
+	// same configuration, so this is the same few kilobytes being UTF-8 encoded
+	// and base64'd over and over within one navigation.
+	if (injected !== lastInjectedSource) {
+		lastInjectedSource = injected;
+		lastInjectedBase64 = bytesToBase64(encoder.encode(injected));
+	}
+	const base64Injected = lastInjectedBase64;
 
 	return [
 		script(config.files.wasm),
@@ -46,6 +71,7 @@ export function getInjectScripts<T>(
 }
 
 const encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
 function rewriteHtmlInner(
 	html: string,
 	cookieStore: CookieStore,
@@ -130,8 +156,16 @@ export function unrewriteHtml(html: string) {
 		if ("attribs" in node) {
 			for (const key in node.attribs) {
 				if (key == SCRIPT_SOURCE_ATTRIBUTE) {
+					// The source was UTF-8 encoded before it was base64'd, so it
+					// has to be decoded the same way round. `atob` alone yields
+					// one character per *byte*, which mojibakes every inline
+					// script containing a non-ASCII character (an accented
+					// string literal, an emoji, any CJK text) the moment a page
+					// reads its own `innerHTML` back.
 					if (node.children[0] && "data" in node.children[0])
-						node.children[0].data = atob(node.attribs[key]);
+						node.children[0].data = utf8Decoder.decode(
+							base64ToBytes(node.attribs[key])
+						);
 					continue;
 				}
 
@@ -182,23 +216,23 @@ function traverseParsedHtml(
 			if (resolvedBase) meta.base = resolvedBase;
 		}
 
-		// Both passes below walk the element's own attributes; the shared
-		// snapshot keeps the `sherpa-attr-*` entries they add out of their own
-		// iteration.
+		// A snapshot, so the `sherpa-attr-*` entries added below stay out of the
+		// iteration. No attribute is both rule-rewritable and an event handler,
+		// so one pass covers what used to be two walks of every element's
+		// attribute list.
 		const attributes = Object.keys(attribs);
-		for (const attr of attributes) {
+		for (let i = 0; i < attributes.length; i++) {
+			const attr = attributes[i];
 			const rule = findHtmlRule(attr, name);
-			if (!rule) continue;
 
-			const value = attribs[attr];
-			const rewritten = rule.fn(value, meta, cookieStore);
+			if (rule) {
+				const value = attribs[attr];
+				const rewritten = rule.fn(value, meta, cookieStore);
 
-			if (rewritten === null) delete attribs[attr];
-			else attribs[attr] = rewritten;
-			attribs[SHADOW_ATTRIBUTE_PREFIX + attr] = value;
-		}
-		for (const attr of attributes) {
-			if (isEventAttribute(attr)) {
+				if (rewritten === null) delete attribs[attr];
+				else attribs[attr] = rewritten;
+				attribs[SHADOW_ATTRIBUTE_PREFIX + attr] = value;
+			} else if (isEventAttribute(attr)) {
 				const value = attribs[attr];
 				attribs[SHADOW_ATTRIBUTE_PREFIX + attr] = value;
 				attribs[attr] = rewriteJs(value, `(inline ${attr} on element)`, meta);
@@ -482,5 +516,13 @@ const eventAttributes = new Set([
 ]);
 
 export function isEventAttribute(name: string): boolean {
+	// Runs for every attribute of every element in every rewritten document,
+	// and for every `setAttribute` a page makes. Almost none of them start
+	// with "on", so reject on two character codes before allocating a
+	// lowercased copy of the name.
+	if (name.length < 3) return false;
+	if ((name.charCodeAt(0) | 0x20) !== 111 /* o */) return false;
+	if ((name.charCodeAt(1) | 0x20) !== 110 /* n */) return false;
+
 	return eventAttributes.has(name.toLowerCase());
 }

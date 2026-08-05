@@ -1,6 +1,10 @@
 import { iswindow } from "@client/entry";
 import { unrewriteUrl } from "@rewriters/url";
-import type { SherpaClient } from "@client/index";
+import type {
+	AnyFunction,
+	EventCallbackEntry,
+	SherpaClient,
+} from "@client/index";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
@@ -88,6 +92,36 @@ export default function (client: SherpaClient, self: Self) {
 		},
 	};
 
+	/** The event currently being delivered to a page listener, if any. */
+	let activeEvent: Event | undefined;
+
+	if (iswindow) {
+		// Outside a dispatch the page must still see whatever the platform
+		// reports, so keep the native accessor as the fallback.
+		const nativeEvent =
+			client.natives.call(
+				"Object.getOwnPropertyDescriptor",
+				null,
+				self,
+				"event"
+			) ||
+			client.natives.call(
+				"Object.getOwnPropertyDescriptor",
+				null,
+				(self as typeof globalThis & Window).Window.prototype,
+				"event"
+			);
+
+		Object.defineProperty(self, "event", {
+			get() {
+				if (activeEvent !== undefined) return activeEvent;
+
+				return nativeEvent?.get?.call(self);
+			},
+			configurable: true,
+		});
+	}
+
 	function getListenerFunction(
 		listener: any
 	): ((...args: any[]) => any) | null {
@@ -144,21 +178,44 @@ export default function (client: SherpaClient, self: Self) {
 					}
 				}
 
-				if (!self.event) {
-					Object.defineProperty(self, "event", {
-						get() {
-							return args[0];
-						},
-						configurable: true,
-					});
+				// `window.event` has to report the object the listener was
+				// handed, which for message/hashchange/storage is Sherpa's proxy
+				// rather than the real event. This used to install a fresh
+				// accessor closing over *this* invocation's arguments, guarded by
+				// `if (!self.event)` - so the very first dispatch made the
+				// property truthy forever and every later read returned that
+				// same, long-finished event. It also ran `defineProperty` on the
+				// global once per dispatch until then, on paths as hot as
+				// `mousemove`. One accessor, installed below, reading a variable
+				// that is saved and restored around each dispatch instead.
+				const previousEvent = activeEvent;
+				activeEvent = args[0];
+				try {
+					return Reflect.apply(target, that, args);
+				} finally {
+					activeEvent = previousEvent;
 				}
-
-				const rv = Reflect.apply(target, that, args);
-
-				return rv;
 			},
 			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
 		});
+	}
+
+	// Entries live under the target, then under the page's own callback, so
+	// neither registration nor removal has to walk every listener the target
+	// carries. A callback is normally registered for one or two (type,
+	// capture) pairs, so the innermost list stays tiny.
+	function entriesFor(target: any, callback: any): EventCallbackEntry[] | null {
+		return client.eventcallbacks.get(target)?.get(callback) ?? null;
+	}
+
+	function dropEntry(target: any, entry: EventCallbackEntry) {
+		const byCallback = client.eventcallbacks.get(target);
+		const entries = byCallback?.get(entry.originalCallback);
+		if (!entries) return;
+
+		const index = entries.indexOf(entry);
+		if (index >= 0) entries.splice(index, 1);
+		if (entries.length === 0) byCallback.delete(entry.originalCallback);
 	}
 
 	client.Proxy("EventTarget.prototype.addEventListener", {
@@ -172,18 +229,29 @@ export default function (client: SherpaClient, self: Self) {
 			const once = typeof options === "object" && Boolean(options?.once);
 			const signal = typeof options === "object" ? options?.signal : undefined;
 			if (signal?.aborted) return ctx.return(undefined);
-			let arr = client.eventcallbacks.get(ctx.this);
-			arr ||= [];
+
+			const type = ctx.args[0] as string;
+			const existing = entriesFor(ctx.this, origlistener);
 			if (
-				arr.some(
-					(entry) =>
-						entry.event === ctx.args[0] &&
-						entry.originalCallback === origlistener &&
-						entry.capture === capture
+				existing?.some(
+					(entry) => entry.event === type && entry.capture === capture
 				)
 			) {
+				// Same target, type, callback and capture: the DOM would ignore
+				// this registration, so Sherpa must not record a second entry
+				// either (the first `removeEventListener` would otherwise only
+				// undo one of them).
 				return ctx.return(undefined);
 			}
+
+			const entry: EventCallbackEntry = {
+				event: type,
+				originalCallback: origlistener,
+				proxiedCallback: null as unknown as AnyFunction,
+				capture,
+				once,
+			};
+
 			let proxylistener = wraplistener(listenerFunction);
 			if (once) {
 				const wrapped = proxylistener;
@@ -192,35 +260,30 @@ export default function (client: SherpaClient, self: Self) {
 						try {
 							return Reflect.apply(target, that, args);
 						} finally {
-							const callbacks = client.eventcallbacks.get(ctx.this);
-							const index = callbacks?.findIndex(
-								(entry) => entry.proxiedCallback === proxylistener
-							);
-							if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+							dropEntry(ctx.this, entry);
 						}
 					},
 				});
 			}
+			entry.proxiedCallback = proxylistener;
 
 			ctx.args[1] = proxylistener;
-			arr.push({
-				event: ctx.args[0] as string,
-				originalCallback: origlistener,
-				proxiedCallback: proxylistener,
-				capture,
-				once,
-			});
-			client.eventcallbacks.set(ctx.this, arr);
+
+			let byCallback = client.eventcallbacks.get(ctx.this);
+			if (!byCallback) {
+				byCallback = new Map();
+				client.eventcallbacks.set(ctx.this, byCallback);
+			}
+			const entries = byCallback.get(origlistener);
+			if (entries) entries.push(entry);
+			else byCallback.set(origlistener, [entry]);
+
 			if (signal) {
 				ctx.fn.call(
 					signal,
 					"abort",
 					() => {
-						const callbacks = client.eventcallbacks.get(ctx.this);
-						const index = callbacks?.findIndex(
-							(entry) => entry.proxiedCallback === proxylistener
-						);
-						if (index !== undefined && index >= 0) callbacks.splice(index, 1);
+						dropEntry(ctx.this, entry);
 					},
 					{ once: true }
 				);
@@ -230,26 +293,31 @@ export default function (client: SherpaClient, self: Self) {
 
 	client.Proxy("EventTarget.prototype.removeEventListener", {
 		apply(ctx) {
-			if (!getListenerFunction(ctx.args[1])) return;
+			const origlistener = ctx.args[1];
+			if (
+				typeof origlistener !== "function" &&
+				typeof origlistener !== "object"
+			)
+				return;
+			if (origlistener === null) return;
 
-			const arr = client.eventcallbacks.get(ctx.this);
-			if (!arr) return;
+			const entries = entriesFor(ctx.this, origlistener);
+			if (!entries) return;
+
 			const options = ctx.args[2];
 			const capture =
 				typeof options === "boolean" ? options : Boolean(options?.capture);
 
-			const i = arr.findIndex(
-				(e) =>
-					e.event === ctx.args[0] &&
-					e.originalCallback === ctx.args[1] &&
-					e.capture === capture
+			const i = entries.findIndex(
+				(e) => e.event === ctx.args[0] && e.capture === capture
 			);
 			if (i === -1) return;
 
-			const r = arr.splice(i, 1);
-			client.eventcallbacks.set(ctx.this, arr);
+			const [entry] = entries.splice(i, 1);
+			if (entries.length === 0)
+				client.eventcallbacks.get(ctx.this)?.delete(origlistener);
 
-			ctx.args[1] = r[0].proxiedCallback;
+			ctx.args[1] = entry.proxiedCallback;
 		},
 	});
 

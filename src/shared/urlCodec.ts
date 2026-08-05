@@ -8,11 +8,15 @@ export type UrlCodec = (value: string) => string;
 export function encodeProxyUrl(
 	url: URL,
 	prefix: string,
-	encode: UrlCodec
+	encode: UrlCodec,
+	// `URL.prototype.href` re-serializes the URL on every read, and this runs
+	// for every URL on a page. Callers that already hold the serialization pass
+	// it in rather than paying for a second one.
+	serialized?: string
 ): string {
-	if (url.protocol !== "http:" && url.protocol !== "https:") return url.href;
+	const href = serialized ?? url.href;
+	if (url.protocol !== "http:" && url.protocol !== "https:") return href;
 
-	const href = url.href;
 	const hashIndex = href.indexOf("#");
 	if (hashIndex === -1) return prefix + encode(href);
 

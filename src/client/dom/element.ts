@@ -12,6 +12,7 @@ import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
+import { resolveBaseHref } from "@/shared/urlCodec";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -193,11 +194,37 @@ export default function (client: SherpaClient, self: typeof window) {
 	client.Trap("Node.prototype.baseURI", {
 		get(ctx) {
 			const node = ctx.this as Node;
-			let base = node.ownerDocument?.querySelector("base");
-			if (node instanceof Document) base = node.querySelector("base");
+			const document =
+				node instanceof Document ? node : (node.ownerDocument ?? null);
+			const base = document
+				? (
+						client.natives.call(
+							"Document.prototype.getElementsByTagName",
+							document,
+							"base"
+						) as HTMLCollectionOf<Element>
+					)[0]
+				: undefined;
 
 			if (base) {
-				return new URL(base.href, client.url.href).href;
+				// `base.href` is the *reflected* property, which the browser has
+				// already resolved against the document's URL - and the proxied
+				// document's URL is on the proxy origin. Reading it here handed
+				// the page a `baseURI` pointing at Sherpa's own host, so any
+				// `new URL(path, document.baseURI)` the site did built a
+				// proxy-origin URL. Resolve the authored attribute against the
+				// real document URL instead, exactly as `client.meta.base` does.
+				const shadow = SHADOW_ATTRIBUTE_PREFIX + "href";
+				const raw = nativeHasAttribute.call(base, shadow)
+					? nativeGetAttribute.call(base, shadow)
+					: nativeGetAttribute.call(base, "href");
+
+				if (raw) {
+					const frag = raw.indexOf("#");
+					const href = raw.substring(0, frag === -1 ? undefined : frag);
+					if (href)
+						return (resolveBaseHref(href, client.url) ?? client.url).href;
+				}
 			}
 
 			return client.url.href;

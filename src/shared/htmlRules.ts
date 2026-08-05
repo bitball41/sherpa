@@ -2,6 +2,7 @@ import { CookieStore } from "@/shared/cookie";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteHtml, rewriteSrcset } from "@rewriters/html";
 import { rewriteUrl, unrewriteBlob, URLMeta } from "@rewriters/url";
+import { shadowedAttributeNames } from "@/shared/shadowAttributes";
 
 export type HtmlRule = {
 	[key: string]: "*" | string[] | ((...any: any[]) => string | null);
@@ -120,6 +121,14 @@ for (const rule of htmlRules) {
 		if (rules) rules.push(rule);
 		else htmlRulesByAttribute.set(attribute, [rule]);
 	}
+}
+
+// Keep the standalone list the selector rewriter reads in step with the rules
+// above, so a rule added here can never quietly stop being visible to
+// selectors. (The list can't simply be derived from this module: it has to be
+// importable without dragging in the WASM JS rewriter.)
+for (const attribute of htmlRulesByAttribute.keys()) {
+	shadowedAttributeNames.add(attribute);
 }
 
 export function findHtmlRule(
