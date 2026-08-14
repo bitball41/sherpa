@@ -513,6 +513,25 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// `currentSrc` is the URL the browser actually settled on for an image or a
+	// media element - the one a `srcset` resolved to, or the `<source>` that
+	// won. Lazy-loading libraries and analytics read it constantly, and it is
+	// read-only, so it needs a getter of its own rather than a place in the
+	// reflected-property table above.
+	client.Trap(
+		[
+			"HTMLImageElement.prototype.currentSrc",
+			"HTMLMediaElement.prototype.currentSrc",
+		],
+		{
+			get(ctx) {
+				const value = ctx.get() as string;
+
+				return value ? unrewriteUrl(value) : value;
+			},
+		}
+	);
+
 	// `HTMLHyperlinkElementUtils` gives `<a>` and `<area>` a stringifier, and
 	// it is a *separate* method from the `href` getter - so while `a.href`
 	// unrewrote correctly, `String(a)`, `a + ""`, `` `${a}` `` and

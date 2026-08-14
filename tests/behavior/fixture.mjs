@@ -702,6 +702,54 @@ const ASYNC_CHECKS = String.raw`
 		return eq(lateSrc, "http://127.0.0.1:4720/img/pixel-b.png", "url created in the frame");
 	});
 
+	await check("the cssom reads back the site's urls, not the proxy's", async () => {
+		const link = document.querySelector('link[rel="stylesheet"]');
+		const sheet = link.sheet;
+		if (!sheet) throw new Error("stylesheet did not load");
+
+		// link.href unrewrites through the reflected property; the stylesheet's
+		// own href is a different accessor and handed back the proxied url.
+		eq(sheet.href, "http://127.0.0.1:4720/site.css", "sheet.href");
+		eq(document.styleSheets[0].href, "http://127.0.0.1:4720/site.css", "styleSheets[i].href");
+
+		// and a rule's declaration is a CSSStyleDeclaration like any other, so
+		// reading a url out of it must not leak either
+		const rule = sheet.cssRules[0];
+		eq(cssUrl(rule.style.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "rule.style");
+		return eq(cssUrl(rule.cssText), "http://127.0.0.1:4720/img/pixel-a.png", "rule.cssText");
+	});
+
+	await check("currentSrc reports the site's url", async () => {
+		const img = document.querySelector('img[alt="a"]');
+		// currentSrc is the url the browser actually settled on; it is
+		// read-only, so it is not covered by the reflected-property table.
+		return eq(img.currentSrc, "http://127.0.0.1:4720/img/pixel-a.png", "currentSrc");
+	});
+
+	await check("a mutation observer never sees sherpa's bookkeeping", async () => {
+		// Sherpa records the authored value in a sherpa-attr-* attribute, which
+		// is a DOM mutation like any other: an observer saw two records per
+		// rewritten attribute, one of them for an attribute the page has never
+		// heard of, and the real one carried a proxied oldValue.
+		const el = document.createElement("a");
+		el.setAttribute("href", "/one");
+		document.body.appendChild(el);
+		const seen = [];
+		const observer = new MutationObserver((records) => {
+			for (const record of records)
+				seen.push(record.attributeName + "=" + record.oldValue);
+		});
+		observer.observe(el, { attributes: true, attributeOldValue: true });
+		el.setAttribute("href", "/two");
+		await new Promise((r) => setTimeout(r, 50));
+		const taken = observer.takeRecords();
+		observer.disconnect();
+		el.remove();
+
+		eq(seen.join(","), "href=/one", "records the page sees");
+		return eq(taken.length, 0, "takeRecords is filtered too");
+	});
+
 	await check("a proxied event keeps the object protocol every event has", async () => {
 		// The per-type accessor tables were plain objects, so membership tests
 		// hit Object.prototype: reading event.toString returned the *string*
@@ -845,6 +893,7 @@ export const pages = {
 <head>
 <meta charset="utf-8">
 <base href="/base-root/">
+<link rel="stylesheet" href="/site.css">
 <title>sherpa behavior fixture</title>
 </head>
 <body class="fixture-body" background="/img/pixel-a.png">
@@ -878,6 +927,10 @@ export const pages = {
 
 export const textRoutes = {
 	"/api/echo": { body: "echo", type: "text/plain" },
+	"/site.css": {
+		body: ".sheet-probe{background:url(/img/pixel-a.png)}",
+		type: "text/css",
+	},
 	"/sprite.svg": {
 		body: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="icon"><rect width="4" height="4"/></symbol></svg>`,
 		type: "image/svg+xml",

@@ -1,4 +1,5 @@
 import { isCssStyleType, rewriteCss, unrewriteCss } from "@rewriters/css";
+import { unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 
 /** Node types this module has to look at, spelled out to avoid `Node.*` reads. */
@@ -340,6 +341,54 @@ export default function (client: SherpaClient, self: typeof window) {
 			if (!style) return ctx.return(style);
 
 			ctx.return(wrapStyleDeclaration(style));
+		},
+	});
+
+	// ...and so is a rule's declaration inside a stylesheet, which is what a
+	// page walking `document.styleSheets[i].cssRules` reads. `CSSRule.cssText`
+	// was already unrewritten; `rule.style.backgroundImage`, the other way to
+	// ask the same question, was not.
+	for (const name of [
+		"CSSStyleRule",
+		"CSSFontFaceRule",
+		"CSSPageRule",
+		"CSSKeyframeRule",
+	]) {
+		const constructor = self[name] as { prototype: object } | undefined;
+		if (!constructor) continue;
+		// Only where the accessor is the interface's own: shadowing an
+		// inherited one would leave the trap with nothing to delegate to.
+		const own = client.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			constructor.prototype,
+			"style"
+		) as PropertyDescriptor | undefined;
+		if (!own?.get) continue;
+
+		client.RawTrap(constructor.prototype, "style", {
+			get(ctx) {
+				return wrapStyleDeclaration(ctx.get() as CSSStyleDeclaration);
+			},
+		});
+	}
+
+	// A stylesheet's own URL. `link.href` unrewrites through the reflected
+	// property, but `link.sheet.href` and `document.styleSheets[i].href` are a
+	// different accessor and handed back the proxied URL.
+	client.Trap("StyleSheet.prototype.href", {
+		get(ctx) {
+			const value = ctx.get() as string | null;
+
+			return value ? unrewriteUrl(value) : value;
+		},
+	});
+
+	client.Trap("CSSImportRule.prototype.href", {
+		get(ctx) {
+			const value = ctx.get() as string | null;
+
+			return value ? unrewriteUrl(value) : value;
 		},
 	});
 }
