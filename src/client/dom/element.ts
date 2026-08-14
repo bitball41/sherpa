@@ -64,6 +64,8 @@ export default function (client: SherpaClient, self: typeof window) {
 		// resolution), so the page has to be handed the value it authored
 		// rather than the rewritten one htmlRules put in the attribute.
 		background: [self.HTMLBodyElement],
+		// `ping` reflects verbatim too - it is a URL list, not a single URL.
+		ping: [self.HTMLAnchorElement, self.HTMLAreaElement],
 	};
 	const propertyAttributes = {
 		formAction: "formaction",
@@ -238,11 +240,13 @@ export default function (client: SherpaClient, self: typeof window) {
 					const frag = raw.indexOf("#");
 					const href = raw.substring(0, frag === -1 ? undefined : frag);
 					if (href)
-						return (resolveBaseHref(href, client.url) ?? client.url).href;
+						return (
+							resolveBaseHref(href, client.fallbackBase) ?? client.fallbackBase
+						).href;
 				}
 			}
 
-			return client.url.href;
+			return client.fallbackBase.href;
 		},
 		set(_ctx, _v) {
 			return false;
@@ -509,6 +513,42 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// `currentSrc` is the URL the browser actually settled on for an image or a
+	// media element - the one a `srcset` resolved to, or the `<source>` that
+	// won. Lazy-loading libraries and analytics read it constantly, and it is
+	// read-only, so it needs a getter of its own rather than a place in the
+	// reflected-property table above.
+	client.Trap(
+		[
+			"HTMLImageElement.prototype.currentSrc",
+			"HTMLMediaElement.prototype.currentSrc",
+		],
+		{
+			get(ctx) {
+				const value = ctx.get() as string;
+
+				return value ? unrewriteUrl(value) : value;
+			},
+		}
+	);
+
+	// `HTMLHyperlinkElementUtils` gives `<a>` and `<area>` a stringifier, and
+	// it is a *separate* method from the `href` getter - so while `a.href`
+	// unrewrote correctly, `String(a)`, `a + ""`, `` `${a}` `` and
+	// `new URL(a)` all handed the page Sherpa's proxied URL. Sites build URLs
+	// out of link elements that way constantly.
+	client.Proxy(
+		[
+			"HTMLAnchorElement.prototype.toString",
+			"HTMLAreaElement.prototype.toString",
+		],
+		{
+			apply(ctx) {
+				ctx.return(unrewriteUrl(ctx.call() as string));
+			},
+		}
+	);
+
 	// this is separate from the regular href handlers because it returns an SVGAnimatedString
 	client.Trap("SVGAnimatedString.prototype.baseVal", {
 		get(ctx) {
@@ -562,7 +602,11 @@ export default function (client: SherpaClient, self: typeof window) {
 			const present =
 				nativeHasAttribute.call(ctx.this, name) ||
 				nativeHasAttribute.call(ctx.this, shadow);
-			const shouldHave = ctx.args.length > 1 ? Boolean(ctx.args[1]) : !present;
+			// An explicit `undefined` counts as "not supplied", per WebIDL's
+			// optional-argument conversion - `Boolean(undefined)` would have made
+			// `toggleAttribute(name, undefined)` always remove.
+			const force = ctx.args.length > 1 ? ctx.args[1] : undefined;
+			const shouldHave = force === undefined ? !present : Boolean(force);
 			if (!shouldHave) {
 				nativeRemoveAttribute.call(ctx.this, name);
 				nativeRemoveAttribute.call(ctx.this, shadow);

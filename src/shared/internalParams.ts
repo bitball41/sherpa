@@ -66,6 +66,13 @@ export function takeInternalParams(url: URL): SherpaRequestHints {
 		siteParams: [],
 	};
 
+	// Most proxied requests carry no query at all - the target is encoded into
+	// the path - and this runs on every one of them. Reading `searchParams`
+	// materializes a `URLSearchParams` for the URL, and the spread below
+	// allocates an array of every entry in it; neither is worth doing to
+	// discover there was nothing there.
+	if (url.search === "") return hints;
+
 	for (const [param, value] of [...url.searchParams.entries()]) {
 		switch (param) {
 			case INTERNAL_PARAMS.type:

@@ -73,6 +73,40 @@ export function encodeProxyUrl(
 	return prefix + encode(href.slice(0, hashIndex)) + hash;
 }
 
+/** Replaces a URL's query with `query`, dropping it entirely when empty. */
+function withQuery(url: string, query: string): string {
+	const questionMark = url.indexOf("?");
+	const head = questionMark === -1 ? url : url.slice(0, questionMark);
+
+	return query ? `${head}?${query}` : head;
+}
+
+/**
+ * Decodes the target out of one encoded proxy path segment.
+ *
+ * The target is encoded, but a query can still be appended to the proxied URL
+ * *after* it in cleartext - that is how a GET form submits, since the browser
+ * mutates the query of the action URL it was handed. Per HTML that query
+ * *replaces* the action URL's own, so the decoded target's query is dropped
+ * rather than kept alongside it: a search box on a page whose URL already
+ * carried `?q=` otherwise read back `?q=old?q=new`, which is not even a query
+ * string the site could parse.
+ */
+function decodeProxyTarget(encoded: string, decode: UrlCodec): string {
+	// Sherpa's own hints are appended the same way, so they come off first -
+	// the same place and the same way the service worker takes them off an
+	// incoming request, and independent of what the configured codec does to
+	// a `?`.
+	const withoutHints = stripInternalParams(encoded);
+	const questionMark = withoutHints.indexOf("?");
+	if (questionMark === -1) return decode(withoutHints);
+
+	return withQuery(
+		decode(withoutHints.slice(0, questionMark)),
+		withoutHints.slice(questionMark + 1)
+	);
+}
+
 /**
  * Decodes a URL that starts with the supplied proxy prefix. Non-proxy URLs
  * are returned unchanged, making this safe for page-facing URL getters.
@@ -88,13 +122,9 @@ export function decodeProxyUrl(
 	if (/^(?:blob|data):/i.test(encoded)) return encoded;
 
 	const hashIndex = encoded.indexOf("#");
-	// Sherpa's own hints are appended to the proxied URL in cleartext, *after*
-	// the codec-encoded target, so they are stripped before decoding - the same
-	// place and the same way the service worker takes them off an incoming
-	// request, and independent of what the configured codec does to a `?`.
-	if (hashIndex === -1) return decode(stripInternalParams(encoded));
+	if (hashIndex === -1) return decodeProxyTarget(encoded, decode);
 
-	const decodedUrl = decode(stripInternalParams(encoded.slice(0, hashIndex)));
+	const decodedUrl = decodeProxyTarget(encoded.slice(0, hashIndex), decode);
 	const decodedHash = decode(encoded.slice(hashIndex + 1));
 
 	return decodedUrl + (decodedHash ? `#${decodedHash}` : "");

@@ -88,11 +88,15 @@ test('leaves empty url() and url("") untouched', () => {
 });
 
 test("handles a data: URI with embedded commas and parens", () => {
+	// The whole value is one url-token, and it is written back escaped: an
+	// unquoted url-token may not contain a space, a quote or a parenthesis, so
+	// emitting them raw produced a bad-url token the browser drops the whole
+	// declaration for. Every escape here means exactly the character it hides.
 	assert.equal(
 		mark(
 			`.x{background:url(data:image/svg+xml,<svg viewBox='0 0 1 1'><a(/></svg>)}`
 		),
-		`.x{background:url(«data:image/svg+xml,<svg viewBox='0 0 1 1'><a(/></svg>»)}`
+		`.x{background:url(«data:image/svg+xml,<svg\\ viewBox=\\'0\\ 0\\ 1\\ 1\\'><a\\(/></svg>»)}`
 	);
 });
 
@@ -149,4 +153,71 @@ test("treats a raw newline (LF, CR, FF) in a quoted url as a bad-string", () => 
 		const css = `a{background:url("bad${nl}value")}`;
 		assert.equal(mark(css), css);
 	}
+});
+
+test("escapes a quote the rewritten url reintroduces", () => {
+	// The default codec is `encodeURIComponent`, which deliberately leaves
+	// `!'()*` alone - so a target URL containing an apostrophe came back out
+	// verbatim, closed the single-quoted string early, and spilled the rest of
+	// the URL into the surrounding declaration as stray CSS.
+	const quoted = (css) => rewriteCssUrls(css, () => `/p/it's.png`);
+	assert.equal(
+		quoted(`a{background:url('/x.png')}`),
+		`a{background:url('/p/it\\'s.png')}`
+	);
+	// ...and a double-quoted token only has to escape a double quote
+	assert.equal(
+		quoted(`a{background:url("/x.png")}`),
+		`a{background:url("/p/it's.png")}`
+	);
+});
+
+test("escapes a parenthesis the rewritten url reintroduces", () => {
+	const paren = (css) => rewriteCssUrls(css, () => `/p/logo(1).svg`);
+	assert.equal(
+		paren(`a{background:url(/x.svg)}`),
+		`a{background:url(/p/logo\\(1\\).svg)}`
+	);
+	// inside quotes a parenthesis is ordinary, so nothing is escaped there
+	assert.equal(
+		paren(`a{background:url("/x.svg")}`),
+		`a{background:url("/p/logo(1).svg")}`
+	);
+});
+
+test("resolves css escapes before handing the url to the rewriter", () => {
+	// `\'` is an apostrophe, `\28` is `(` - the rewriter has to see the URL the
+	// author meant, not the backslashes the CSS tokenizer uses to spell it.
+	const seen = [];
+	rewriteCssUrls(`a{background:url('/it\\'s\\28 1\\29 .png')}`, (u) => {
+		seen.push(u);
+
+		return u;
+	});
+	assert.deepEqual(seen, ["/it's(1).png"]);
+});
+
+test("a rewritten url round-trips through an unrewrite pass", () => {
+	// Escaping on the way out only holds up if the way back in unescapes: a
+	// value that had to be escaped must decode to exactly what went in.
+	const original = `a{background:url('/it\\'s.png')}`;
+	const rewritten = rewriteCssUrls(original, (u) => `/p/${u}`);
+	const seen = [];
+	rewriteCssUrls(rewritten, (u) => {
+		seen.push(u);
+
+		return u.slice("/p/".length);
+	});
+	assert.deepEqual(seen, ["/p//it's.png"]);
+	assert.equal(
+		rewriteCssUrls(rewritten, (u) => u.slice("/p/".length)),
+		original
+	);
+});
+
+test("escapes a newline the rewriter reintroduces", () => {
+	assert.equal(
+		rewriteCssUrls(`a{background:url("/x.png")}`, () => "/p/a\nb.png"),
+		`a{background:url("/p/a\\a b.png")}`
+	);
 });

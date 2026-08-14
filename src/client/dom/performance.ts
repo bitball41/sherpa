@@ -1,4 +1,4 @@
-import { unrewriteUrl } from "@rewriters/url";
+import { proxyOrigin, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 
@@ -8,7 +8,7 @@ export default function (client: SherpaClient, _self: Self) {
 			// name is going to be a url typically
 			const name = ctx.get() as string;
 
-			if (name && name.startsWith(location.origin + config.prefix)) {
+			if (name && name.startsWith(proxyOrigin() + config.prefix)) {
 				return unrewriteUrl(name);
 			}
 
@@ -22,11 +22,14 @@ export default function (client: SherpaClient, _self: Self) {
 	// every `getEntries()` call - and RUM libraries call those on a timer.
 	let ownResourcePaths: string[] = [];
 	let ownResourceFiles: typeof config.files | null = null;
+	let ownResourceOrigin: string | null = null;
 	const sherpaResourceUrls = () => {
-		if (ownResourceFiles !== config.files) {
+		const origin = proxyOrigin();
+		if (ownResourceFiles !== config.files || ownResourceOrigin !== origin) {
 			ownResourceFiles = config.files;
+			ownResourceOrigin = origin;
 			ownResourcePaths = Object.values(config.files).map(
-				(file) => location.origin + file
+				(file) => origin + file
 			);
 		}
 

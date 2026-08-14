@@ -34,7 +34,7 @@ Then open <http://localhost:8989>. Type a URL and press **Go**, or click
 You wire up these five things (all visible in this example):
 
 1. **Serve the build** (`dist/`) somewhere the page and worker can load it — here
-   under `/scram/`. In a Node app you can get the folder from
+   under `/engine/`. In a Node app you can get the folder from
    `require("sherpa/path").sherpaPath` instead of hard-coding it.
 2. **A service worker** that loads the worker half and routes fetches (`sw.js`).
 3. **bare-mux + a transport** (epoxy here; libcurl also works), served and

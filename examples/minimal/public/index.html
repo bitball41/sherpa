@@ -61,7 +61,7 @@
 
 		<!-- 1. bare-mux (the transport multiplexer)  2. the Sherpa engine bundle -->
 		<script src="/baremux/index.js"></script>
-		<script src="/scram/sherpa.all.js"></script>
+		<script src="/engine/sherpa.all.js"></script>
 	</head>
 	<body>
 		<header>
@@ -98,9 +98,9 @@
 				const sherpa = new SherpaController({
 					prefix: "/sherpa/",
 					files: {
-						wasm: "/scram/sherpa.wasm.wasm",
-						all: "/scram/sherpa.all.js",
-						sync: "/scram/sherpa.sync.js",
+						wasm: "/engine/sherpa.wasm.wasm",
+						all: "/engine/sherpa.all.js",
+						sync: "/engine/sherpa.sync.js",
 					},
 
 					// (A) Custom error page — themed straight from config.

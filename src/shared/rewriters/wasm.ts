@@ -5,12 +5,6 @@ import { codecDecode, codecEncode, config, flagEnabled } from "@/shared";
 
 export type { JsRewriterOutput, Rewriter };
 
-import { rewriteUrl } from "@rewriters/url";
-import { htmlRules } from "@/shared/htmlRules";
-import { rewriteCss } from "@rewriters/css";
-import { rewriteJs } from "@rewriters/js";
-import { getInjectScripts } from "@rewriters/html";
-import { CookieStore } from "@/shared/cookie";
 import { base64ToBytes } from "@/shared/base64";
 
 let wasm_u8: Uint8Array<ArrayBuffer>;
@@ -95,24 +89,16 @@ export function getRewriter(base: URL): [Rewriter, () => void] {
 		if (flagEnabled("rewriterLogs", base))
 			console.log(`creating new rewriter, ${len} rewriters made already`);
 
+		// `Rewriter::new` reads exactly three keys — `config`, `codec` and
+		// `flagEnabled` (see `rewriter/wasm/src/{lib,jsr}.rs`). The rewriter is
+		// a *JavaScript* rewriter; HTML, CSS and URL rewriting all happen in
+		// TypeScript. A `shared.rewrite` bag carrying `htmlRules`,
+		// `rewriteUrl`, `rewriteCss`, `rewriteJs` and an HTML-injection
+		// callback used to be handed over with it, none of which the Rust side
+		// has ever looked at — and importing them here made this module and
+		// `@rewriters/html` mutually dependent for nothing.
 		const rewriter = new Rewriter({
 			config,
-			shared: {
-				rewrite: {
-					htmlRules,
-					rewriteUrl,
-					rewriteCss,
-					rewriteJs,
-					getHtmlInjectCode(cookieStore: CookieStore, foundHead: boolean) {
-						const inject = getInjectScripts(
-							cookieStore,
-							(src) => `<script src="${src}"></script>`
-						).join("");
-
-						return foundHead ? `<head>${inject}</head>` : inject;
-					},
-				},
-			},
 			flagEnabled,
 			codec: {
 				encode: codecEncode,

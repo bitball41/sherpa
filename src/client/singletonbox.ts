@@ -3,10 +3,23 @@ import { SourceMaps } from "./shared/sourcemaps";
 import type { RawSourceMap } from "@/shared/sourcemaps";
 
 export class SingletonBox {
-	clients: SherpaClient[] = [];
-	globals: Map<Self, SherpaClient> = new Map();
-	documents: Map<Document, SherpaClient> = new Map();
-	locations: Map<Location, SherpaClient> = new Map();
+	/**
+	 * Which client owns a given realm's `location`, for the cross-realm
+	 * `location = ...` assignment path in `shared/wrap.ts`.
+	 *
+	 * Weak, and the only registry that survives: a `SingletonBox` is shared by
+	 * every frame in a Sherpa context and outlives all of them, so the strong
+	 * `Map`s that used to sit here (plus a `clients` array, and per-realm
+	 * `globals`/`documents` maps that nothing ever read) pinned the `Window`,
+	 * `Document` and `Location` of every iframe that had ever existed for the
+	 * lifetime of the top frame. A single-page app that mounts and discards
+	 * frames leaked all of them.
+	 *
+	 * `WeakMap.get` on a non-object returns `undefined` rather than throwing,
+	 * which matters: the lookup runs against whatever value the page had in a
+	 * variable named `location`.
+	 */
+	locations: WeakMap<Location, SherpaClient> = new WeakMap();
 
 	/** Decoded rewrite tables, materialized on first use per scramtag. */
 	sourcemaps: SourceMaps = {};
@@ -24,9 +37,6 @@ export class SingletonBox {
 	constructor(public ownerclient: SherpaClient) {}
 
 	registerClient(client: SherpaClient, global: Self) {
-		this.clients.push(client);
-		this.globals.set(global, client);
-		this.documents.set(global.document, client);
-		this.locations.set(global.location, client);
+		if (global.location) this.locations.set(global.location, client);
 	}
 }

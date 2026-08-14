@@ -4,7 +4,12 @@ import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { createLocationProxy } from "@client/location";
 import { createWrapFn } from "@client/shared/wrap";
 import { NavigateEvent } from "@client/events";
-import { rewriteUrl, unrewriteUrl, type URLMeta } from "@rewriters/url";
+import {
+	proxyOrigin,
+	rewriteUrl,
+	unrewriteUrl,
+	type URLMeta,
+} from "@rewriters/url";
 import { SHADOW_ATTRIBUTE_PREFIX } from "@rewriters/html";
 import { resolveBaseHref } from "@/shared/urlCodec";
 import { config, flagEnabled } from "@/shared";
@@ -72,8 +77,7 @@ export type Trap<T> = {
 // can be told apart from one raised by page code. It used to be built fresh
 // inside the apply trap, which meant a closure allocation on *every* proxied
 // call a page made; nothing in it varies per call, so it lives here instead.
-// `location.origin` is immutable for a realm, so the proxy-URL prefix is only
-// rebuilt when the configured prefix changes.
+// The proxy-URL prefix is only rebuilt when the configured prefix changes.
 let internalsPrefix = "";
 let internalsPrefixSource: string | null = null;
 
@@ -87,7 +91,7 @@ function internalsStackTrace(err: Error, stack: StackFrame[]) {
 
 	if (internalsPrefixSource !== config.prefix) {
 		internalsPrefixSource = config.prefix;
-		internalsPrefix = location.origin + config.prefix;
+		internalsPrefix = proxyOrigin() + config.prefix;
 	}
 
 	if (!fileName.startsWith(internalsPrefix)) {
@@ -297,6 +301,9 @@ export class SherpaClient {
 							"base"
 						) as HTMLCollectionOf<Element>;
 					}
+					// The fallback the `<base href>` resolves against, and the answer
+					// when there is no `<base>` at all.
+					const documentUrl = client.fallbackBase;
 					const base = client.#baseElements[0] as Element | undefined;
 					if (base) {
 						// Read through the natives rather than the trapped
@@ -319,12 +326,11 @@ export class SherpaClient {
 									base,
 									"href"
 								);
-						if (!url) return client.url;
+						if (!url) return documentUrl;
 
 						// Resolving is a URL parse, and the same <base href> resolves
 						// against the same document URL to the same thing every time.
 						// Memoize on the pair rather than re-parsing per rewrite.
-						const documentUrl = client.url;
 						if (
 							client.#cachedBaseHref !== url ||
 							client.#cachedBaseDocumentUrl !== documentUrl
@@ -350,6 +356,8 @@ export class SherpaClient {
 
 						return client.#cachedBaseUrl;
 					}
+
+					return documentUrl;
 				}
 
 				return client.url;
@@ -549,6 +557,44 @@ export class SherpaClient {
 		return this.#cachedUrl;
 	}
 
+	/**
+	 * The URL relative references in this realm resolve against when the
+	 * document carries no `<base href>`.
+	 *
+	 * Normally that is the document's own URL. `about:blank` and `about:srcdoc`
+	 * have no URL to resolve against, though: per HTML they inherit their
+	 * creator's base URL, and a proxied page uses those frames constantly -
+	 * every ad slot, every widget that builds its contents with
+	 * `contentDocument.write` or `innerHTML`, every `<iframe srcdoc>`. Sherpa
+	 * resolved their relative URLs against `about:blank`, which resolves to
+	 * nothing, so `rewriteUrl` handed the markup straight back and the browser
+	 * resolved it against the *proxy's* origin instead of the site's.
+	 *
+	 * The document's own URL is deliberately left alone: `location.href` in an
+	 * `about:blank` frame really is `"about:blank"`.
+	 */
+	get fallbackBase(): URL {
+		const url = this.url;
+		if (url.protocol !== "about:" || !iswindow) return url;
+
+		try {
+			const parent = this.global.parent as unknown as typeof globalThis;
+			// `parent === self` at the top of the tree, and a frame can be its
+			// own creator's parent in no other case.
+			if (parent && parent !== this.global) {
+				const creator = parent[SHERPACLIENT] as SherpaClient | undefined;
+				// `.meta.base` rather than `.url`, so a `<base href>` in the
+				// creating document is inherited too.
+				if (creator && creator !== this) return creator.meta.base;
+			}
+		} catch {
+			// A cross-origin (real, not virtual) parent throws on access; there
+			// is nothing to inherit from one.
+		}
+
+		return url;
+	}
+
 	set url(url: URL | string) {
 		if (url instanceof URL) url = url.toString();
 
@@ -746,14 +792,25 @@ export class SherpaClient {
 			prop
 		);
 
+		// A trapped property is normally an accessor, but not always - and a
+		// data property has no `get`/`set` to delegate to, so reaching for one
+		// threw a TypeError out of the trap instead of reading the value. The
+		// captured descriptor becomes that property's storage: there is nowhere
+		// else left to put it, since the trap has taken the property's place on
+		// the object. (No trap delegates to a data property today; this is here
+		// so that adding one is not a crash.)
 		const ctx: TrapCtx<T> = {
 			this: null,
 			get: function () {
-				return oldDescriptor && oldDescriptor.get.call(this.this);
+				if (!oldDescriptor) return undefined;
+				if (oldDescriptor.get) return oldDescriptor.get.call(this.this);
+
+				return oldDescriptor.value;
 			},
 			set: function (v: T) {
-				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-				oldDescriptor && oldDescriptor.set.call(this.this, v);
+				if (!oldDescriptor) return;
+				if (oldDescriptor.set) oldDescriptor.set.call(this.this, v);
+				else if (oldDescriptor.writable) oldDescriptor.value = v;
 			},
 		};
 
@@ -799,7 +856,11 @@ export class SherpaClient {
 		else if (oldDescriptor) desc.enumerable = oldDescriptor.enumerable;
 		if (descriptor.configurable !== undefined)
 			desc.configurable = descriptor.configurable;
-		else if (oldDescriptor) desc.configurable = oldDescriptor.configurable;
+		// With no own descriptor the property is inherited and this is shadowing
+		// it on the instance. Leaving `configurable` at its `false` default made
+		// that shadow permanent, so trapping the same property on the same
+		// object twice (a second synchronous XHR on one request object) threw.
+		else desc.configurable = oldDescriptor ? oldDescriptor.configurable : true;
 
 		Object.defineProperty(target, prop, desc);
 

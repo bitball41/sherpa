@@ -2,9 +2,9 @@ const { SherpaController } = $sherpaLoadController();
 
 const sherpa = new SherpaController({
 	files: {
-		wasm: "/scram/sherpa.wasm.wasm",
-		all: "/scram/sherpa.all.js",
-		sync: "/scram/sherpa.sync.js",
+		wasm: "/engine/sherpa.wasm.wasm",
+		all: "/engine/sherpa.all.js",
+		sync: "/engine/sherpa.sync.js",
 	},
 	flags: {
 		rewriterLogs: false,
@@ -14,8 +14,14 @@ const sherpa = new SherpaController({
 	},
 });
 
-sherpa.init();
-navigator.serviceWorker.register("./sw.js");
+// Awaited in order, and awaited again before the first navigation: `init()`
+// is what writes the config the service worker reads, so registering (or
+// navigating) before it resolves races the worker's first `loadConfig()`.
+const sherpaReady = (async () => {
+	await sherpa.init();
+	await navigator.serviceWorker.register("./sw.js");
+	await navigator.serviceWorker.ready;
+})();
 
 const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
 const flex = css`
@@ -195,7 +201,8 @@ function BrowserApp() {
 
 	const frame = sherpa.createFrame();
 
-	this.mount = () => {
+	this.mount = async () => {
+		await sherpaReady;
 		let body = btoa(
 			`<body style="background: #000; color: #fff">Welcome to <i>Sherpa</i>! Type in a URL in the omnibox above and press enter to get started.</body>`
 		);
@@ -207,12 +214,13 @@ function BrowserApp() {
 		this.url = e.url;
 	});
 
-	const handleSubmit = () => {
+	const handleSubmit = async () => {
 		this.url = this.url.trim();
 		//  frame.go(this.url)
 		if (!this.url.startsWith("http")) {
 			this.url = "https://" + this.url;
 		}
+		await sherpaReady;
 
 		return frame.go(this.url);
 	};

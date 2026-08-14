@@ -104,8 +104,14 @@ export async function rewriteHeaders(
 	}
 
 	// Emulate the referrer policy to set it back to what it should've been without Force Referrer in place
-	if (typeof headers["referer"] === "string") {
-		const referrerUrl = new URL(headers["referer"]);
+	//
+	// The value has already been through `rewriteUrl` above, which hands back
+	// anything it cannot resolve untouched - so this has to tolerate a header
+	// that is not a URL at all rather than throwing out of the response path and
+	// turning the whole response into an error page.
+	const referrerHeader = headers["referer"];
+	if (typeof referrerHeader === "string" && URL.canParse(referrerHeader)) {
+		const referrerUrl = new URL(referrerHeader);
 		const storedPolicyData = await storedReferrerPolicies.get(referrerUrl.href);
 		if (storedPolicyData) {
 			const policy =
@@ -128,7 +134,10 @@ export async function rewriteHeaders(
 		typeof headers["sec-fetch-site"] === "string" &&
 		headers["sec-fetch-site"] !== "none"
 	) {
-		if (typeof headers["referer"] === "string") {
+		if (
+			typeof headers["referer"] === "string" &&
+			URL.canParse(headers["referer"])
+		) {
 			headers["sec-fetch-site"] = await getSiteDirective(
 				meta,
 				new URL(headers["referer"]),

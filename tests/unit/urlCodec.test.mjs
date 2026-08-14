@@ -134,3 +134,44 @@ test("stripping hints leaves the fragment alone", () => {
 		"https://example.com/sherpa.js"
 	);
 });
+
+test("a query appended to a proxied url replaces the target's own", () => {
+	// This is what a GET form submission looks like from the outside: the
+	// browser mutates the query of the action URL it was handed, which is the
+	// *proxied* one. Per HTML that query replaces the action URL's own, so a
+	// search box on a page already carrying `?q=` must read back `?q=new` and
+	// not the `?q=old?q=new` that concatenating the two produced.
+	const proxied = `/sherpa/${encode("https://example.com/search?q=old&page=2")}?q=new`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/search?q=new"
+	);
+});
+
+test("an appended query survives alongside the fragment and sherpa's hints", () => {
+	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?q=new&sherpa.type=module#${encode("frag")}`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/s?q=new#frag"
+	);
+});
+
+test("an empty appended query clears the target's own", () => {
+	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/s"
+	);
+});
+
+test("hints alone never disturb the target's own query", () => {
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/w.js?id=3"
+	);
+});

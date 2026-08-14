@@ -43,4 +43,6 @@ export const shadowedAttributeNames = new Set([
 	"srcdoc",
 	"style",
 	"target",
+	"ping",
+	"background",
 ]);

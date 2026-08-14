@@ -404,6 +404,90 @@ check("the boot scripts still come before the page's own", () => {
 	return eq(window.__firstInlineRan, true, "first inline script ran hooked");
 });
 
+// ------------------------------------------------------- proxied event shape
+check("onmessage is per instance, not shared across every port", () => {
+	// The page's handler used to be stashed on the trap descriptor itself -
+	// one slot for every MessagePort in the realm - so reading it back on any
+	// other port answered with the last one set anywhere.
+	const a = new MessageChannel();
+	const b = new MessageChannel();
+	const first = () => {};
+	const second = () => {};
+	a.port1.onmessage = first;
+	b.port1.onmessage = second;
+
+	eq(a.port1.onmessage, first, "first port");
+	eq(b.port1.onmessage, second, "second port");
+	a.port1.onmessage = null;
+	eq(a.port1.onmessage, null, "cleared");
+	return eq(b.port1.onmessage, second, "the other port is untouched");
+});
+
+check("a link stringifies to the site's url, not the proxy's", () => {
+	// The stringifier is a separate method from the href getter, so while
+	// a.href unrewrote correctly, String(a), a + "" and new URL(a) all
+	// handed the page Sherpa's proxied URL. Sites build URLs
+	// out of link elements exactly this way.
+	const a = document.getElementById("intro");
+	eq(String(a), "http://127.0.0.1:4720/docs/intro.html", "String(a)");
+	eq(a.toString(), "http://127.0.0.1:4720/docs/intro.html", "a.toString()");
+	eq("" + a, "http://127.0.0.1:4720/docs/intro.html", "concatenation form");
+	return eq(new URL(String(a)).pathname, "/docs/intro.html", "new URL(a)");
+});
+
+check("a computed style reads back the site's url", () => {
+	// getComputedStyle(el).backgroundImage is how a site finds out what image
+	// an element is showing. Only the *inline* declaration was wrapped, so
+	// this read leaked the proxied url - while getPropertyValue, the other
+	// spelling of the same read, did not.
+	const d = document.createElement("div");
+	d.style.backgroundImage = "url(/img/pixel-a.png)";
+	document.body.appendChild(d);
+	try {
+		const computed = getComputedStyle(d);
+		eq(cssUrl(computed.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "property access");
+		return eq(
+			cssUrl(computed.getPropertyValue("background-image")),
+			"http://127.0.0.1:4720/img/pixel-a.png",
+			"getPropertyValue"
+		);
+	} finally {
+		d.remove();
+	}
+});
+
+check("element.style keeps its identity across reads", () => {
+	const el = document.getElementById("scope");
+	eq(el.style === el.style, true, "same declaration wrapper");
+	eq(el.style.setProperty === el.style.setProperty, true, "same method");
+	el.style.backgroundImage = 'url("/img/pixel-a.png")';
+	// the page reads back the site's own url, resolved but never proxied
+	return eq(cssUrl(el.style.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "unrewritten for the page");
+});
+
+check("storage reflects membership and deletion of its own keys", () => {
+	localStorage.setItem("probe", "1");
+	eq("probe" in localStorage, true, "in operator sees a stored key");
+	eq("never-set" in localStorage, false, "in operator rejects a missing key");
+	eq(Object.getOwnPropertyDescriptor(localStorage, "never-set"), undefined, "no phantom descriptor");
+	eq(localStorage.getItem === localStorage.getItem, true, "interface member is stable");
+	delete localStorage.probe;
+	eq(localStorage.getItem("probe"), null, "delete removes it");
+	// interface members are not storage keys
+	eq(typeof localStorage.length, "number", "length");
+	return eq(typeof localStorage.setItem, "function", "setItem");
+});
+
+check("<a ping> is rewritten and reads back as authored", () => {
+	const a = document.querySelector(".pinged");
+	eq(a.getAttribute("ping"), "/beacon/one /beacon/two", "authored value");
+	eq(a.ping, "/beacon/one /beacon/two", "reflected value");
+	const rewritten = a.outerHTML;
+	if (rewritten.indexOf("sherpa-attr-ping") !== -1)
+		throw new Error("shadow attribute leaked into markup: " + rewritten);
+	return "ok";
+});
+
 // -------------------------------------------------------------------- base
 check("a <base href> still resolves relative urls", () => {
 	const a = document.getElementById("based");
@@ -574,6 +658,189 @@ const ASYNC_CHECKS = String.raw`
 		return eq(text, "\u3053\u3093\u306b\u3061\u306f", "shift_jis text");
 	});
 
+	await check("an about:blank frame resolves relative urls against its creator", async () => {
+		// A frame with no src has no URL to resolve against; per HTML it
+		// inherits its creator's base URL. Sherpa resolved against
+		// "about:blank", which resolves to nothing, so rewriteUrl handed the
+		// markup back untouched and the browser resolved it against the proxy's
+		// own origin - which is how every ad slot and every widget that builds
+		// its contents with contentDocument.write ends up 404ing.
+		const blank = document.createElement("iframe");
+		document.body.appendChild(blank);
+		const inner = blank.contentDocument;
+		inner.body.innerHTML = '<img id="pic" src="/img/pixel-a.png"><a id="link" href="/docs/intro.html">x</a>';
+		const src = inner.getElementById("pic").src;
+		const href = inner.getElementById("link").href;
+		const baseURI = inner.baseURI;
+		blank.remove();
+
+		eq(src, "http://127.0.0.1:4720/img/pixel-a.png", "img resolves to the site");
+		eq(href, "http://127.0.0.1:4720/docs/intro.html", "anchor resolves to the site");
+		// the creator's own <base href> is inherited along with its url
+		eq(baseURI, "http://127.0.0.1:4720/base-root/", "baseURI");
+
+		return "ok";
+	});
+
+	await check("an <iframe srcdoc> resolves relative urls against its creator", async () => {
+		const frame = document.createElement("iframe");
+		frame.srcdoc = '<!DOCTYPE html><html><body><img id="pic" src="/img/pixel-a.png"></body></html>';
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("srcdoc frame timed out")), 15000);
+		});
+		const doc = frame.contentDocument;
+		const src = doc.getElementById("pic").src;
+		// a url created *after* load, through the traps, has to resolve too
+		const late = doc.createElement("img");
+		late.setAttribute("src", "/img/pixel-b.png");
+		const lateSrc = late.src;
+		frame.remove();
+
+		eq(src, "http://127.0.0.1:4720/img/pixel-a.png", "markup url");
+		return eq(lateSrc, "http://127.0.0.1:4720/img/pixel-b.png", "url created in the frame");
+	});
+
+	await check("the cssom reads back the site's urls, not the proxy's", async () => {
+		const link = document.querySelector('link[rel="stylesheet"]');
+		const sheet = link.sheet;
+		if (!sheet) throw new Error("stylesheet did not load");
+
+		// link.href unrewrites through the reflected property; the stylesheet's
+		// own href is a different accessor and handed back the proxied url.
+		eq(sheet.href, "http://127.0.0.1:4720/site.css", "sheet.href");
+		eq(document.styleSheets[0].href, "http://127.0.0.1:4720/site.css", "styleSheets[i].href");
+
+		// and a rule's declaration is a CSSStyleDeclaration like any other, so
+		// reading a url out of it must not leak either
+		const rule = sheet.cssRules[0];
+		eq(cssUrl(rule.style.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "rule.style");
+		return eq(cssUrl(rule.cssText), "http://127.0.0.1:4720/img/pixel-a.png", "rule.cssText");
+	});
+
+	await check("currentSrc reports the site's url", async () => {
+		const img = document.querySelector('img[alt="a"]');
+		// currentSrc is the url the browser actually settled on; it is
+		// read-only, so it is not covered by the reflected-property table.
+		return eq(img.currentSrc, "http://127.0.0.1:4720/img/pixel-a.png", "currentSrc");
+	});
+
+	await check("a mutation observer never sees sherpa's bookkeeping", async () => {
+		// Sherpa records the authored value in a sherpa-attr-* attribute, which
+		// is a DOM mutation like any other: an observer saw two records per
+		// rewritten attribute, one of them for an attribute the page has never
+		// heard of, and the real one carried a proxied oldValue.
+		const el = document.createElement("a");
+		el.setAttribute("href", "/one");
+		document.body.appendChild(el);
+		const seen = [];
+		const observer = new MutationObserver((records) => {
+			for (const record of records)
+				seen.push(record.attributeName + "=" + record.oldValue);
+		});
+		observer.observe(el, { attributes: true, attributeOldValue: true });
+		el.setAttribute("href", "/two");
+		await new Promise((r) => setTimeout(r, 50));
+		const taken = observer.takeRecords();
+		observer.disconnect();
+		el.remove();
+
+		eq(seen.join(","), "href=/one", "records the page sees");
+		return eq(taken.length, 0, "takeRecords is filtered too");
+	});
+
+	await check("a proxied event keeps the object protocol every event has", async () => {
+		// The per-type accessor tables were plain objects, so membership tests
+		// hit Object.prototype: reading event.toString returned the *string*
+		// "[object MessageEvent]" (so String(event) threw), event.constructor
+		// was the event itself, and event.hasOwnProperty threw outright.
+		const event = await new Promise((resolveEvent, rejectEvent) => {
+			addEventListener("message", function once(received) {
+				removeEventListener("message", once);
+				resolveEvent(received);
+			});
+			setTimeout(() => rejectEvent(new Error("no message delivered")), 10000);
+			postMessage("shape-probe", "*");
+		});
+
+		eq(typeof event.toString, "function", "toString is a function");
+		eq(String(event), "[object MessageEvent]", "String(event)");
+		eq(event.constructor, MessageEvent, "constructor");
+		eq(typeof event.hasOwnProperty, "function", "hasOwnProperty is a function");
+		eq(event.hasOwnProperty("nothing"), false, "hasOwnProperty is callable");
+		eq(event.data, "shape-probe", "data survives the proxy");
+		return eq(event.origin, location.origin, "origin is the virtual one");
+	});
+
+	await check("a document's realm only receives cookies it may read", async () => {
+		// Every virtual origin here shares one physical origin, so a proxied
+		// page can reach the client object of any frame it embeds. The jar
+		// injected into a realm therefore has to be scoped exactly the way
+		// document.cookie is - to that host, and never httpOnly. It used to be
+		// the whole jar, so one iframe handed a page every other site's session.
+		await fetch("/set-cookie");
+		await fetch("http://127.0.0.2:4722/set-cookie", { mode: "cors" });
+
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("timed out")), 15000);
+			frame.src = "/api/echo.html";
+		});
+
+		const inner = frame.contentWindow;
+		const jar = inner[Symbol.for("sherpa client global")].cookieStore.dump();
+		const cookie = inner.document.cookie;
+		frame.remove();
+
+		if (jar.indexOf("ALT_PUBLIC_VALUE") !== -1 || jar.indexOf("ALT_SECRET_VALUE") !== -1)
+			throw new Error("another origin's cookies reached this realm: " + jar);
+		if (jar.indexOf("OWN_SECRET_VALUE") !== -1)
+			throw new Error("an httpOnly cookie reached this realm: " + jar);
+		if (jar.indexOf("OWN_PUBLIC_VALUE") === -1)
+			throw new Error("this host's own cookie is missing: " + jar);
+
+		eq(cookie.indexOf("ownpublic=OWN_PUBLIC_VALUE") !== -1, true, "document.cookie has the readable cookie");
+		eq(cookie.indexOf("ownsession") === -1, true, "document.cookie hides the httpOnly cookie");
+
+		return "ok";
+	});
+
+	await check("a GET form replaces the document's query instead of appending", async () => {
+		// The browser mutates the *proxied* URL's query when a GET form with no
+		// action submits, and per HTML that query replaces the action URL's own.
+		// Concatenating them instead sent "?q=old&q=new" upstream - every
+		// framework reads the first one, so the search box did nothing - and
+		// left the page reading its own location back as "?q=old?q=new".
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		const load = () =>
+			new Promise((done, fail) => {
+				frame.addEventListener("load", done, { once: true });
+				setTimeout(() => fail(new Error("form navigation timed out")), 15000);
+			});
+
+		const first = load();
+		frame.src = "/form.html?q=old&stale=1";
+		await first;
+		eq(frame.contentDocument.getElementById("upstream").textContent, "q=old&stale=1", "initial upstream query");
+		eq(frame.contentDocument.getElementById("seen").textContent, "?q=old&stale=1", "initial location.search");
+
+		const second = load();
+		frame.contentDocument.getElementById("search").submit();
+		await second;
+		const upstream = frame.contentDocument.getElementById("upstream").textContent;
+		const seen = frame.contentDocument.getElementById("seen").textContent;
+		frame.remove();
+
+		eq(upstream, "q=new&page=2", "submitted upstream query");
+		eq(seen, "?q=new&page=2", "location.search after submitting");
+
+		return "ok";
+	});
+
 	await check("nothing on the page was fetched from the proxy's own origin", async () => {
 		// The single assertion every rewriting gap above shows up in: a url the
 		// engine failed to rewrite resolves against the proxy origin instead of
@@ -608,6 +875,8 @@ function docPage(doctype, { pad = true } = {}) {
 }
 
 const documentShapes = {
+	// A minimal proxied document, for checks that need a second realm.
+	"/api/echo.html": `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>echo</body></html>`,
 	"/doc/standards.html": docPage("<!DOCTYPE html>"),
 	"/doc/quirks.html": docPage(""),
 	"/doc/legacy.html": docPage(
@@ -624,6 +893,7 @@ export const pages = {
 <head>
 <meta charset="utf-8">
 <base href="/base-root/">
+<link rel="stylesheet" href="/site.css">
 <title>sherpa behavior fixture</title>
 </head>
 <body class="fixture-body" background="/img/pixel-a.png">
@@ -640,6 +910,7 @@ export const pages = {
 <img src="/img/pixel-b.png" alt="b">
 <img src="/img/other-b.png" alt="c">
 <a id="based" href="relative.html">relative</a>
+<a class="pinged" href="/ping-target.html" ping="/beacon/one /beacon/two">ping</a>
 <style id="inert-style" type="text/tailwindcss">.inert{background:url(/img/pixel-a.png)}</style>
 <svg width="10" height="10">
 	<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/sprite.svg#icon"></use>
@@ -656,6 +927,10 @@ export const pages = {
 
 export const textRoutes = {
 	"/api/echo": { body: "echo", type: "text/plain" },
+	"/site.css": {
+		body: ".sheet-probe{background:url(/img/pixel-a.png)}",
+		type: "text/css",
+	},
 	"/sprite.svg": {
 		body: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="icon"><rect width="4" height="4"/></symbol></svg>`,
 		type: "image/svg+xml",

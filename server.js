@@ -60,12 +60,23 @@ fastify.register(fastifyStatic, {
 });
 fastify.register(fastifyStatic, {
 	root: join(fileURLToPath(new URL(".", import.meta.url)), "./dist"),
-	prefix: "/scram/",
+	prefix: "/engine/",
 	decorateReply: false,
 });
 fastify.register(fastifyStatic, {
 	root: join(fileURLToPath(new URL(".", import.meta.url)), "./assets"),
 	prefix: "/assets/",
+	decorateReply: false,
+});
+// Served locally rather than from a CDN: the demo has no business making a
+// third-party request to render itself, and this way `pnpm dev` works with no
+// internet access at all.
+fastify.register(fastifyStatic, {
+	root: join(
+		fileURLToPath(new URL(".", import.meta.url)),
+		"./node_modules/dreamland/dist"
+	),
+	prefix: "/dreamland/",
 	decorateReply: false,
 });
 fastify.register(fastifyStatic, {

@@ -22,6 +22,53 @@ propagation through frame creation, not a one-line patch to this file.
 **Status:** deferred. Revisit if a site is found that actually depends on
 sandboxed-iframe opaque-origin behavior.
 
+## `about:blank` / `about:srcdoc` frames inherit a base URL but not an origin
+
+**File:** `src/client/client.ts` (`fallbackBase`), `src/client/dom/origin.ts`
+
+A frame with no URL of its own inherits _both_ its creator's base URL and its
+creator's origin, per HTML. Sherpa now inherits the base — which is what makes the
+URLs such a frame creates resolve to the site rather than to the proxy's origin —
+but the document URL is deliberately left as `about:blank`, because that is what
+`location.href` genuinely reports there.
+
+Everything derived from `client.url` therefore still sees the opaque document
+URL: `window.origin` answers `"null"`, and the per-origin namespaces for
+`localStorage`, `CacheStorage` and IndexedDB key on `"null@"` rather than on the
+creator's origin. So an `about:blank` frame gets its own storage namespace instead
+of sharing the embedding page's.
+
+Separating the document URL from the origin/base pair means threading a second
+URL through the client rather than the one `client.url` everything reads, and it
+runs straight into the sandbox-attribute gap above (a _sandboxed_ `about:blank`
+frame is supposed to have an opaque origin, which is what Sherpa reports today).
+
+**Status:** deferred. The URL-resolution half — the one that made requests escape
+to the proxy's origin — is fixed; the storage half needs the frame model that the
+sandbox item above needs anyway.
+
+## Documents served as `application/xhtml+xml` are not rewritten at all
+
+**File:** `src/worker/response.ts` (`isHtmlContentType`), `src/worker/fetch.ts`
+
+`rewriteBody` only treats `text/html` as a document. An XHTML document therefore
+passes through untouched, so every relative URL in it resolves against the
+**proxy's** origin and 404s there — the page is comprehensively broken rather than
+subtly wrong.
+
+Rewriting it is not a one-line content-type addition. XHTML is parsed as XML, so
+the output has to stay well-formed: the boot scripts cannot be flushed ahead of the
+root element the way the streaming path does for HTML (elements before the root are
+an XML parse error, so such documents would have to take the buffered path),
+`dom-serializer` has to run in XML mode to keep self-closing tags and namespace
+prefixes intact, and an inline script's text is `#PCDATA` there — it needs a CDATA
+section or escaping, which the current rewriter does not produce. Getting any of
+that wrong replaces a broken page with a yellow screen of death.
+
+**Status:** deferred. XHTML is rare enough on the modern web that a botched
+attempt is worse than the current state; revisit with a real failing site and the
+buffered-path plumbing above.
+
 ## `javascript:` URLs are not un-rewritten when read back
 
 **File:** `src/shared/rewriters/url.ts` (`unrewriteUrl`, the `//TODO` branch)

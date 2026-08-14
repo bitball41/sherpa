@@ -1,4 +1,5 @@
 import { isCssStyleType, rewriteCss, unrewriteCss } from "@rewriters/css";
+import { unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 
 /** Node types this module has to look at, spelled out to avoid `Node.*` reads. */
@@ -257,42 +258,134 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// `element.style` is the same live `CSSStyleDeclaration` on every read, and
+	// the DOM guarantees `el.style === el.style`. Building the wrapper fresh per
+	// read broke that identity (frameworks that cache and compare it saw a new
+	// object each time) and allocated two proxies on a path pages take in tight
+	// loops. One wrapper per declaration instead.
+	const styleWrappers = new WeakMap<CSSStyleDeclaration, CSSStyleDeclaration>();
+
+	// unfortunate and dumb hack. we have to trap every property of this since
+	// the prototype chain is fucked
+	function wrapStyleDeclaration(
+		style: CSSStyleDeclaration
+	): CSSStyleDeclaration {
+		const cached = styleWrappers.get(style);
+		if (cached) return cached;
+
+		// The declaration's own methods are rebound so they still run against
+		// the real object; those bindings are per-declaration too, so
+		// `el.style.setProperty === el.style.setProperty` holds as it does in
+		// the DOM.
+		const boundMethods = new Map<string | symbol, unknown>();
+
+		const wrapper = new Proxy(style, {
+			get(target, prop) {
+				const value = Reflect.get(target, prop);
+
+				if (typeof value === "function") {
+					const bound = boundMethods.get(prop);
+					if (bound) return bound;
+
+					const rebound = new Proxy(value, {
+						apply(method, _that, args) {
+							return Reflect.apply(method, style, args);
+						},
+					});
+					boundMethods.set(prop, rebound);
+
+					return rebound;
+				}
+
+				if (prop in self.CSSStyleDeclaration.prototype) return value;
+				if (!value) return value;
+
+				return unrewriteCss(value);
+			},
+			set(target, prop, value) {
+				if (prop == "cssText" || value == "" || typeof value !== "string") {
+					return Reflect.set(target, prop, value);
+				}
+
+				return Reflect.set(target, prop, rewriteCss(value, client.meta));
+			},
+		});
+
+		styleWrappers.set(style, wrapper);
+
+		return wrapper;
+	}
+
 	client.Trap("HTMLElement.prototype.style", {
 		get(ctx) {
-			// unfortunate and dumb hack. we have to trap every property of this
-			// since the prototype chain is fucked
-
-			const style = ctx.get() as CSSStyleDeclaration;
-
-			return new Proxy(style, {
-				get(target, prop) {
-					const value = Reflect.get(target, prop);
-
-					if (typeof value === "function") {
-						return new Proxy(value, {
-							apply(target, that, args) {
-								return Reflect.apply(target, style, args);
-							},
-						});
-					}
-
-					if (prop in CSSStyleDeclaration.prototype) return value;
-					if (!value) return value;
-
-					return unrewriteCss(value);
-				},
-				set(target, prop, value) {
-					if (prop == "cssText" || value == "" || typeof value !== "string") {
-						return Reflect.set(target, prop, value);
-					}
-
-					return Reflect.set(target, prop, rewriteCss(value, client.meta));
-				},
-			});
+			return wrapStyleDeclaration(ctx.get() as CSSStyleDeclaration);
 		},
 		set(ctx, value: string) {
 			// this will actually run the trap for cssText. don't rewrite it here
 			ctx.set(value);
+		},
+	});
+
+	// A computed style is a `CSSStyleDeclaration` too, and it is the one sites
+	// actually read URLs out of - `getComputedStyle(el).backgroundImage` is how
+	// you find out what image an element is showing. Only the inline
+	// declaration was wrapped, so that read handed the page Sherpa's proxied
+	// URL. (`getPropertyValue` was already covered, which is what made the gap
+	// easy to miss: the two spellings of the same read disagreed.)
+	client.Proxy("getComputedStyle", {
+		apply(ctx) {
+			const style = ctx.call() as CSSStyleDeclaration | null;
+			if (!style) return ctx.return(style);
+
+			ctx.return(wrapStyleDeclaration(style));
+		},
+	});
+
+	// ...and so is a rule's declaration inside a stylesheet, which is what a
+	// page walking `document.styleSheets[i].cssRules` reads. `CSSRule.cssText`
+	// was already unrewritten; `rule.style.backgroundImage`, the other way to
+	// ask the same question, was not.
+	for (const name of [
+		"CSSStyleRule",
+		"CSSFontFaceRule",
+		"CSSPageRule",
+		"CSSKeyframeRule",
+	]) {
+		const constructor = self[name] as { prototype: object } | undefined;
+		if (!constructor) continue;
+		// Only where the accessor is the interface's own: shadowing an
+		// inherited one would leave the trap with nothing to delegate to.
+		const own = client.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			constructor.prototype,
+			"style"
+		) as PropertyDescriptor | undefined;
+		if (!own?.get) continue;
+
+		client.RawTrap(constructor.prototype, "style", {
+			get(ctx) {
+				return wrapStyleDeclaration(ctx.get() as CSSStyleDeclaration);
+			},
+		});
+	}
+
+	// A stylesheet's own URL. `link.href` unrewrites through the reflected
+	// property, but `link.sheet.href` and `document.styleSheets[i].href` are a
+	// different accessor and handed back the proxied URL.
+	client.Trap("StyleSheet.prototype.href", {
+		get(ctx) {
+			const value = ctx.get() as string | null;
+
+			return value ? unrewriteUrl(value) : value;
+		},
+	});
+
+	client.Trap("CSSImportRule.prototype.href", {
+		get(ctx) {
+			const value = ctx.get() as string | null;
+
+			return value ? unrewriteUrl(value) : value;
 		},
 	});
 }

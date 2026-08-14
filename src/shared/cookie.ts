@@ -207,4 +207,63 @@ export class CookieStore {
 	dump(): string {
 		return JSON.stringify(this.cookies);
 	}
+
+	/**
+	 * The jar as one document's realm is allowed to see it.
+	 *
+	 * {@link dump} serializes the *whole* jar — every host the session has ever
+	 * touched, `httpOnly` entries included. That is what persistence needs, and
+	 * it is what used to be injected into every proxied document as
+	 * `self.COOKIE`. Every virtual origin Sherpa serves shares one *physical*
+	 * origin, so a proxied page can reach into any frame it embeds and read
+	 * that frame's client directly — which meant embedding a single iframe
+	 * handed a page the session cookies of every unrelated site behind the
+	 * proxy, `httpOnly` ones included, none of which that realm has any way to
+	 * legitimately observe.
+	 *
+	 * A page realm needs exactly what `document.cookie` may return there, which
+	 * is never an `httpOnly` cookie and never another host's. Path is
+	 * deliberately not filtered: a same-document navigation (`pushState`) can
+	 * move the document's path, and the read path applies the path rule
+	 * anyway.
+	 */
+	dumpForDocument(url: URL): string {
+		const visible: Record<string, Cookie> = Object.create(null);
+		const hostname = url.hostname.toLowerCase();
+
+		for (const id of Object.keys(this.cookies)) {
+			const cookie = this.cookies[id];
+			if (!cookie || cookie.httpOnly) continue;
+
+			const domain = (cookie.domain || "").replace(/^\.+/, "").toLowerCase();
+			if (!domain) continue;
+			if (
+				cookie.hostOnly ? hostname !== domain : !domainMatches(hostname, domain)
+			)
+				continue;
+
+			visible[id] = cookie;
+		}
+
+		return JSON.stringify(visible);
+	}
+}
+
+/**
+ * Whether a cookie set by a response from `responseHost` could ever be read by
+ * `documentHost`'s `document.cookie`.
+ *
+ * The exact `Domain` attribute isn't known here (it hasn't been parsed yet),
+ * but a cookie is only ever visible on its own host or a subdomain of the
+ * domain it claims, and a response may only claim its own host or a parent of
+ * it — so any visible combination has one host as a suffix of the other.
+ */
+export function couldShareCookies(
+	documentHost: string,
+	responseHost: string
+): boolean {
+	const document = documentHost.toLowerCase();
+	const response = responseHost.toLowerCase();
+
+	return domainMatches(document, response) || domainMatches(response, document);
 }
