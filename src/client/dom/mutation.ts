@@ -119,7 +119,10 @@ export default function (client: SherpaClient, self: Self) {
 				records: MutationRecord[],
 				observer: MutationObserver
 			) {
-				return Reflect.apply(callback, this, [visibleRecords(records), observer]);
+				return Reflect.apply(callback, this, [
+					visibleRecords(records),
+					observer,
+				]);
 			};
 		},
 	});

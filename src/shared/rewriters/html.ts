@@ -375,7 +375,9 @@ function rewriteMetaHttpEquiv(node: any, meta: URLMeta) {
 		// page, but a comment can be closed from inside: a `-->` anywhere in the
 		// value (a `report-uri` path, say) would end it early and turn the rest
 		// of the policy into markup. Neutralize the terminator instead.
-		node = new Comment(String(node.attribs.content ?? "").replace(/--!?>/g, ""));
+		node = new Comment(
+			String(node.attribs.content ?? "").replace(/--!?>/g, "")
+		);
 	} else if (httpEquiv === "refresh" && node.attribs.content) {
 		// content looks like "<seconds>[; url=<url>]"; the same directive can
 		// also arrive as the HTTP `Refresh` header, so the parsing is shared.

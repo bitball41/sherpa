@@ -981,6 +981,150 @@ silently disables JS rewriting (the behavior suite catches it: the `location`
 trap check fails while everything else passes). Always `RELEASE=1 pnpm
 rewriter:build` before `pnpm build` when regenerating dist.
 
+### Full-tree review pass — cookie scoping, opaque-origin frames, page-facing fidelity
+
+Another read of every file in `src/`, this time paired with a technique the
+earlier passes did not have: **running ordinary site idioms through the real
+pipeline as page script and reading what comes back**. That is the only way to
+see what a site sees, and it found most of what is below. A warning worth
+keeping: code injected through a debugger (`frame.evaluate`, DevTools) is _not_
+rewritten, so its `location` reads are the browser's and its results are
+meaningless for this purpose — the probes have to be served as part of the
+page.
+
+**The security one.** Every proxied document was injected with the _entire_
+cookie jar — every host the session had ever touched, `httpOnly` session
+cookies included. Every virtual origin Sherpa serves shares one _physical_
+origin, so a proxied page can reach the client object of any frame it embeds
+and read it directly: embedding one iframe handed a page every unrelated
+site's session. `CookieStore.dumpForDocument()` now scopes the injected jar to
+exactly what `document.cookie` may return in that realm (that host, never
+`httpOnly`); `dump()` still serializes everything, which is what persistence
+and the outgoing `Cookie` header need. For the same reason a response's
+`Set-Cookie` is only dispatched into a client realm when `couldShareCookies()`
+says that realm could read it — which also removes an awaited round trip to
+the page for every cross-site subresource that sets a cookie.
+
+**Frames with an opaque URL had no working rewriting at all** — which is every
+ad slot, every widget that builds its contents with `contentDocument.write`,
+and every `<iframe srcdoc>`. Two independent causes:
+
+- `location.origin` in an `about:srcdoc` document is the literal string
+  `"null"`, even though the document runs on the proxy's real origin and every
+  URL in it is a proxied one. `rewriteUrl`/`unrewriteUrl` built their prefix
+  from it, so nothing in such a frame matched on the way back and anything it
+  rewrote pointed at a host called `null`. `proxyOrigin()` takes one step up
+  the frame tree when its own origin is opaque.
+- Relative URLs resolved against `about:blank`, which resolves to nothing, so
+  `rewriteUrl` handed the value straight back and the browser resolved it
+  against the proxy's origin. `client.fallbackBase` inherits the creator's base
+  URL (its `<base href>` included) for `about:` documents. The document's own
+  URL is deliberately untouched — `location.href` there really is
+  `"about:blank"`. The origin/storage half of that inheritance is deferred; see
+  `KNOWN_ISSUES.md`.
+
+**A GET form submission duplicated the document's query.** The browser mutates
+the query of the action URL it was handed — the proxied one — and per HTML that
+query _replaces_ the action URL's own. Sherpa appended it, so a search box on a
+page already carrying `?q=` sent `?q=old&q=new` upstream (every framework reads
+the first) and the page read its own location back as `?q=old?q=new`. Fixed on
+both sides: the worker before the upstream request, and `decodeProxyUrl` for
+every page-facing getter. Every query parameter Sherpa itself puts on a proxied
+URL lives under the `sherpa.` namespace and is taken off first, so a parameter
+that is not one of ours can only have come from a form.
+
+**Page-facing reads that answered with Sherpa's URL rather than the site's.**
+Each of these is a separate accessor from one that was already correct, which
+is exactly why they survived: a link's stringifier (`String(a)`, `a + ""`,
+`new URL(a)` — separate from the `href` getter), `img.currentSrc` (read-only,
+so not in the reflected-property table), `getComputedStyle(el).backgroundImage`
+(only the _inline_ declaration was wrapped, so `getPropertyValue`, the other
+spelling of the same read, disagreed with it), `StyleSheet.href` and
+`CSSImportRule.href`, and a rule's `style` inside `document.styleSheets`.
+
+**`MutationObserver` reported Sherpa's bookkeeping as the page's own changes.**
+Rewriting an attribute produces two records — one for the `sherpa-attr-*` copy,
+one for the real attribute whose `oldValue` is the previous _proxied_ URL — and
+lazy loaders, framework attribute mirrors and analytics all walk them. The
+shadow records are dropped now and the real one is handed the authored value
+the dropped record was carrying; `takeRecords()` is filtered the same way.
+
+Other defects fixed in the same read:
+
+- **`onmessage` was shared by every instance of an interface.** The handler was
+  stashed on the trap descriptor rather than the receiver, so
+  `portA.onmessage = f` followed by a read of `portB.onmessage` answered `f`.
+  (Inside a trap body, `this` is the descriptor literal — `ctx.this` is the
+  object.)
+- **A bare `addEventListener(...)` registered against `undefined`.** WebIDL
+  substitutes the global for a null receiver; the registry did not, so in a
+  nested service worker `handleMessage` looked its `fetch` handlers up under
+  `self` and found none of the ones registered the usual way. The old strong
+  `Map` hid this by accepting `undefined` as a key; the `WeakMap` threw, which
+  is how it surfaced.
+- **Proxied events lost the object protocol.** The per-type accessor tables
+  were plain objects, so `in` reached `Object.prototype`: `event.toString` was
+  the _string_ `"[object MessageEvent]"`, `event.hasOwnProperty` threw, and
+  `event.constructor` was the event itself. Null prototypes, and `constructor`
+  is no longer rebound (a proxy is never its target).
+- **A nested worker's `fetch(event.request)` recursed** and leaked
+  `from=swruntime` to the site: the hint was still spelled with the
+  pre-namespace bare `from`.
+- **A rewritten CSS `url()` was not escaped for its token.**
+  `encodeURIComponent` leaves `!'()*` alone, so an apostrophe closed a
+  single-quoted url early and spilled into the declaration, and a parenthesis
+  or space in an unquoted one produced a bad-url token the browser drops the
+  whole declaration for. Escapes are resolved on the way in too, so the
+  transform round-trips. `bench/verify.mjs`: 10,134 equivalent, 2 divergent,
+  both this change.
+- **`<a ping>` resolved against the proxy's own origin** — Google and YouTube
+  result links are full of them.
+- Storage proxies answer `in` and `delete` against the store, report no
+  descriptor for an absent key, stop throwing on symbol properties, and keep
+  their methods identical across reads.
+- Smaller: the CSP `<meta>` comment can't be closed from inside;
+  `toggleAttribute(name, undefined)` means "not supplied"; an unparseable
+  `Referer` response header no longer throws out of the response path;
+  `RawTrap` tolerates a data property and leaves an instance shadow
+  reconfigurable; `location.constructor` is non-enumerable.
+
+Performance and memory:
+
+- `element.style` and its methods keep their identity across reads (a fresh
+  `Proxy` per read broke `el.style === el.style` and allocated on a hot path).
+- `SingletonBox` no longer pins the `Window`, `Document` and `Location` of
+  every frame that ever existed for the life of the top frame — two of its
+  three registries were never read at all, and the third is a `WeakMap` now.
+- The dead `shared.rewrite` bag handed to the Rust rewriter is gone. It reads
+  three keys (`config`, `codec`, `flagEnabled`) and never looked at that one;
+  importing it made `@rewriters/wasm` and `@rewriters/html` mutually dependent.
+- The CSS escaping cost `rewriteCss` ~7% at first; the membership test is a
+  handful of `indexOf` scans rather than a character-class regex (~2× on the
+  corpus stylesheet's 837 references) and the tokenizer records whether it
+  passed an escape instead of scanning for one again. Back to 0.96–0.97×, with
+  `rewriteHtml` at parity.
+- `takeInternalParams` bails before materializing a `URLSearchParams` for the
+  usual proxied request, which has no query at all.
+
+Validation: **211 unit assertions** (18 new across the cookie jar, the CSS
+scanner, the URL codec and `messageSecurity`), **71 behavior assertions** inside
+a real proxied document (14 new, each failing against the previous build),
+`bench/verify.mjs` and `bench/regression.mjs`, ESLint, `tsc --noEmit`, the
+production Rspack build, and all six package-validation checks. The Rust
+rewriter's own `cargo test` passes and no Rust or WASM changed.
+
+The behavior suite gained a **second fixture origin on a distinct loopback
+address** (`127.0.0.2`). Cookies are keyed by host and ignore the port, so two
+ports on `127.0.0.1` are the same site as far as the jar is concerned — without
+a second address the cross-origin scoping could not be tested at all.
+
+**Environment note for whoever picks this up:** this pass ran without the Rust
+toolchain, so `rewriter/wasm/out/` was reconstructed from
+`dist/sherpa.bundle.js.map`'s `sourcesContent` (per the note above) plus a
+hand-written `wasm.d.ts`. Rebuilding `dist/` from that glue reproduced the
+committed bundle byte-for-byte apart from the embedded commit hash, which is
+what makes it safe to ship a source-only change this way.
+
 ## What's NOT done yet
 
 **Remaining compat gaps.** The four safely-fixable items from the original

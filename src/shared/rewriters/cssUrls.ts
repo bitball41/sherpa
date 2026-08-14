@@ -81,18 +81,7 @@ type UrlToken = { open: string; url: string; close: string; end: number };
 // itself by about 2x.
 const DOUBLE_QUOTED_UNSAFE = ["\\", '"', "\n", "\r", "\f"];
 const SINGLE_QUOTED_UNSAFE = ["\\", "'", "\n", "\r", "\f"];
-const UNQUOTED_UNSAFE = [
-	"\\",
-	'"',
-	"'",
-	"(",
-	")",
-	" ",
-	"\t",
-	"\n",
-	"\r",
-	"\f",
-];
+const UNQUOTED_UNSAFE = ["\\", '"', "'", "(", ")", " ", "\t", "\n", "\r", "\f"];
 
 function containsAny(value: string, characters: readonly string[]): boolean {
 	for (let i = 0; i < characters.length; i++)

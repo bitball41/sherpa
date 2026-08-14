@@ -538,7 +538,10 @@ export default function (client: SherpaClient, self: typeof window) {
 	// `new URL(a)` all handed the page Sherpa's proxied URL. Sites build URLs
 	// out of link elements that way constantly.
 	client.Proxy(
-		["HTMLAnchorElement.prototype.toString", "HTMLAreaElement.prototype.toString"],
+		[
+			"HTMLAnchorElement.prototype.toString",
+			"HTMLAreaElement.prototype.toString",
+		],
 		{
 			apply(ctx) {
 				ctx.return(unrewriteUrl(ctx.call() as string));

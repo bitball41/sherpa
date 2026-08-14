@@ -22,9 +22,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { CookieStore, couldShareCookies } = await import(
-	"../../src/shared/cookie.ts"
-);
+const { CookieStore, couldShareCookies } =
+	await import("../../src/shared/cookie.ts");
 
 const cookieNames = (jarString) =>
 	jarString
@@ -418,7 +417,10 @@ test("the jar injected into a document carries only that document's cookies", ()
 	// non-httpOnly cookies, which is exactly what `document.cookie` returns.
 	const store = new CookieStore();
 	store.setCookies(["a=1"], new URL("https://example.com/"));
-	store.setCookies(["shared=2; Domain=example.com"], new URL("https://x.example.com/"));
+	store.setCookies(
+		["shared=2; Domain=example.com"],
+		new URL("https://x.example.com/")
+	);
 	store.setCookies(["deep=3"], new URL("https://x.example.com/"));
 	store.setCookies(["session=4; HttpOnly"], new URL("https://example.com/"));
 	store.setCookies(["other=5"], new URL("https://elsewhere.test/"));
@@ -454,10 +456,7 @@ test("a document-scoped jar reloads into a working client store", () => {
 		"a=1; b=2"
 	);
 	assert.equal(client.getCookies(new URL("https://example.com/"), true), "b=2");
-	assert.equal(
-		client.getCookies(new URL("https://elsewhere.test/"), true),
-		""
-	);
+	assert.equal(client.getCookies(new URL("https://elsewhere.test/"), true), "");
 });
 
 test("couldShareCookies only pairs hosts that can see each other's cookies", () => {
@@ -466,6 +465,9 @@ test("couldShareCookies only pairs hosts that can see each other's cookies", () 
 	assert.equal(couldShareCookies("example.com", "www.example.com"), true);
 	assert.equal(couldShareCookies("EXAMPLE.com", "www.Example.COM"), true);
 	assert.equal(couldShareCookies("example.com", "notexample.com"), false);
-	assert.equal(couldShareCookies("example.com", "example.com.evil.test"), false);
+	assert.equal(
+		couldShareCookies("example.com", "example.com.evil.test"),
+		false
+	);
 	assert.equal(couldShareCookies("a.example.com", "b.example.com"), false);
 });

@@ -209,7 +209,10 @@ test("a rewritten url round-trips through an unrewrite pass", () => {
 		return u.slice("/p/".length);
 	});
 	assert.deepEqual(seen, ["/p//it's.png"]);
-	assert.equal(rewriteCssUrls(rewritten, (u) => u.slice("/p/".length)), original);
+	assert.equal(
+		rewriteCssUrls(rewritten, (u) => u.slice("/p/".length)),
+		original
+	);
 });
 
 test("escapes a newline the rewriter reintroduces", () => {

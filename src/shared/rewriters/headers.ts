@@ -134,7 +134,10 @@ export async function rewriteHeaders(
 		typeof headers["sec-fetch-site"] === "string" &&
 		headers["sec-fetch-site"] !== "none"
 	) {
-		if (typeof headers["referer"] === "string" && URL.canParse(headers["referer"])) {
+		if (
+			typeof headers["referer"] === "string" &&
+			URL.canParse(headers["referer"])
+		) {
 			headers["sec-fetch-site"] = await getSiteDirective(
 				meta,
 				new URL(headers["referer"]),

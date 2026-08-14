@@ -237,7 +237,9 @@ export class CookieStore {
 
 			const domain = (cookie.domain || "").replace(/^\.+/, "").toLowerCase();
 			if (!domain) continue;
-			if (cookie.hostOnly ? hostname !== domain : !domainMatches(hostname, domain))
+			if (
+				cookie.hostOnly ? hostname !== domain : !domainMatches(hostname, domain)
+			)
 				continue;
 
 			visible[id] = cookie;

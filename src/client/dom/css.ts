@@ -263,10 +263,7 @@ export default function (client: SherpaClient, self: typeof window) {
 	// read broke that identity (frameworks that cache and compare it saw a new
 	// object each time) and allocated two proxies on a path pages take in tight
 	// loops. One wrapper per declaration instead.
-	const styleWrappers = new WeakMap<
-		CSSStyleDeclaration,
-		CSSStyleDeclaration
-	>();
+	const styleWrappers = new WeakMap<CSSStyleDeclaration, CSSStyleDeclaration>();
 
 	// unfortunate and dumb hack. we have to trap every property of this since
 	// the prototype chain is fucked
