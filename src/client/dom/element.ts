@@ -240,11 +240,13 @@ export default function (client: SherpaClient, self: typeof window) {
 					const frag = raw.indexOf("#");
 					const href = raw.substring(0, frag === -1 ? undefined : frag);
 					if (href)
-						return (resolveBaseHref(href, client.url) ?? client.url).href;
+						return (
+							resolveBaseHref(href, client.fallbackBase) ?? client.fallbackBase
+						).href;
 				}
 			}
 
-			return client.url.href;
+			return client.fallbackBase.href;
 		},
 		set(_ctx, _v) {
 			return false;

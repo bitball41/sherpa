@@ -24,21 +24,65 @@ export function rewriteBlob(url: string, meta: URLMeta) {
 export function unrewriteBlob(url: string) {
 	const blob = new URL(url.substring("blob:".length));
 
-	return "blob:" + location.origin + blob.pathname;
+	return "blob:" + proxyOrigin() + blob.pathname;
 }
 
-// `location.origin + config.prefix` is prepended to every rewritten URL;
-// rebuild it only when the prefix actually changes instead of concatenating
-// on every call. A realm's location.origin can never change, so it isn't
-// re-read (the getter allocates a fresh string per read).
+// The physical origin Sherpa is served from, as this realm sees it.
+//
+// Normally that is just `location.origin`. An `about:srcdoc` (and a sandboxed)
+// document has an *opaque* URL, though, so `location.origin` there is the
+// literal string `"null"` - even while the document runs on the proxy's real
+// origin and every URL in it is a proxied one. Every rewrite and unrewrite in
+// such a realm was therefore built against `"null/prefix/"`: nothing matched
+// the proxy prefix on the way back, so a page reading `img.src` inside an
+// `<iframe srcdoc>` got the raw proxied URL, and anything it rewrote came out
+// pointing at a host called `null`.
+//
+// A frame with an opaque URL still shares its creator's physical origin, so
+// the answer is one step up the frame tree.
+let cachedOrigin: string | null = null;
+
+export function proxyOrigin(): string {
+	if (cachedOrigin !== null) return cachedOrigin;
+
+	const own = location.origin;
+	if (own && own !== "null") return (cachedOrigin = own);
+
+	if ("window" in globalThis) {
+		try {
+			let win = globalThis as typeof globalThis & Window;
+			// bounded: a frame tree deeper than this is not a real page
+			for (let depth = 0; depth < 64; depth++) {
+				const up = win.parent as typeof win;
+				if (!up || up === win) break;
+				win = up;
+				const origin = win.location.origin;
+				if (origin && origin !== "null") return (cachedOrigin = origin);
+			}
+		} catch {
+			// A real cross-origin ancestor throws; there is nothing to inherit.
+		}
+	}
+
+	// Not cached: an opaque realm may still get a usable ancestor later, and
+	// answering "null" forever would pin the broken state.
+	return own;
+}
+
+// `proxyOrigin() + config.prefix` is prepended to every rewritten URL; rebuild
+// it only when the prefix actually changes instead of concatenating on every
+// call.
 let cachedProxyBase = "";
 let cachedProxyBasePrefix: string | null = null;
+let cachedProxyBaseOrigin: string | null = null;
 
 function proxyBase(): string {
 	const prefix = config.prefix;
-	if (cachedProxyBasePrefix !== prefix) {
+	const origin = proxyOrigin();
+	if (cachedProxyBasePrefix !== prefix || cachedProxyBaseOrigin !== origin) {
 		cachedProxyBasePrefix = prefix;
-		cachedProxyBase = location.origin + prefix;
+		cachedProxyBaseOrigin = origin;
+		cachedProxyBase = origin + prefix;
 	}
 
 	return cachedProxyBase;

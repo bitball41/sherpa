@@ -625,6 +625,50 @@ const ASYNC_CHECKS = String.raw`
 		return eq(text, "\u3053\u3093\u306b\u3061\u306f", "shift_jis text");
 	});
 
+	await check("an about:blank frame resolves relative urls against its creator", async () => {
+		// A frame with no src has no URL to resolve against; per HTML it
+		// inherits its creator's base URL. Sherpa resolved against
+		// "about:blank", which resolves to nothing, so rewriteUrl handed the
+		// markup back untouched and the browser resolved it against the proxy's
+		// own origin - which is how every ad slot and every widget that builds
+		// its contents with contentDocument.write ends up 404ing.
+		const blank = document.createElement("iframe");
+		document.body.appendChild(blank);
+		const inner = blank.contentDocument;
+		inner.body.innerHTML = '<img id="pic" src="/img/pixel-a.png"><a id="link" href="/docs/intro.html">x</a>';
+		const src = inner.getElementById("pic").src;
+		const href = inner.getElementById("link").href;
+		const baseURI = inner.baseURI;
+		blank.remove();
+
+		eq(src, "http://127.0.0.1:4720/img/pixel-a.png", "img resolves to the site");
+		eq(href, "http://127.0.0.1:4720/docs/intro.html", "anchor resolves to the site");
+		// the creator's own <base href> is inherited along with its url
+		eq(baseURI, "http://127.0.0.1:4720/base-root/", "baseURI");
+
+		return "ok";
+	});
+
+	await check("an <iframe srcdoc> resolves relative urls against its creator", async () => {
+		const frame = document.createElement("iframe");
+		frame.srcdoc = '<!DOCTYPE html><html><body><img id="pic" src="/img/pixel-a.png"></body></html>';
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("srcdoc frame timed out")), 15000);
+		});
+		const doc = frame.contentDocument;
+		const src = doc.getElementById("pic").src;
+		// a url created *after* load, through the traps, has to resolve too
+		const late = doc.createElement("img");
+		late.setAttribute("src", "/img/pixel-b.png");
+		const lateSrc = late.src;
+		frame.remove();
+
+		eq(src, "http://127.0.0.1:4720/img/pixel-a.png", "markup url");
+		return eq(lateSrc, "http://127.0.0.1:4720/img/pixel-b.png", "url created in the frame");
+	});
+
 	await check("a proxied event keeps the object protocol every event has", async () => {
 		// The per-type accessor tables were plain objects, so membership tests
 		// hit Object.prototype: reading event.toString returned the *string*
