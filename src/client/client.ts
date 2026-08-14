@@ -794,7 +794,11 @@ export class SherpaClient {
 
 		// A trapped property is normally an accessor, but not always - and a
 		// data property has no `get`/`set` to delegate to, so reaching for one
-		// threw a TypeError out of the trap instead of reading the value.
+		// threw a TypeError out of the trap instead of reading the value. The
+		// captured descriptor becomes that property's storage: there is nowhere
+		// else left to put it, since the trap has taken the property's place on
+		// the object. (No trap delegates to a data property today; this is here
+		// so that adding one is not a crash.)
 		const ctx: TrapCtx<T> = {
 			this: null,
 			get: function () {

@@ -64,9 +64,11 @@ export function proxyOrigin(): string {
 		}
 	}
 
-	// Not cached: an opaque realm may still get a usable ancestor later, and
-	// answering "null" forever would pin the broken state.
-	return own;
+	// Cached even when it failed. Neither a realm's own URL nor its ancestry
+	// changes once it exists, so the answer cannot improve - and this runs for
+	// every URL the realm rewrites, where re-walking the frame tree (and
+	// re-throwing on a cross-origin ancestor) per URL would be its own problem.
+	return (cachedOrigin = own);
 }
 
 // `proxyOrigin() + config.prefix` is prepended to every rewritten URL; rebuild
