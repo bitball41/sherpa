@@ -6,6 +6,7 @@ import {
 	SCRIPT_SOURCE_ATTRIBUTE,
 	SHADOW_ATTRIBUTE_PREFIX,
 	unrewriteHtml,
+	unrewriteXml,
 } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
@@ -267,6 +268,17 @@ export default function (client: SherpaClient, self: typeof window) {
 				if (attrib === null) return ctx.return("");
 
 				return ctx.return(attrib);
+			}
+
+			// An inline style set through the CSSOM - `el.style.background =
+			// "url(...)"`, which is how most scripts set one - never passes
+			// through `setAttribute`, so no shadow attribute records what the
+			// page wrote and the real attribute holds the rewritten CSS. The
+			// value reads back correctly through `el.style`; this is the same
+			// answer for the attribute view of it.
+			if (name === "style") {
+				const value = ctx.call() as string | null;
+				if (value) return ctx.return(unrewriteCss(value));
 			}
 		},
 	});
@@ -747,6 +759,18 @@ export default function (client: SherpaClient, self: typeof window) {
 	client.Proxy(["Element.prototype.getHTML", "ShadowRoot.prototype.getHTML"], {
 		apply(ctx) {
 			ctx.return(unrewriteHtml(ctx.call()));
+		},
+	});
+
+	// The last markup-producing API that was not intercepted. `innerHTML`,
+	// `outerHTML` and `getHTML()` all hand the page its own markup back;
+	// `serializeToString` handed it Sherpa's - the rewritten URLs *and* the
+	// `sherpa-attr-*` bookkeeping - which is what anything serializing a
+	// subtree (saving state, posting markup upstream, every SVG manipulation
+	// library) then carried around.
+	client.Proxy("XMLSerializer.prototype.serializeToString", {
+		apply(ctx) {
+			ctx.return(unrewriteXml(ctx.call() as string));
 		},
 	});
 

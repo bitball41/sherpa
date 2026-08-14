@@ -66,12 +66,21 @@ fn get_config(sherpa: &Object) -> Result<Config> {
 
 pub struct WasmUrlRewriter(Function);
 
+/// Sherpa's internal request hints all live under a `sherpa.` namespace so a
+/// site's own query parameters can never be mistaken for one (see
+/// `src/shared/internalParams.ts`). This one is appended from Rust, and was the
+/// last place still emitting the old bare name: every rewritten `import` came
+/// out carrying `?type=module`, which the service worker did not recognize as a
+/// hint. It therefore (a) forwarded `type=module` to the upstream site as if
+/// the page had asked for it, and (b) lost the module parse goal, so the module
+/// was rewritten as a classic script - which is why a module worker booted with
+/// `importScripts` and died on the spot.
 fn append_module_param(url: &mut String) {
 	let fragment = url.find('#').unwrap_or(url.len());
 	let separator = if url[..fragment].contains('?') {
-		"&type=module"
+		"&sherpa.type=module"
 	} else {
-		"?type=module"
+		"?sherpa.type=module"
 	};
 	url.insert_str(fragment, separator);
 }
@@ -114,13 +123,13 @@ mod tests {
 	fn module_param_precedes_fragments_and_preserves_queries() {
 		let mut plain = String::from("/proxy/encoded#fragment");
 		append_module_param(&mut plain);
-		assert_eq!(plain, "/proxy/encoded?type=module#fragment");
+		assert_eq!(plain, "/proxy/encoded?sherpa.type=module#fragment");
 
-		let mut queried = String::from("/proxy/encoded?dest=script#fragment");
+		let mut queried = String::from("/proxy/encoded?sherpa.dest=script#fragment");
 		append_module_param(&mut queried);
 		assert_eq!(
 			queried,
-			"/proxy/encoded?dest=script&type=module#fragment"
+			"/proxy/encoded?sherpa.dest=script&sherpa.type=module#fragment"
 		);
 	}
 }

@@ -515,6 +515,7 @@ export async function handleFetch(
 			this,
 			requestContext.referrerUrl?.href || "",
 			requestContext.clientUrl,
+			shouldSendCookies(requestContext),
 			cacheKey,
 			now
 		);
@@ -587,6 +588,13 @@ async function handleResponse(
 	swtarget: SherpaServiceWorker,
 	referrer: string,
 	clientUrl: URL | null = null,
+	/**
+	 * Whether this request's credentials mode lets the response set cookies.
+	 * The same condition that decides whether a `Cookie` header goes out also
+	 * decides whether `Set-Cookie` comes back in, per Fetch's `includeCredentials`
+	 * - a request made with `credentials: "omit"` neither sends nor stores them.
+	 */
+	acceptsCookies: boolean = true,
 	cacheKey: string | null = null,
 	now: number = Date.now()
 ): Promise<Response> {
@@ -666,6 +674,7 @@ async function handleResponse(
 	// site's cookies where they did not belong and made every one of those
 	// responses wait on a round trip to the page for a jar it can never read.
 	const syncCookiesToClient =
+		acceptsCookies &&
 		client?.type === "window" &&
 		(!clientUrl || couldShareCookies(clientUrl.hostname, url.hostname));
 
@@ -701,12 +710,20 @@ async function handleResponse(
 		}
 	}
 
-	await cookieStore.setCookies(setCookies, url);
-	// Not awaited: the in-memory jar is already current, and every later read
-	// goes through it. Blocking the response on a storage round trip only
-	// bought durability against a service-worker restart in the next few
-	// milliseconds.
-	if (setCookies.length) void persistCookieStore(cookieStore);
+	// A response only gets to write to the jar if the request that produced it
+	// was allowed to read from it. Sherpa stored every `Set-Cookie` it saw, so a
+	// deliberately uncredentialed cross-origin request - `fetch(url, {
+	// credentials: "omit" })`, which a page uses precisely to keep a third party
+	// out of its cookies - still let that third party plant cookies that later
+	// credentialed requests would send right back.
+	if (acceptsCookies) {
+		await cookieStore.setCookies(setCookies, url);
+		// Not awaited: the in-memory jar is already current, and every later read
+		// goes through it. Blocking the response on a storage round trip only
+		// bought durability against a service-worker restart in the next few
+		// milliseconds.
+		if (setCookies.length) void persistCookieStore(cookieStore);
+	}
 
 	if (isDownload(responseHeaders, destination) && !isRedirectResponse) {
 		if (flagEnabled("interceptDownloads", url)) {

@@ -55,6 +55,37 @@ test("decodeProxyUrl passes embedded blob and data URLs through", () => {
 	);
 });
 
+test("decodeProxyUrl takes sherpa's hints off a blob or data target", () => {
+	// A worker created from `URL.createObjectURL` reads its own `location.href`
+	// back through here. It has to match the URL the creating page was handed,
+	// not that URL plus the hint Sherpa appended to route the request.
+	assert.equal(
+		decodeProxyUrl(
+			"/sherpa/blob:https://site.test/id?sherpa.dest=worker",
+			"/sherpa/",
+			decode
+		),
+		"blob:https://site.test/id"
+	);
+	assert.equal(
+		decodeProxyUrl(
+			"/sherpa/blob:https://site.test/id?sherpa.dest=worker&sherpa.type=module",
+			"/sherpa/",
+			decode
+		),
+		"blob:https://site.test/id"
+	);
+	// A query the data URL itself carries is the site's own content.
+	assert.equal(
+		decodeProxyUrl(
+			"/sherpa/data:text/plain,a?b=1&sherpa.dest=worker",
+			"/sherpa/",
+			decode
+		),
+		"data:text/plain,a?b=1"
+	);
+});
+
 test("appendUrlParams inserts internal parameters before fragments", () => {
 	assert.equal(
 		appendUrlParams("https://proxy.test/sherpa/encoded#section", {

@@ -2,7 +2,7 @@ import { ElementType, Parser } from "htmlparser2";
 import { ChildNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
 import { URLMeta, rewriteUrl, snapshotMeta } from "@rewriters/url";
-import { isCssStyleType, rewriteCss } from "@rewriters/css";
+import { isCssStyleType, rewriteCss, unrewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
 import { rewriteRefresh } from "@rewriters/refresh";
@@ -207,13 +207,83 @@ export function rewriteHtmlAfterPrelude(
 // 	origin?: URL;
 // };
 
+const SHADOW_STYLE_ATTRIBUTE = SHADOW_ATTRIBUTE_PREFIX + "style";
+
+/** Returns whether anything was actually restored. */
+function restoreAuthoredAttributes(node: ChildNode): boolean {
+	let changed = false;
+
+	if ("attribs" in node) {
+		let styleShadowed = false;
+
+		for (const key in node.attribs) {
+			if (key == SCRIPT_SOURCE_ATTRIBUTE) {
+				// The source was UTF-8 encoded before it was base64'd, so it
+				// has to be decoded the same way round. `atob` alone yields
+				// one character per *byte*, which mojibakes every inline
+				// script containing a non-ASCII character (an accented
+				// string literal, an emoji, any CJK text) the moment a page
+				// reads its own `innerHTML` back.
+				if (node.children[0] && "data" in node.children[0])
+					node.children[0].data = utf8Decoder.decode(
+						base64ToBytes(node.attribs[key])
+					);
+				// and the bookkeeping attribute itself goes: it is not markup
+				// the page wrote, and leaving it behind put a base64 copy of
+				// every inline script into whatever the page did with the
+				// serialization next.
+				delete node.attribs[key];
+				changed = true;
+				continue;
+			}
+
+			if (key.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
+				if (key === SHADOW_STYLE_ATTRIBUTE) styleShadowed = true;
+				node.attribs[key.slice(SHADOW_ATTRIBUTE_PREFIX.length)] =
+					node.attribs[key];
+				delete node.attribs[key];
+				changed = true;
+			}
+		}
+
+		// An inline style written through the CSSOM (`el.style.background =
+		// ...`) never goes past `setAttribute`, so it has no shadow attribute
+		// and the element's serialized `style=` is the rewritten CSS. Undo it
+		// here rather than handing the page proxied URLs inside its own markup.
+		if (!styleShadowed && typeof node.attribs.style === "string") {
+			const authored = unrewriteCss(node.attribs.style);
+			if (authored !== node.attribs.style) {
+				node.attribs.style = authored;
+				changed = true;
+			}
+		}
+	}
+
+	if ("childNodes" in node) {
+		for (const child of node.childNodes) {
+			if (restoreAuthoredAttributes(child)) changed = true;
+		}
+	}
+
+	return changed;
+}
+
 export function unrewriteHtml(html: string) {
 	// Every `innerHTML`/`outerHTML`/`getHTML()` read routes through here, and
-	// the only thing this function does is undo `sherpa-attr-*` shadow
-	// attributes. Markup that carries none of them needs no work - and
-	// round-tripping it through the parser + serializer anyway was not just
-	// wasted time, it also handed the page back re-serialized markup (quoting,
-	// entities and void/self-closing tags normalized) rather than its own.
+	// all this function does is undo what the engine put into the markup. A
+	// serialization carrying no `sherpa-attr-*` needs no work - and round
+	// tripping it through the parser + serializer anyway was not just wasted
+	// time, it also handed the page back re-serialized markup (quoting,
+	// entities and void/self-closing tags normalized) rather than its own. For
+	// the same reason the parsed tree is only re-serialized below when
+	// something in it actually changed.
+	//
+	// The test is deliberately this one scan and no more. Adding a second
+	// (for the proxy prefix, to catch an inline style written through the
+	// CSSOM in a subtree with no shadow attribute anywhere) doubled the cost
+	// of the fast path - two full scans of markup that has nothing in it -
+	// which is not a trade worth making on the hot read. That case is covered
+	// where it is actually observed instead: `getAttribute("style")`.
 	if (typeof html !== "string" || !html.includes(SHADOW_ATTRIBUTE_PREFIX))
 		return html;
 
@@ -223,42 +293,41 @@ export function unrewriteHtml(html: string) {
 	parser.write(html);
 	parser.end();
 
-	function traverse(node: ChildNode) {
-		if ("attribs" in node) {
-			for (const key in node.attribs) {
-				if (key == SCRIPT_SOURCE_ATTRIBUTE) {
-					// The source was UTF-8 encoded before it was base64'd, so it
-					// has to be decoded the same way round. `atob` alone yields
-					// one character per *byte*, which mojibakes every inline
-					// script containing a non-ASCII character (an accented
-					// string literal, an emoji, any CJK text) the moment a page
-					// reads its own `innerHTML` back.
-					if (node.children[0] && "data" in node.children[0])
-						node.children[0].data = utf8Decoder.decode(
-							base64ToBytes(node.attribs[key])
-						);
-					continue;
-				}
-
-				if (key.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
-					node.attribs[key.slice(SHADOW_ATTRIBUTE_PREFIX.length)] =
-						node.attribs[key];
-					delete node.attribs[key];
-				}
-			}
-		}
-
-		if ("childNodes" in node) {
-			for (const child of node.childNodes) {
-				traverse(child);
-			}
-		}
-	}
-
-	traverse(handler.root);
+	if (!restoreAuthoredAttributes(handler.root)) return html;
 
 	return render(handler.root, {
 		decodeEntities: false,
+	});
+}
+
+/**
+ * The same undo, for `XMLSerializer.prototype.serializeToString`.
+ *
+ * That serializer is the one markup-producing API Sherpa did not intercept, so
+ * a page serializing a subtree - saving state, posting markup to a server,
+ * anything that touches SVG - got the rewritten URLs *and* the `sherpa-attr-*`
+ * bookkeeping handed straight back to it.
+ *
+ * It cannot share `unrewriteHtml`: XML serialization is not HTML serialization.
+ * Re-rendering `<use href="..."/>` through the HTML parser would swallow every
+ * following sibling into it as a child, so both the parse and the render stay
+ * in XML mode here.
+ */
+export function unrewriteXml(xml: string) {
+	if (typeof xml !== "string" || !xml.includes(SHADOW_ATTRIBUTE_PREFIX))
+		return xml;
+
+	const handler = new DomHandler((err, dom) => dom);
+	const parser = new Parser(handler, { xmlMode: true });
+
+	parser.write(xml);
+	parser.end();
+
+	if (!restoreAuthoredAttributes(handler.root)) return xml;
+
+	return render(handler.root, {
+		decodeEntities: false,
+		xmlMode: true,
 	});
 }
 
