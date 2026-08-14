@@ -513,6 +513,20 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// `HTMLHyperlinkElementUtils` gives `<a>` and `<area>` a stringifier, and
+	// it is a *separate* method from the `href` getter - so while `a.href`
+	// unrewrote correctly, `String(a)`, `a + ""`, `` `${a}` `` and
+	// `new URL(a)` all handed the page Sherpa's proxied URL. Sites build URLs
+	// out of link elements that way constantly.
+	client.Proxy(
+		["HTMLAnchorElement.prototype.toString", "HTMLAreaElement.prototype.toString"],
+		{
+			apply(ctx) {
+				ctx.return(unrewriteUrl(ctx.call() as string));
+			},
+		}
+	);
+
 	// this is separate from the regular href handlers because it returns an SVGAnimatedString
 	client.Trap("SVGAnimatedString.prototype.baseVal", {
 		get(ctx) {

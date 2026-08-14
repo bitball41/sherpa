@@ -267,60 +267,79 @@ export default function (client: SherpaClient, self: typeof window) {
 		CSSStyleDeclaration
 	>();
 
+	// unfortunate and dumb hack. we have to trap every property of this since
+	// the prototype chain is fucked
+	function wrapStyleDeclaration(
+		style: CSSStyleDeclaration
+	): CSSStyleDeclaration {
+		const cached = styleWrappers.get(style);
+		if (cached) return cached;
+
+		// The declaration's own methods are rebound so they still run against
+		// the real object; those bindings are per-declaration too, so
+		// `el.style.setProperty === el.style.setProperty` holds as it does in
+		// the DOM.
+		const boundMethods = new Map<string | symbol, unknown>();
+
+		const wrapper = new Proxy(style, {
+			get(target, prop) {
+				const value = Reflect.get(target, prop);
+
+				if (typeof value === "function") {
+					const bound = boundMethods.get(prop);
+					if (bound) return bound;
+
+					const rebound = new Proxy(value, {
+						apply(method, _that, args) {
+							return Reflect.apply(method, style, args);
+						},
+					});
+					boundMethods.set(prop, rebound);
+
+					return rebound;
+				}
+
+				if (prop in self.CSSStyleDeclaration.prototype) return value;
+				if (!value) return value;
+
+				return unrewriteCss(value);
+			},
+			set(target, prop, value) {
+				if (prop == "cssText" || value == "" || typeof value !== "string") {
+					return Reflect.set(target, prop, value);
+				}
+
+				return Reflect.set(target, prop, rewriteCss(value, client.meta));
+			},
+		});
+
+		styleWrappers.set(style, wrapper);
+
+		return wrapper;
+	}
+
 	client.Trap("HTMLElement.prototype.style", {
 		get(ctx) {
-			// unfortunate and dumb hack. we have to trap every property of this
-			// since the prototype chain is fucked
-
-			const style = ctx.get() as CSSStyleDeclaration;
-			const cached = styleWrappers.get(style);
-			if (cached) return cached;
-
-			// The declaration's own methods are rebound so they still run against
-			// the real object; those bindings are per-declaration too, so
-			// `el.style.setProperty === el.style.setProperty` holds as it does in
-			// the DOM.
-			const boundMethods = new Map<string | symbol, unknown>();
-
-			const wrapper = new Proxy(style, {
-				get(target, prop) {
-					const value = Reflect.get(target, prop);
-
-					if (typeof value === "function") {
-						const bound = boundMethods.get(prop);
-						if (bound) return bound;
-
-						const rebound = new Proxy(value, {
-							apply(method, _that, args) {
-								return Reflect.apply(method, style, args);
-							},
-						});
-						boundMethods.set(prop, rebound);
-
-						return rebound;
-					}
-
-					if (prop in self.CSSStyleDeclaration.prototype) return value;
-					if (!value) return value;
-
-					return unrewriteCss(value);
-				},
-				set(target, prop, value) {
-					if (prop == "cssText" || value == "" || typeof value !== "string") {
-						return Reflect.set(target, prop, value);
-					}
-
-					return Reflect.set(target, prop, rewriteCss(value, client.meta));
-				},
-			});
-
-			styleWrappers.set(style, wrapper);
-
-			return wrapper;
+			return wrapStyleDeclaration(ctx.get() as CSSStyleDeclaration);
 		},
 		set(ctx, value: string) {
 			// this will actually run the trap for cssText. don't rewrite it here
 			ctx.set(value);
+		},
+	});
+
+	// A computed style is a `CSSStyleDeclaration` too, and it is the one sites
+	// actually read URLs out of - `getComputedStyle(el).backgroundImage` is how
+	// you find out what image an element is showing. Only the inline
+	// declaration was wrapped, so that read handed the page Sherpa's proxied
+	// URL. (`getPropertyValue` was already covered, which is what made the gap
+	// easy to miss: the two spellings of the same read disagreed.)
+	client.Proxy("getComputedStyle", {
+		apply(ctx) {
+			const style = ctx.call() as CSSStyleDeclaration | null;
+			if (!style) return ctx.return(style);
+
+			ctx.return(wrapStyleDeclaration(style));
 		},
 	});
 }

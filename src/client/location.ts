@@ -11,7 +11,15 @@ export function createLocationProxy(
 	// location cannot be Proxy()d
 	const fakeLocation: any = {};
 	Object.setPrototypeOf(fakeLocation, Location.prototype);
-	fakeLocation.constructor = Location;
+	// Non-enumerable, as `constructor` is everywhere else: an own enumerable
+	// one showed up in `Object.keys(location)` and in the object spread that
+	// sites build out of it.
+	Object.defineProperty(fakeLocation, "constructor", {
+		value: Location,
+		writable: true,
+		configurable: true,
+		enumerable: false,
+	});
 
 	// for some reason it's on the object for Location and on the prototype for WorkerLocation??
 	const descriptorSource = iswindow ? self.location : Location.prototype;

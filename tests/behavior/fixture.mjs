@@ -423,6 +423,39 @@ check("onmessage is per instance, not shared across every port", () => {
 	return eq(b.port1.onmessage, second, "the other port is untouched");
 });
 
+check("a link stringifies to the site's url, not the proxy's", () => {
+	// The stringifier is a separate method from the href getter, so while
+	// a.href unrewrote correctly, String(a), a + "" and new URL(a) all
+	// handed the page Sherpa's proxied URL. Sites build URLs
+	// out of link elements exactly this way.
+	const a = document.getElementById("intro");
+	eq(String(a), "http://127.0.0.1:4720/docs/intro.html", "String(a)");
+	eq(a.toString(), "http://127.0.0.1:4720/docs/intro.html", "a.toString()");
+	eq("" + a, "http://127.0.0.1:4720/docs/intro.html", "concatenation form");
+	return eq(new URL(String(a)).pathname, "/docs/intro.html", "new URL(a)");
+});
+
+check("a computed style reads back the site's url", () => {
+	// getComputedStyle(el).backgroundImage is how a site finds out what image
+	// an element is showing. Only the *inline* declaration was wrapped, so
+	// this read leaked the proxied url - while getPropertyValue, the other
+	// spelling of the same read, did not.
+	const d = document.createElement("div");
+	d.style.backgroundImage = "url(/img/pixel-a.png)";
+	document.body.appendChild(d);
+	try {
+		const computed = getComputedStyle(d);
+		eq(cssUrl(computed.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "property access");
+		return eq(
+			cssUrl(computed.getPropertyValue("background-image")),
+			"http://127.0.0.1:4720/img/pixel-a.png",
+			"getPropertyValue"
+		);
+	} finally {
+		d.remove();
+	}
+});
+
 check("element.style keeps its identity across reads", () => {
 	const el = document.getElementById("scope");
 	eq(el.style === el.style, true, "same declaration wrapper");
