@@ -73,9 +73,33 @@ function skipString(css: string, i: number, quote: number): number {
 
 type UrlToken = { open: string; url: string; close: string; end: number };
 
-const DOUBLE_QUOTED_UNSAFE = /[\\"\n\r\f]/;
-const SINGLE_QUOTED_UNSAFE = /[\\'\n\r\f]/;
-const UNQUOTED_UNSAFE = /[\s"'()\\]/;
+// Characters that have to be escaped in each of the three forms a reference
+// can be written in. Membership is tested with `indexOf` rather than one
+// character-class regex: this runs for every reference in every stylesheet,
+// almost always to answer "none of them", and a handful of `indexOf` scans
+// (which the engine vectorizes) beat a regex that has to walk the string
+// itself by about 2x.
+const DOUBLE_QUOTED_UNSAFE = ["\\", '"', "\n", "\r", "\f"];
+const SINGLE_QUOTED_UNSAFE = ["\\", "'", "\n", "\r", "\f"];
+const UNQUOTED_UNSAFE = [
+	"\\",
+	'"',
+	"'",
+	"(",
+	")",
+	" ",
+	"\t",
+	"\n",
+	"\r",
+	"\f",
+];
+
+function containsAny(value: string, characters: readonly string[]): boolean {
+	for (let i = 0; i < characters.length; i++)
+		if (value.indexOf(characters[i]) !== -1) return true;
+
+	return false;
+}
 
 function isHexDigit(c: number): boolean {
 	return (
@@ -95,8 +119,6 @@ function isHexDigit(c: number): boolean {
  * writes, would have doubled the escape on every round trip.
  */
 function decodeCssEscapes(value: string): string {
-	if (value.indexOf("\\") === -1) return value;
-
 	let out = "";
 	let i = 0;
 	const n = value.length;
@@ -138,6 +160,11 @@ function decodeCssEscapes(value: string): string {
 	return out;
 }
 
+/** `decodeCssEscapes` for callers that have not already looked for a solidus. */
+function decodeCssEscapesIfNeeded(value: string): string {
+	return value.indexOf("\\") === -1 ? value : decodeCssEscapes(value);
+}
+
 function cssEscape(character: string): string {
 	// A newline cannot be backslash-escaped literally: inside a string that is
 	// a line continuation, which erases it. The hexadecimal escape (with the
@@ -171,12 +198,12 @@ function escapeCssUrl(value: string, quote: string): string {
 		: UNQUOTED_UNSAFE;
 	// The overwhelming majority of rewritten URLs need nothing done to them,
 	// and this runs for every reference in every stylesheet.
-	if (!unsafe.test(value)) return value;
+	if (!containsAny(value, unsafe)) return value;
 
 	let out = "";
 	for (let i = 0; i < value.length; i++) {
 		const character = value[i];
-		out += unsafe.test(character) ? cssEscape(character) : character;
+		out += unsafe.includes(character) ? cssEscape(character) : character;
 	}
 
 	return out;
@@ -191,9 +218,14 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 	if (q === 34 /* " */ || q === 39 /* ' */) {
 		const start = j + 1;
 		let k = start;
+		// The scan already visits every character, so it records whether the
+		// token carries an escape rather than making `decodeCssEscapes` scan
+		// for one all over again.
+		let escaped = false;
 		while (k < n) {
 			const c = css.charCodeAt(k);
 			if (c === 92 /* \\ */) {
+				escaped = true;
 				k += 2;
 				continue;
 			}
@@ -203,7 +235,8 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 		}
 		if (k >= n) return null;
 
-		const url = decodeCssEscapes(css.slice(start, k));
+		const raw = css.slice(start, k);
+		const url = escaped ? decodeCssEscapes(raw) : raw;
 		let m = k + 1;
 		while (m < n && isWhitespace(css.charCodeAt(m))) m++;
 		if (css.charCodeAt(m) !== 41 /* ) */ || url.trim() === "") return null;
@@ -214,9 +247,11 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 	}
 
 	let k = j;
+	let escaped = false;
 	while (k < n) {
 		const c = css.charCodeAt(k);
 		if (c === 92 /* \\ */) {
+			escaped = true;
 			k += 2;
 			continue;
 		}
@@ -225,7 +260,8 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 	}
 	if (k >= n) return null;
 
-	const url = decodeCssEscapes(css.slice(j, k));
+	const raw = css.slice(j, k);
+	const url = escaped ? decodeCssEscapes(raw) : raw;
 	if (url.trim() === "") return null;
 
 	return { open: "", url, close: "", end: k + 1 };
@@ -260,7 +296,7 @@ function parseImportToken(css: string, i: number): ImportToken | null {
 
 		const start = j + 1;
 		const end = next - 1;
-		const url = decodeCssEscapes(css.slice(start, end));
+		const url = decodeCssEscapesIfNeeded(css.slice(start, end));
 		if (url.trim() === "") return null;
 
 		return { url, quote: String.fromCharCode(q), start, end, next };
@@ -279,7 +315,7 @@ function parseImportToken(css: string, i: number): ImportToken | null {
 	if (j === start) return null;
 
 	return {
-		url: decodeCssEscapes(css.slice(start, j)),
+		url: decodeCssEscapesIfNeeded(css.slice(start, j)),
 		quote: "",
 		start,
 		end: j,

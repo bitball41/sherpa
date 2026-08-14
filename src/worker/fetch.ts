@@ -305,7 +305,7 @@ export async function handleFetch(
 				return r;
 			}
 		}
-		if (url.origin === new URL(request.url).origin) {
+		if (url.origin === requestUrl.origin) {
 			throw new Error(
 				"attempted to fetch from same origin - this means the site has obtained a reference to the real origin, aborting"
 			);
