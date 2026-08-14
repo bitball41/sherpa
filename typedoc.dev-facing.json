@@ -27,9 +27,8 @@
 	"treatWarningsAsErrors": false,
 	"lightHighlightTheme": "catppuccin-latte",
 	"darkHighlightTheme": "catppuccin-mocha",
-	"hostedBaseUrl": "https://sherpa.mercurywork.shop/typedoc-dev",
+	"hostedBaseUrl": "https://bitball41.github.io/sherpa/typedoc-dev",
 	"plugin": [
-		"@8hobbies/typedoc-plugin-plausible",
 		"@shipgirl/typedoc-plugin-versions",
 		"typedoc-plugin-include-example",
 		"typedoc-plugin-mdn-links"
@@ -38,7 +37,5 @@
 		"stable": "auto",
 		"dev": "auto",
 		"makeRelativeLinks": false
-	},
-	"plausibleSiteDomain": "sherpa.mercurywork.shop",
-	"plausibleSiteOrigin": "https://analytics.proudparrot2.com/js/"
+	}
 }

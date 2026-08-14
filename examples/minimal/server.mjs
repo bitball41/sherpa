@@ -2,7 +2,7 @@
 //
 // This is the smallest backend that makes Sherpa work in a browser. It serves:
 //   1. the app itself            (examples/minimal/public/ -> /)
-//   2. the built Sherpa engine   (dist/ -> /scram/)
+//   2. the built Sherpa engine   (dist/ -> /engine/)
 //   3. bare-mux + a transport    (/baremux/, /epoxy/)
 //   4. a Wisp server             (/wisp/ upgrades) for outbound traffic
 // plus the cross-origin-isolation headers Sherpa needs. None of this is
@@ -59,7 +59,7 @@ fastify.register(fastifyStatic, {
 // 2. The built engine: bundle + wasm + sync runtime.
 fastify.register(fastifyStatic, {
 	root: here("../../dist"),
-	prefix: "/scram/",
+	prefix: "/engine/",
 	decorateReply: false,
 });
 // 3. bare-mux and the epoxy transport.

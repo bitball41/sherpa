@@ -40,9 +40,6 @@ importers:
         specifier: ^2.7.2
         version: 2.7.2
     devDependencies:
-      '@8hobbies/typedoc-plugin-plausible':
-        specifier: ^2.2.0
-        version: 2.2.0(typedoc@0.28.20(typescript@5.9.3))
       '@catppuccin/vscode':
         specifier: ^3.18.1
         version: 3.18.1
@@ -124,6 +121,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      dreamland:
+        specifier: 0.0.25
+        version: 0.0.25
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(jiti@2.7.0)
@@ -189,12 +189,6 @@ importers:
         version: 5.9.3
 
 packages:
-
-  '@8hobbies/typedoc-plugin-plausible@2.2.0':
-    resolution: {integrity: sha512-w5dZjqFrsH7dP+CT/sNrmCbWBY88pa/uH2ro/d99n8SQBNYhOqfnYsLdW+ucWlQpvCADxnEZNMxg8GCOi4Q7Ag==}
-    engines: {node: ^18 || ^20 || ^22 || >=23}
-    peerDependencies:
-      typedoc: ^0.26.11 || ^0.27.2 || ^0.28.0
 
   '@actions/core@3.0.1':
     resolution: {integrity: sha512-a6d/Nwahm9fliVGRhdhofo40HjHQasUPusmc7vBfyky+7Z+P2A1J68zyFVaNcEclc/Se+eO595oAr5nwEIoIUA==}
@@ -1772,6 +1766,9 @@ packages:
   dotenv@17.4.2:
     resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
+
+  dreamland@0.0.25:
+    resolution: {integrity: sha512-REhB1T/6do8R7nwa/B0+ie0tTWY97cLsfPwmmqSHOMCu2Qw+cVSWhqTDB1Boklqg9Z8qfRkmGU/rknu0R48QWw==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -3809,10 +3806,6 @@ packages:
 
 snapshots:
 
-  '@8hobbies/typedoc-plugin-plausible@2.2.0(typedoc@0.28.20(typescript@5.9.3))':
-    dependencies:
-      typedoc: 0.28.20(typescript@5.9.3)
-
   '@actions/core@3.0.1':
     dependencies:
       '@actions/exec': 3.0.0
@@ -5675,6 +5668,8 @@ snapshots:
   dotenv@16.6.1: {}
 
   dotenv@17.4.2: {}
+
+  dreamland@0.0.25: {}
 
   dunder-proto@1.0.1:
     dependencies:

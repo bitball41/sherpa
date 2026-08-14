@@ -8,7 +8,7 @@ if (navigator.userAgent.includes("Firefox")) {
 	});
 }
 
-importScripts("/scram/sherpa.all.js");
+importScripts("/engine/sherpa.all.js");
 const { SherpaServiceWorker } = $sherpaLoadWorker();
 const sherpa = new SherpaServiceWorker();
 

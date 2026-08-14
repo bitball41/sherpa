@@ -5,20 +5,13 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Sherpa</title>
 		<link rel="icon" href="/assets/sherpa.png" />
-		<link
-			href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&amp;family=Inter+Tight:ital,wght@0,100..900;1,100..900&amp;family=Inter:wght@100..900&amp;display=swap&amp;"
-			rel="stylesheet"
-		/>
+		<!-- Exactly the three families this page's CSS asks for, in one request.
+		     It used to be three stylesheets and two duplicate preconnect pairs,
+		     fetching IBM Plex Mono and Hind (twice) that nothing here uses. -->
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
-			href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600;700&display=swap"
-			rel="stylesheet"
-		/>
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-		<link
-			href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600;700&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;family=Inter+Tight:ital,wght@0,100..900;1,100..900&amp;family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&amp;display=swap"
 			rel="stylesheet"
 		/>
 		<style>
@@ -48,14 +41,9 @@
 				}
 			}
 		</style>
-		<script
-			defer
-			data-domain="sherpa.mercurywork.shop"
-			src="https://analytics.proudparrot2.com/js/script.js"
-		></script>
-		<script src="https://cdn.jsdelivr.net/npm/dreamland@0.0.25"></script>
+		<script src="/dreamland/dev.js"></script>
 		<script src="/baremux/index.js"></script>
-		<script src="/scram/sherpa.all.js"></script>
+		<script src="/engine/sherpa.all.js"></script>
 		<script src="config.js"></script>
 		<script src="store.js"></script>
 	</head>

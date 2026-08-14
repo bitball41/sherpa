@@ -4,13 +4,14 @@ set -euo pipefail
 DST=${DST:-staticbuild}
 
 rm -rf "$DST"
-mkdir -p 	"$DST/baremux" 	"$DST/epoxy" 	"$DST/libcurl" 	"$DST/assets" 	"$DST/scram"
+mkdir -p 	"$DST/baremux" 	"$DST/epoxy" 	"$DST/libcurl" 	"$DST/assets" 	"$DST/engine" 	"$DST/dreamland"
 
 cp -a node_modules/@mercuryworkshop/bare-mux/dist/. "$DST/baremux/"
 cp -a node_modules/@mercuryworkshop/epoxy-transport/dist/. "$DST/epoxy/"
 cp -a node_modules/@mercuryworkshop/libcurl-transport/dist/. "$DST/libcurl/"
+cp -a node_modules/dreamland/dist/. "$DST/dreamland/"
 cp -a assets/. "$DST/assets/"
-cp -a dist/. "$DST/scram/"
+cp -a dist/. "$DST/engine/"
 cp -a static/. "$DST/"
 
 if [[ -d _docs ]]; then

@@ -1,9 +1,9 @@
 const { SherpaController } = $sherpaLoadController();
 const sherpa = new SherpaController({
 	files: {
-		wasm: "/scram/sherpa.wasm.wasm",
-		all: "/scram/sherpa.all.js",
-		sync: "/scram/sherpa.sync.js",
+		wasm: "/engine/sherpa.wasm.wasm",
+		all: "/engine/sherpa.all.js",
+		sync: "/engine/sherpa.sync.js",
 	},
 });
 
