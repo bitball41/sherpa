@@ -613,6 +613,49 @@ const ASYNC_CHECKS = String.raw`
 		return eq(data.href, "http://127.0.0.1:4720/worker.js", "location.href");
 	});
 
+	await check("a module worker boots and its static import resolves", async () => {
+		// The module hint travels as a query parameter under sherpa's namespace.
+		// The rewriter appended it under the old bare name, which the worker did
+		// not recognize: the module was rewritten as a classic script, so the
+		// bootstrap used importScripts - illegal in a module worker - and the
+		// worker died before running a line of the site's code. The stray
+		// parameter also went upstream as if the page had asked for it.
+		const worker = new Worker("/module-worker.js", { type: "module" });
+		const data = await new Promise((resolveMsg, rejectMsg) => {
+			worker.onmessage = (event) => resolveMsg(event.data);
+			worker.onerror = (event) => rejectMsg(new Error("worker error: " + event.message));
+			setTimeout(() => rejectMsg(new Error("worker timed out")), 10000);
+		});
+		worker.terminate();
+		eq(data.greeting, "from the module", "imported binding");
+		eq(data.query, "", "query the origin received for the imported module");
+		if (data.href.indexOf("sherpa.") !== -1)
+			throw new Error("internal hint leaked into location.href: " + data.href);
+		if (data.dep.indexOf("sherpa.") !== -1)
+			throw new Error("internal hint leaked into import.meta.url: " + data.dep);
+		return eq(data.href, "http://127.0.0.1:4720/module-worker.js", "location.href");
+	});
+
+	await check("a blob worker reads back the url the page was handed", async () => {
+		// A blob: target rides through the proxy prefix verbatim instead of being
+		// encoded, and the hint sherpa appends to route it was surviving into what
+		// the worker read back - so location.href did not match the string
+		// URL.createObjectURL had just returned to the page that created it.
+		const source = "postMessage({ href: self.location.href })";
+		const blobUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+		const worker = new Worker(blobUrl);
+		const data = await new Promise((resolveMsg, rejectMsg) => {
+			worker.onmessage = (event) => resolveMsg(event.data);
+			worker.onerror = (event) => rejectMsg(new Error("worker error: " + event.message));
+			setTimeout(() => rejectMsg(new Error("worker timed out")), 10000);
+		});
+		worker.terminate();
+		URL.revokeObjectURL(blobUrl);
+		if (data.href.indexOf("sherpa.") !== -1)
+			throw new Error("internal hint leaked into location.href: " + data.href);
+		return eq(data.href, blobUrl, "location.href");
+	});
+
 	await check("document rendering mode survives every doctype shape", async () => {
 		// Each of these is a real proxied document (destination "iframe"), so it
 		// goes through the same response path as a top-level navigation.
@@ -808,6 +851,25 @@ const ASYNC_CHECKS = String.raw`
 		return "ok";
 	});
 
+	await check("an uncredentialed response cannot plant a cookie", async () => {
+		// credentials: "omit" is what a page uses to keep a third party out of
+		// its cookies entirely. Sherpa honored it on the way out but not on the
+		// way back: every Set-Cookie it saw went into the jar, so the response
+		// could still plant a cookie that later credentialed requests carried.
+		await fetch("/set-cookie-uncredentialed", { credentials: "omit" });
+
+		if (document.cookie.indexOf("omitplanted") !== -1)
+			throw new Error("it reached the realm's jar: " + document.cookie);
+
+		// and the jar the service worker sends upstream, which is the one that
+		// would actually leak it back to the site
+		const sent = await (await fetch("/api/cookies")).text();
+		if (sent.indexOf("omitplanted") !== -1)
+			throw new Error("it was sent upstream: " + sent);
+
+		return "ok";
+	});
+
 	await check("a GET form replaces the document's query instead of appending", async () => {
 		// The browser mutates the *proxied* URL's query when a GET form with no
 		// action submits, and per HTML that query replaces the action URL's own.
@@ -937,6 +999,17 @@ export const textRoutes = {
 	},
 	"/worker.js": {
 		body: `postMessage({ href: self.location.href, search: self.location.search });`,
+		type: "text/javascript",
+	},
+	// A module worker with a static import, so the suite covers the whole module
+	// path: the worker bootstrap the engine prepends has to be a module too, and
+	// the imported specifier has to come back rewritten *and* still be parsed
+	// with the module goal.
+	// `/module-dep.js` is served by the origin itself, so it can report the
+	// query it was actually asked for.
+	"/module-worker.js": {
+		body: `import { greeting, query } from "./module-dep.js";
+postMessage({ greeting, query, href: self.location.href, dep: import.meta.url });`,
 		type: "text/javascript",
 	},
 	// A real non-UTF-8 document: the streamed path has to sniff the charset from

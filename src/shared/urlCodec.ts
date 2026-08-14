@@ -119,7 +119,13 @@ export function decodeProxyUrl(
 	if (!url.startsWith(proxyPrefix)) return url;
 
 	const encoded = url.slice(proxyPrefix.length);
-	if (/^(?:blob|data):/i.test(encoded)) return encoded;
+	// A blob:/data: target is carried through the prefix verbatim rather than
+	// encoded, but Sherpa still appends its hints to the proxied URL - so those
+	// have to come off here just as they do for an encoded target. Without this
+	// a blob worker read its own `location.href` back as
+	// `blob:https://site/<uuid>?sherpa.dest=worker`, which is not the URL
+	// `URL.createObjectURL` handed the page that created it.
+	if (/^(?:blob|data):/i.test(encoded)) return stripInternalParams(encoded);
 
 	const hashIndex = encoded.indexOf("#");
 	if (hashIndex === -1) return decodeProxyTarget(encoded, decode);

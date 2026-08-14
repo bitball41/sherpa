@@ -68,6 +68,32 @@ export function startOriginServer({ extraPages = {} } = {}) {
 			return res.end("set");
 		}
 
+		// Sets a cookie on a route the suite only ever fetches without
+		// credentials, so a jar that stored it is immediately visible.
+		if (path === "/set-cookie-uncredentialed") {
+			res.writeHead(200, {
+				"content-type": "text/plain",
+				"cache-control": "no-store",
+				"access-control-allow-origin": "*",
+				"set-cookie": ["omitplanted=SHOULD_NOT_BE_STORED; Path=/"],
+			});
+
+			return res.end("set");
+		}
+
+		// Echoes the Cookie header the origin actually received.
+		if (path === "/api/cookies") {
+			const body = req.headers.cookie || "";
+			res.writeHead(200, {
+				"content-type": "text/plain",
+				"content-length": Buffer.byteLength(body),
+				"cache-control": "no-store",
+				"access-control-allow-origin": "*",
+			});
+
+			return res.end(body);
+		}
+
 		// Echoes back exactly the query the origin received, so the suite can
 		// assert what actually left the proxy rather than what the page thinks
 		// it asked for.
@@ -91,6 +117,23 @@ export function startOriginServer({ extraPages = {} } = {}) {
 			const body = formPage(query);
 			res.writeHead(200, {
 				"content-type": "text/html; charset=utf-8",
+				"content-length": Buffer.byteLength(body),
+				"cache-control": "no-store",
+			});
+
+			return res.end(body);
+		}
+
+		// A module whose body reports the query the origin actually received for
+		// it. It is the target of a *static* import, so it is the rewriter's own
+		// module hint that has to stay invisible to the site here: the hint used
+		// to be appended under a bare name the worker did not recognize, and so
+		// was forwarded upstream as if the page had asked for it.
+		if (path === "/module-dep.js") {
+			const body = `export const greeting = "from the module";
+export const query = ${JSON.stringify(query)};`;
+			res.writeHead(200, {
+				"content-type": "text/javascript",
 				"content-length": Buffer.byteLength(body),
 				"cache-control": "no-store",
 			});

@@ -42,6 +42,22 @@ try {
 		if (message.type() === "error") pageErrors.push(message.text());
 	});
 
+	// Everything a proxied page is allowed to touch is served by the host
+	// server: the engine, the service worker, and - over the wisp websocket on
+	// that same host - every upstream request. So any *browser-level* http(s)
+	// request to another host is by definition a URL that escaped rewriting,
+	// no matter what the page's own assertions say about it. Watching the
+	// context rather than the page also covers requests started by frames and
+	// by the service worker itself.
+	const escapes = new Map();
+	const proxyOrigin = `http://127.0.0.1:${HOST_PORT}/`;
+	context.on("request", (request) => {
+		const url = request.url();
+		if (!/^https?:/.test(url) || url.startsWith(proxyOrigin)) return;
+		const key = `${request.resourceType()} ${url}`;
+		escapes.set(key, (escapes.get(key) ?? 0) + 1);
+	});
+
 	await page.goto(`http://127.0.0.1:${HOST_PORT}/harness.html`);
 	await page.evaluate(() => window.harnessReady);
 	const href = await page.evaluate(
@@ -74,6 +90,12 @@ try {
 	console.log(
 		`\n${results.length - failures}/${results.length} checks passed inside the proxied page`
 	);
+
+	if (escapes.size) {
+		failures++;
+		console.log(`\nrequests that left the proxy's own origin:`);
+		for (const [key, count] of escapes) console.log(`  ${count}x ${key}`);
+	}
 
 	// A trap that throws is a failure even when every assertion happened to
 	// pass around it.
