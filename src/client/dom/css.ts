@@ -257,26 +257,50 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// `element.style` is the same live `CSSStyleDeclaration` on every read, and
+	// the DOM guarantees `el.style === el.style`. Building the wrapper fresh per
+	// read broke that identity (frameworks that cache and compare it saw a new
+	// object each time) and allocated two proxies on a path pages take in tight
+	// loops. One wrapper per declaration instead.
+	const styleWrappers = new WeakMap<
+		CSSStyleDeclaration,
+		CSSStyleDeclaration
+	>();
+
 	client.Trap("HTMLElement.prototype.style", {
 		get(ctx) {
 			// unfortunate and dumb hack. we have to trap every property of this
 			// since the prototype chain is fucked
 
 			const style = ctx.get() as CSSStyleDeclaration;
+			const cached = styleWrappers.get(style);
+			if (cached) return cached;
 
-			return new Proxy(style, {
+			// The declaration's own methods are rebound so they still run against
+			// the real object; those bindings are per-declaration too, so
+			// `el.style.setProperty === el.style.setProperty` holds as it does in
+			// the DOM.
+			const boundMethods = new Map<string | symbol, unknown>();
+
+			const wrapper = new Proxy(style, {
 				get(target, prop) {
 					const value = Reflect.get(target, prop);
 
 					if (typeof value === "function") {
-						return new Proxy(value, {
-							apply(target, that, args) {
-								return Reflect.apply(target, style, args);
+						const bound = boundMethods.get(prop);
+						if (bound) return bound;
+
+						const rebound = new Proxy(value, {
+							apply(method, _that, args) {
+								return Reflect.apply(method, style, args);
 							},
 						});
+						boundMethods.set(prop, rebound);
+
+						return rebound;
 					}
 
-					if (prop in CSSStyleDeclaration.prototype) return value;
+					if (prop in self.CSSStyleDeclaration.prototype) return value;
 					if (!value) return value;
 
 					return unrewriteCss(value);
@@ -289,6 +313,10 @@ export default function (client: SherpaClient, self: typeof window) {
 					return Reflect.set(target, prop, rewriteCss(value, client.meta));
 				},
 			});
+
+			styleWrappers.set(style, wrapper);
+
+			return wrapper;
 		},
 		set(ctx, value: string) {
 			// this will actually run the trap for cssText. don't rewrite it here

@@ -1,7 +1,7 @@
 import BareClient, { BareResponseFetch } from "@mercuryworkshop/bare-mux";
 import { MessageW2C, SherpaServiceWorker } from "@/worker";
 import { renderError } from "@/worker/error";
-import { CookieStore } from "@/shared/cookie";
+import { couldShareCookies, CookieStore } from "@/shared/cookie";
 
 import { getSiteDirective } from "@/shared/security/siteTests";
 import { isSameSiteContext } from "@/shared/security/siteContext";
@@ -210,8 +210,22 @@ export async function handleFetch(
 		} = takeInternalParams(requestUrl);
 
 		const url = new URL(unrewriteUrl(requestUrl));
-		// now that we're past unrewriting it's safe to add back the params
-		appendUrlParamEntries(url, siteParams);
+		// Now that we're past unrewriting it's safe to put the site's own
+		// parameters back.
+		//
+		// They *replace* the decoded URL's query rather than being appended to
+		// it. Every query Sherpa itself puts on a proxied URL lives under the
+		// `sherpa.` namespace and was taken off above, so a parameter that
+		// isn't one of ours can only have come from the one thing that appends
+		// a query to an existing URL without going through `rewriteUrl`: a GET
+		// form submission, which per HTML *sets* the action URL's query. A
+		// search box on a page whose own URL already carried `?q=` used to
+		// submit `?q=old&q=new` upstream, and every framework reads the first
+		// one - so the search silently did nothing.
+		if (siteParams.length) {
+			url.search = "";
+			appendUrlParamEntries(url, siteParams);
+		}
 
 		const meta: URLMeta = {
 			origin: url,
@@ -500,6 +514,7 @@ export async function handleFetch(
 			this.client,
 			this,
 			requestContext.referrerUrl?.href || "",
+			requestContext.clientUrl,
 			cacheKey,
 			now
 		);
@@ -571,6 +586,7 @@ async function handleResponse(
 	bareClient: BareClient,
 	swtarget: SherpaServiceWorker,
 	referrer: string,
+	clientUrl: URL | null = null,
 	cacheKey: string | null = null,
 	now: number = Date.now()
 ): Promise<Response> {
@@ -642,16 +658,25 @@ async function handleResponse(
 		}
 	}
 
-	for (const cookie of setCookies) {
-		// Only window realms install the synchronous document-cookie listener.
-		// Waiting for an acknowledgement from a worker client would never resolve.
-		if (client?.type === "window") {
+	// Only window realms install the synchronous document-cookie listener
+	// (waiting on an acknowledgement from a worker client would never resolve),
+	// and only a cookie the client's own `document.cookie` could ever return is
+	// worth sending: a page's cross-site subresource responses used to have
+	// their `Set-Cookie` pushed into that page's realm, which both put another
+	// site's cookies where they did not belong and made every one of those
+	// responses wait on a round trip to the page for a jar it can never read.
+	const syncCookiesToClient =
+		client?.type === "window" &&
+		(!clientUrl || couldShareCookies(clientUrl.hostname, url.hostname));
+
+	if (syncCookiesToClient) {
+		for (const cookie of setCookies) {
 			const promise = swtarget.dispatch(client, {
 				sherpa$type: "cookie",
 				cookie,
 				url: url.href,
 			});
-			if (destination !== "document" && destination !== "iframe") {
+			if (!DOCUMENT_DESTINATIONS.has(destination)) {
 				// awaited in header order on purpose: a subresource response must
 				// not be delivered until each Set-Cookie has been applied to the
 				// client's synchronous jar, and later cookies may override earlier

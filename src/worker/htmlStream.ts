@@ -233,7 +233,9 @@ export async function rewriteHtmlResponse(
 		);
 	}
 
-	const prelude = encoder.encode(doctype + renderInjectScripts(cookieStore));
+	const prelude = encoder.encode(
+		doctype + renderInjectScripts(cookieStore, meta.origin)
+	);
 
 	return new ReadableStream<Uint8Array>({
 		start(controller) {

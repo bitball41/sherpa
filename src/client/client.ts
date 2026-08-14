@@ -746,14 +746,21 @@ export class SherpaClient {
 			prop
 		);
 
+		// A trapped property is normally an accessor, but not always - and a
+		// data property has no `get`/`set` to delegate to, so reaching for one
+		// threw a TypeError out of the trap instead of reading the value.
 		const ctx: TrapCtx<T> = {
 			this: null,
 			get: function () {
-				return oldDescriptor && oldDescriptor.get.call(this.this);
+				if (!oldDescriptor) return undefined;
+				if (oldDescriptor.get) return oldDescriptor.get.call(this.this);
+
+				return oldDescriptor.value;
 			},
 			set: function (v: T) {
-				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-				oldDescriptor && oldDescriptor.set.call(this.this, v);
+				if (!oldDescriptor) return;
+				if (oldDescriptor.set) oldDescriptor.set.call(this.this, v);
+				else if (oldDescriptor.writable) oldDescriptor.value = v;
 			},
 		};
 
@@ -799,7 +806,11 @@ export class SherpaClient {
 		else if (oldDescriptor) desc.enumerable = oldDescriptor.enumerable;
 		if (descriptor.configurable !== undefined)
 			desc.configurable = descriptor.configurable;
-		else if (oldDescriptor) desc.configurable = oldDescriptor.configurable;
+		// With no own descriptor the property is inherited and this is shadowing
+		// it on the instance. Leaving `configurable` at its `false` default made
+		// that shadow permanent, so trapping the same property on the same
+		// object twice (a second synchronous XHR on one request object) threw.
+		else desc.configurable = oldDescriptor ? oldDescriptor.configurable : true;
 
 		Object.defineProperty(target, prop, desc);
 

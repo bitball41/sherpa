@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
 
-import {
+register("./helpers/srcResolver.mjs", import.meta.url);
+
+const {
 	getClientIdentity,
 	getVirtualClientUrl,
 	isTrustedControllerClient,
 	normalizeVirtualScope,
-} from "../../src/worker/messageSecurity.ts";
+} = await import("../../src/worker/messageSecurity.ts");
 
 const proxyOrigin = "https://proxy.test";
 const prefix = "/sherpa/";

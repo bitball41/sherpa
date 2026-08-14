@@ -10,6 +10,7 @@
 import { chromium } from "playwright";
 import {
 	startOriginServer,
+	startAltOriginServer,
 	startHostServer,
 	ORIGIN_PORT,
 	HOST_PORT,
@@ -17,7 +18,11 @@ import {
 
 const TARGET = `http://127.0.0.1:${ORIGIN_PORT}/index.html`;
 
-const servers = [await startOriginServer(), await startHostServer()];
+const servers = [
+	await startOriginServer(),
+	await startAltOriginServer(),
+	await startHostServer(),
+];
 // `SHERPA_CHROMIUM` lets an environment that ships its own Chromium (a CI
 // image with a pre-installed browser, say) point the suite at it instead of
 // requiring `npx playwright install`.

@@ -73,6 +73,115 @@ function skipString(css: string, i: number, quote: number): number {
 
 type UrlToken = { open: string; url: string; close: string; end: number };
 
+const DOUBLE_QUOTED_UNSAFE = /[\\"\n\r\f]/;
+const SINGLE_QUOTED_UNSAFE = /[\\'\n\r\f]/;
+const UNQUOTED_UNSAFE = /[\s"'()\\]/;
+
+function isHexDigit(c: number): boolean {
+	return (
+		(c >= 48 && c <= 57) || // 0-9
+		(c >= 97 && c <= 102) || // a-f
+		(c >= 65 && c <= 70) // A-F
+	);
+}
+
+/**
+ * Resolves the CSS escapes in a parsed reference, so the URL handed to the
+ * rewriter is the one the author meant.
+ *
+ * `url('it\'s.png')` is an apostrophe in a URL, not a backslash followed by
+ * one, and `\28` is `(`. Passing the raw text through instead fed the URL
+ * parser a stray backslash - and, now that the output side escapes what it
+ * writes, would have doubled the escape on every round trip.
+ */
+function decodeCssEscapes(value: string): string {
+	if (value.indexOf("\\") === -1) return value;
+
+	let out = "";
+	let i = 0;
+	const n = value.length;
+
+	while (i < n) {
+		const c = value.charCodeAt(i);
+		if (c !== 92 /* \ */) {
+			out += value[i++];
+			continue;
+		}
+
+		i++;
+		if (i >= n) break; // a trailing solidus is dropped, per the tokenizer
+		const next = value.charCodeAt(i);
+
+		if (isHexDigit(next)) {
+			let hex = "";
+			while (i < n && hex.length < 6 && isHexDigit(value.charCodeAt(i)))
+				hex += value[i++];
+			// one whitespace after the digits terminates the escape
+			if (i < n && isWhitespace(value.charCodeAt(i))) i++;
+			const code = parseInt(hex, 16);
+			out +=
+				code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)
+					? "�"
+					: String.fromCodePoint(code);
+			continue;
+		}
+
+		// an escaped newline is a line continuation: it stands for nothing
+		if (isNewline(next)) {
+			i++;
+			continue;
+		}
+
+		out += value[i++];
+	}
+
+	return out;
+}
+
+function cssEscape(character: string): string {
+	// A newline cannot be backslash-escaped literally: inside a string that is
+	// a line continuation, which erases it. The hexadecimal escape (with the
+	// trailing space that terminates it) is the form that preserves it.
+	const code = character.charCodeAt(0);
+	if (code < 0x20) return `\\${code.toString(16)} `;
+
+	return `\\${character}`;
+}
+
+/**
+ * Escapes a rewritten URL for the token it is being written back into.
+ *
+ * The replacement is not the string that was parsed out, and it is not
+ * guaranteed to be safe there: `encodeURIComponent` - the default codec -
+ * deliberately leaves `!'()*` alone, so a target URL containing an apostrophe
+ * or a parenthesis came back out verbatim. Inside `url('...')` that apostrophe
+ * closes the string early and the rest of the URL becomes stray CSS; inside an
+ * unquoted `url(...)` a parenthesis or a space produces a bad-url token and the
+ * browser drops the whole declaration.
+ *
+ * CSS escapes are the fix in both forms: a string may escape its own quote and
+ * a backslash, and a url-token may escape any of the characters its grammar
+ * forbids.
+ */
+function escapeCssUrl(value: string, quote: string): string {
+	const unsafe = quote
+		? quote === '"'
+			? DOUBLE_QUOTED_UNSAFE
+			: SINGLE_QUOTED_UNSAFE
+		: UNQUOTED_UNSAFE;
+	// The overwhelming majority of rewritten URLs need nothing done to them,
+	// and this runs for every reference in every stylesheet.
+	if (!unsafe.test(value)) return value;
+
+	let out = "";
+	for (let i = 0; i < value.length; i++) {
+		const character = value[i];
+		out += unsafe.test(character) ? cssEscape(character) : character;
+	}
+
+	return out;
+}
+
 function parseUrlToken(css: string, i: number): UrlToken | null {
 	const n = css.length;
 	let j = i + 4;
@@ -94,7 +203,7 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 		}
 		if (k >= n) return null;
 
-		const url = css.slice(start, k);
+		const url = decodeCssEscapes(css.slice(start, k));
 		let m = k + 1;
 		while (m < n && isWhitespace(css.charCodeAt(m))) m++;
 		if (css.charCodeAt(m) !== 41 /* ) */ || url.trim() === "") return null;
@@ -116,13 +225,20 @@ function parseUrlToken(css: string, i: number): UrlToken | null {
 	}
 	if (k >= n) return null;
 
-	const url = css.slice(j, k);
+	const url = decodeCssEscapes(css.slice(j, k));
 	if (url.trim() === "") return null;
 
 	return { open: "", url, close: "", end: k + 1 };
 }
 
-type ImportToken = { url: string; start: number; end: number; next: number };
+type ImportToken = {
+	url: string;
+	/** The quote the value is written inside, or `""` when it is unquoted. */
+	quote: string;
+	start: number;
+	end: number;
+	next: number;
+};
 
 function parseImportToken(css: string, i: number): ImportToken | null {
 	const n = css.length;
@@ -144,10 +260,10 @@ function parseImportToken(css: string, i: number): ImportToken | null {
 
 		const start = j + 1;
 		const end = next - 1;
-		const url = css.slice(start, end);
+		const url = decodeCssEscapes(css.slice(start, end));
 		if (url.trim() === "") return null;
 
-		return { url, start, end, next };
+		return { url, quote: String.fromCharCode(q), start, end, next };
 	}
 
 	// `@import url(...)` is handled by the normal url() path below. Retain the
@@ -162,7 +278,13 @@ function parseImportToken(css: string, i: number): ImportToken | null {
 		j++;
 	if (j === start) return null;
 
-	return { url: css.slice(start, j), start, end: j, next: j };
+	return {
+		url: decodeCssEscapes(css.slice(start, j)),
+		quote: "",
+		start,
+		end: j,
+		next: j,
+	};
 }
 
 function scanCssReferences(
@@ -204,7 +326,9 @@ function scanCssReferences(
 		if (includeImports && blockDepth === 0 && isImportAtRule(css, i)) {
 			const token = parseImportToken(css, i);
 			if (token) {
-				out += css.slice(last, token.start) + replace(token.url);
+				out +=
+					css.slice(last, token.start) +
+					escapeCssUrl(replace(token.url), token.quote);
 				last = token.end;
 				i = token.next;
 				continue;
@@ -218,7 +342,7 @@ function scanCssReferences(
 				out +=
 					css.slice(i, i + 4) +
 					token.open +
-					replace(token.url) +
+					escapeCssUrl(replace(token.url), token.open) +
 					token.close +
 					")";
 				i = token.end;

@@ -22,7 +22,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { CookieStore } = await import("../../src/shared/cookie.ts");
+const { CookieStore, couldShareCookies } = await import(
+	"../../src/shared/cookie.ts"
+);
 
 const cookieNames = (jarString) =>
 	jarString
@@ -406,4 +408,64 @@ test("load normalizes legacy dotted-domain keys before later replacement", () =>
 	store.setCookies(["a=new; Domain=example.com; Path=/"], url);
 	assert.equal(store.getCookies(url, false), "a=new");
 	assert.equal(Object.keys(JSON.parse(store.dump())).length, 1);
+});
+
+test("the jar injected into a document carries only that document's cookies", () => {
+	// `dump()` is the whole jar, which is what persistence needs and what the
+	// injected `self.COOKIE` used to be given: any proxied page could read its
+	// own response back, pull the boot script out of it, and walk off with
+	// every other site's session. A page realm may only ever see its own host's
+	// non-httpOnly cookies, which is exactly what `document.cookie` returns.
+	const store = new CookieStore();
+	store.setCookies(["a=1"], new URL("https://example.com/"));
+	store.setCookies(["shared=2; Domain=example.com"], new URL("https://x.example.com/"));
+	store.setCookies(["deep=3"], new URL("https://x.example.com/"));
+	store.setCookies(["session=4; HttpOnly"], new URL("https://example.com/"));
+	store.setCookies(["other=5"], new URL("https://elsewhere.test/"));
+
+	const visible = (host) =>
+		Object.values(JSON.parse(store.dumpForDocument(new URL(host))))
+			.map((cookie) => cookie.name)
+			.sort();
+
+	assert.deepEqual(visible("https://example.com/"), ["a", "shared"]);
+	assert.deepEqual(visible("https://x.example.com/"), ["deep", "shared"]);
+	assert.deepEqual(visible("https://elsewhere.test/"), ["other"]);
+	// a look-alike host must not domain-match
+	assert.deepEqual(visible("https://notexample.com/"), []);
+
+	// the persisted jar is still complete
+	assert.equal(Object.keys(JSON.parse(store.dump())).length, 5);
+});
+
+test("a document-scoped jar reloads into a working client store", () => {
+	const store = new CookieStore();
+	store.setCookies(["a=1; Path=/deep"], new URL("https://example.com/deep/x"));
+	store.setCookies(["b=2"], new URL("https://example.com/"));
+	store.setCookies(["gone=3"], new URL("https://elsewhere.test/"));
+
+	const client = new CookieStore();
+	client.load(store.dumpForDocument(new URL("https://example.com/deep/x")));
+
+	// path rules still apply on the read, so nothing is lost by not filtering
+	// paths at injection time (a pushState can move the document's path)
+	assert.equal(
+		client.getCookies(new URL("https://example.com/deep/x"), true),
+		"a=1; b=2"
+	);
+	assert.equal(client.getCookies(new URL("https://example.com/"), true), "b=2");
+	assert.equal(
+		client.getCookies(new URL("https://elsewhere.test/"), true),
+		""
+	);
+});
+
+test("couldShareCookies only pairs hosts that can see each other's cookies", () => {
+	assert.equal(couldShareCookies("example.com", "example.com"), true);
+	assert.equal(couldShareCookies("www.example.com", "example.com"), true);
+	assert.equal(couldShareCookies("example.com", "www.example.com"), true);
+	assert.equal(couldShareCookies("EXAMPLE.com", "www.Example.COM"), true);
+	assert.equal(couldShareCookies("example.com", "notexample.com"), false);
+	assert.equal(couldShareCookies("example.com", "example.com.evil.test"), false);
+	assert.equal(couldShareCookies("a.example.com", "b.example.com"), false);
 });

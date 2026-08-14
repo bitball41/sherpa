@@ -404,6 +404,57 @@ check("the boot scripts still come before the page's own", () => {
 	return eq(window.__firstInlineRan, true, "first inline script ran hooked");
 });
 
+// ------------------------------------------------------- proxied event shape
+check("onmessage is per instance, not shared across every port", () => {
+	// The page's handler used to be stashed on the trap descriptor itself -
+	// one slot for every MessagePort in the realm - so reading it back on any
+	// other port answered with the last one set anywhere.
+	const a = new MessageChannel();
+	const b = new MessageChannel();
+	const first = () => {};
+	const second = () => {};
+	a.port1.onmessage = first;
+	b.port1.onmessage = second;
+
+	eq(a.port1.onmessage, first, "first port");
+	eq(b.port1.onmessage, second, "second port");
+	a.port1.onmessage = null;
+	eq(a.port1.onmessage, null, "cleared");
+	return eq(b.port1.onmessage, second, "the other port is untouched");
+});
+
+check("element.style keeps its identity across reads", () => {
+	const el = document.getElementById("scope");
+	eq(el.style === el.style, true, "same declaration wrapper");
+	eq(el.style.setProperty === el.style.setProperty, true, "same method");
+	el.style.backgroundImage = 'url("/img/pixel-a.png")';
+	// the page reads back the site's own url, resolved but never proxied
+	return eq(cssUrl(el.style.backgroundImage), "http://127.0.0.1:4720/img/pixel-a.png", "unrewritten for the page");
+});
+
+check("storage reflects membership and deletion of its own keys", () => {
+	localStorage.setItem("probe", "1");
+	eq("probe" in localStorage, true, "in operator sees a stored key");
+	eq("never-set" in localStorage, false, "in operator rejects a missing key");
+	eq(Object.getOwnPropertyDescriptor(localStorage, "never-set"), undefined, "no phantom descriptor");
+	eq(localStorage.getItem === localStorage.getItem, true, "interface member is stable");
+	delete localStorage.probe;
+	eq(localStorage.getItem("probe"), null, "delete removes it");
+	// interface members are not storage keys
+	eq(typeof localStorage.length, "number", "length");
+	return eq(typeof localStorage.setItem, "function", "setItem");
+});
+
+check("<a ping> is rewritten and reads back as authored", () => {
+	const a = document.querySelector(".pinged");
+	eq(a.getAttribute("ping"), "/beacon/one /beacon/two", "authored value");
+	eq(a.ping, "/beacon/one /beacon/two", "reflected value");
+	const rewritten = a.outerHTML;
+	if (rewritten.indexOf("sherpa-attr-ping") !== -1)
+		throw new Error("shadow attribute leaked into markup: " + rewritten);
+	return "ok";
+});
+
 // -------------------------------------------------------------------- base
 check("a <base href> still resolves relative urls", () => {
 	const a = document.getElementById("based");
@@ -574,6 +625,97 @@ const ASYNC_CHECKS = String.raw`
 		return eq(text, "\u3053\u3093\u306b\u3061\u306f", "shift_jis text");
 	});
 
+	await check("a proxied event keeps the object protocol every event has", async () => {
+		// The per-type accessor tables were plain objects, so membership tests
+		// hit Object.prototype: reading event.toString returned the *string*
+		// "[object MessageEvent]" (so String(event) threw), event.constructor
+		// was the event itself, and event.hasOwnProperty threw outright.
+		const event = await new Promise((resolveEvent, rejectEvent) => {
+			addEventListener("message", function once(received) {
+				removeEventListener("message", once);
+				resolveEvent(received);
+			});
+			setTimeout(() => rejectEvent(new Error("no message delivered")), 10000);
+			postMessage("shape-probe", "*");
+		});
+
+		eq(typeof event.toString, "function", "toString is a function");
+		eq(String(event), "[object MessageEvent]", "String(event)");
+		eq(event.constructor, MessageEvent, "constructor");
+		eq(typeof event.hasOwnProperty, "function", "hasOwnProperty is a function");
+		eq(event.hasOwnProperty("nothing"), false, "hasOwnProperty is callable");
+		eq(event.data, "shape-probe", "data survives the proxy");
+		return eq(event.origin, location.origin, "origin is the virtual one");
+	});
+
+	await check("a document's realm only receives cookies it may read", async () => {
+		// Every virtual origin here shares one physical origin, so a proxied
+		// page can reach the client object of any frame it embeds. The jar
+		// injected into a realm therefore has to be scoped exactly the way
+		// document.cookie is - to that host, and never httpOnly. It used to be
+		// the whole jar, so one iframe handed a page every other site's session.
+		await fetch("/set-cookie");
+		await fetch("http://127.0.0.2:4722/set-cookie", { mode: "cors" });
+
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("timed out")), 15000);
+			frame.src = "/api/echo.html";
+		});
+
+		const inner = frame.contentWindow;
+		const jar = inner[Symbol.for("sherpa client global")].cookieStore.dump();
+		const cookie = inner.document.cookie;
+		frame.remove();
+
+		if (jar.indexOf("ALT_PUBLIC_VALUE") !== -1 || jar.indexOf("ALT_SECRET_VALUE") !== -1)
+			throw new Error("another origin's cookies reached this realm: " + jar);
+		if (jar.indexOf("OWN_SECRET_VALUE") !== -1)
+			throw new Error("an httpOnly cookie reached this realm: " + jar);
+		if (jar.indexOf("OWN_PUBLIC_VALUE") === -1)
+			throw new Error("this host's own cookie is missing: " + jar);
+
+		eq(cookie.indexOf("ownpublic=OWN_PUBLIC_VALUE") !== -1, true, "document.cookie has the readable cookie");
+		eq(cookie.indexOf("ownsession") === -1, true, "document.cookie hides the httpOnly cookie");
+
+		return "ok";
+	});
+
+	await check("a GET form replaces the document's query instead of appending", async () => {
+		// The browser mutates the *proxied* URL's query when a GET form with no
+		// action submits, and per HTML that query replaces the action URL's own.
+		// Concatenating them instead sent "?q=old&q=new" upstream - every
+		// framework reads the first one, so the search box did nothing - and
+		// left the page reading its own location back as "?q=old?q=new".
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		const load = () =>
+			new Promise((done, fail) => {
+				frame.addEventListener("load", done, { once: true });
+				setTimeout(() => fail(new Error("form navigation timed out")), 15000);
+			});
+
+		const first = load();
+		frame.src = "/form.html?q=old&stale=1";
+		await first;
+		eq(frame.contentDocument.getElementById("upstream").textContent, "q=old&stale=1", "initial upstream query");
+		eq(frame.contentDocument.getElementById("seen").textContent, "?q=old&stale=1", "initial location.search");
+
+		const second = load();
+		frame.contentDocument.getElementById("search").submit();
+		await second;
+		const upstream = frame.contentDocument.getElementById("upstream").textContent;
+		const seen = frame.contentDocument.getElementById("seen").textContent;
+		frame.remove();
+
+		eq(upstream, "q=new&page=2", "submitted upstream query");
+		eq(seen, "?q=new&page=2", "location.search after submitting");
+
+		return "ok";
+	});
+
 	await check("nothing on the page was fetched from the proxy's own origin", async () => {
 		// The single assertion every rewriting gap above shows up in: a url the
 		// engine failed to rewrite resolves against the proxy origin instead of
@@ -608,6 +750,8 @@ function docPage(doctype, { pad = true } = {}) {
 }
 
 const documentShapes = {
+	// A minimal proxied document, for checks that need a second realm.
+	"/api/echo.html": `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>echo</body></html>`,
 	"/doc/standards.html": docPage("<!DOCTYPE html>"),
 	"/doc/quirks.html": docPage(""),
 	"/doc/legacy.html": docPage(
@@ -640,6 +784,7 @@ export const pages = {
 <img src="/img/pixel-b.png" alt="b">
 <img src="/img/other-b.png" alt="c">
 <a id="based" href="relative.html">relative</a>
+<a class="pinged" href="/ping-target.html" ping="/beacon/one /beacon/two">ping</a>
 <style id="inert-style" type="text/tailwindcss">.inert{background:url(/img/pixel-a.png)}</style>
 <svg width="10" height="10">
 	<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="/sprite.svg#icon"></use>

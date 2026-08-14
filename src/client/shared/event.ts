@@ -10,8 +10,19 @@ import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
 
 export default function (client: SherpaClient, self: Self) {
-	const handlers = {
-		message: {
+	// Membership in these tables is tested with `in`, and an ordinary object
+	// literal inherits `Object.prototype`. That made every event Sherpa proxies
+	// answer `handler["toString"]`/`["valueOf"]`/`["constructor"]`/
+	// `["hasOwnProperty"]` from the prototype and *call* it: reading
+	// `messageEvent.toString` returned the string `"[object MessageEvent]"`
+	// instead of a function (so `String(event)` threw), `event.constructor` was
+	// the event itself rather than `MessageEvent`, and
+	// `event.hasOwnProperty(...)` threw outright. Null prototypes make `in`
+	// mean what the code reads as: "is this one of ours".
+	const nullProto = <T extends object>(table: T): T =>
+		Object.assign(Object.create(null), table) as T;
+	const handlers = nullProto({
+		message: nullProto({
 			_init() {
 				if (
 					typeof this.data === "object" &&
@@ -57,16 +68,16 @@ export default function (client: SherpaClient, self: Self) {
 
 				return this.data;
 			},
-		},
-		hashchange: {
+		}),
+		hashchange: nullProto({
 			oldURL() {
 				return unrewriteUrl(this.oldURL);
 			},
 			newURL() {
 				return unrewriteUrl(this.newURL);
 			},
-		},
-		storage: {
+		}),
+		storage: nullProto({
 			_init() {
 				if (this.key === null) {
 					try {
@@ -89,8 +100,8 @@ export default function (client: SherpaClient, self: Self) {
 			storageArea() {
 				return getVirtualStorageArea(this.storageArea);
 			},
-		},
-	};
+		}),
+	});
 
 	/** The event currently being delivered to a page listener, if any. */
 	let activeEvent: Event | undefined;
@@ -152,6 +163,11 @@ export default function (client: SherpaClient, self: Self) {
 							if (handler._init.call(realEvent) === false) return;
 						}
 
+						// One rebinding per method, not one per read: a method read
+						// off the same event twice has to be the same function, as
+						// it is on the real event.
+						const rebound = new Map<string | symbol, unknown>();
+
 						args[0] = new Proxy(realEvent, {
 							get(target, prop, reciever) {
 								const value = Reflect.get(target, prop);
@@ -159,16 +175,26 @@ export default function (client: SherpaClient, self: Self) {
 									return handler[prop].call(target);
 								}
 
-								if (typeof value === "function") {
-									return new Proxy(value, {
-										apply(target, that, args) {
+								// `constructor` is a function too, and wrapping it
+								// broke the one thing it is for: `event.constructor
+								// === MessageEvent` answered false, because a proxy
+								// is never its target.
+								if (typeof value === "function" && prop !== "constructor") {
+									const cached = rebound.get(prop);
+									if (cached) return cached;
+
+									const wrapper = new Proxy(value, {
+										apply(method, that, args) {
 											if (that === reciever) {
-												return Reflect.apply(target, realEvent, args);
+												return Reflect.apply(method, realEvent, args);
 											}
 
-											return Reflect.apply(target, that, args);
+											return Reflect.apply(method, that, args);
 										},
 									});
+									rebound.set(prop, wrapper);
+
+									return wrapper;
 								}
 
 								return value;
@@ -218,11 +244,25 @@ export default function (client: SherpaClient, self: Self) {
 		if (entries.length === 0) byCallback.delete(entry.originalCallback);
 	}
 
+	/**
+	 * The event target a call is really registering against.
+	 *
+	 * A bare `addEventListener("load", fn)` - which is how most page code and
+	 * essentially every service worker script spells it - passes `undefined` as
+	 * the receiver, and WebIDL substitutes the current global for it. Sherpa's
+	 * registry was keyed on the raw receiver, so every unqualified registration
+	 * in a realm shared one bucket that was not the global: in a nested service
+	 * worker, `handleMessage` looks its `fetch` handlers up under `self` and
+	 * found none of them.
+	 */
+	const receiverOf = (that: any) => (that == null ? self : that);
+
 	client.Proxy("EventTarget.prototype.addEventListener", {
 		apply(ctx) {
 			const origlistener = ctx.args[1];
 			const listenerFunction = getListenerFunction(origlistener);
 			if (!listenerFunction) return;
+			const target = receiverOf(ctx.this);
 			const options = ctx.args[2];
 			const capture =
 				typeof options === "boolean" ? options : Boolean(options?.capture);
@@ -231,7 +271,7 @@ export default function (client: SherpaClient, self: Self) {
 			if (signal?.aborted) return ctx.return(undefined);
 
 			const type = ctx.args[0] as string;
-			const existing = entriesFor(ctx.this, origlistener);
+			const existing = entriesFor(target, origlistener);
 			if (
 				existing?.some(
 					(entry) => entry.event === type && entry.capture === capture
@@ -260,7 +300,7 @@ export default function (client: SherpaClient, self: Self) {
 						try {
 							return Reflect.apply(target, that, args);
 						} finally {
-							dropEntry(ctx.this, entry);
+							dropEntry(target, entry);
 						}
 					},
 				});
@@ -269,10 +309,10 @@ export default function (client: SherpaClient, self: Self) {
 
 			ctx.args[1] = proxylistener;
 
-			let byCallback = client.eventcallbacks.get(ctx.this);
+			let byCallback = client.eventcallbacks.get(target);
 			if (!byCallback) {
 				byCallback = new Map();
-				client.eventcallbacks.set(ctx.this, byCallback);
+				client.eventcallbacks.set(target, byCallback);
 			}
 			const entries = byCallback.get(origlistener);
 			if (entries) entries.push(entry);
@@ -283,7 +323,7 @@ export default function (client: SherpaClient, self: Self) {
 					signal,
 					"abort",
 					() => {
-						dropEntry(ctx.this, entry);
+						dropEntry(target, entry);
 					},
 					{ once: true }
 				);
@@ -301,7 +341,8 @@ export default function (client: SherpaClient, self: Self) {
 				return;
 			if (origlistener === null) return;
 
-			const entries = entriesFor(ctx.this, origlistener);
+			const target = receiverOf(ctx.this);
+			const entries = entriesFor(target, origlistener);
 			if (!entries) return;
 
 			const options = ctx.args[2];
@@ -315,7 +356,7 @@ export default function (client: SherpaClient, self: Self) {
 
 			const [entry] = entries.splice(i, 1);
 			if (entries.length === 0)
-				client.eventcallbacks.get(ctx.this)?.delete(origlistener);
+				client.eventcallbacks.get(target)?.delete(origlistener);
 
 			ctx.args[1] = entry.proxiedCallback;
 		},
@@ -345,14 +386,23 @@ export default function (client: SherpaClient, self: Self) {
 					continue;
 
 				// these are the `onmessage`, `onclick`, etc. properties
+				//
+				// The page's own handler is stashed on the *receiver* - the port,
+				// the worker, the window this was read from. It used to be stashed
+				// on `this`, which inside a trap body is the trap descriptor
+				// literal, not the object being operated on: one shared slot for
+				// every instance of the interface, so `portA.onmessage = f`
+				// followed by a read of `portB.onmessage` handed back `f`.
 				client.RawTrap(target, key, {
 					get(ctx) {
-						if (realOnEvent in this) return this[realOnEvent];
+						const receiver = ctx.this;
+						if (receiver != null && realOnEvent in receiver)
+							return receiver[realOnEvent];
 
 						return ctx.get();
 					},
 					set(ctx, value: any) {
-						this[realOnEvent] = value;
+						if (ctx.this != null) ctx.this[realOnEvent] = value;
 
 						if (typeof value !== "function") return ctx.set(value);
 

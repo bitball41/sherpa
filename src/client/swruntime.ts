@@ -116,8 +116,15 @@ function handleMessage(
 
 		// Keep the native request pointed at Sherpa so fetch(event.request) stays
 		// proxied. The Request.url trap exposes the unrewritten URL to site code.
+		// The hint has to be spelled with Sherpa's namespace. Under the bare
+		// `from` the physical worker no longer recognized it, so a nested
+		// worker's own `fetch(event.request)` was dispatched straight back into
+		// that same nested worker - and `from=swruntime` was passed through to
+		// the site as one of its own query parameters.
 		const fakeRequest = new Request(
-			appendUrlParams(request.url, { from: "swruntime" }),
+			appendUrlParams(request.url, {
+				[INTERNAL_PARAMS.from]: "swruntime",
+			}),
 			init
 		);
 

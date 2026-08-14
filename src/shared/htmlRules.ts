@@ -110,6 +110,20 @@ export const htmlRules: HtmlRule[] = [
 		imagesrcset: ["link"],
 	},
 	{
+		// `ping` is a whitespace-separated list of URLs the browser POSTs to
+		// when the link is followed - Google and YouTube result links are full
+		// of them. Left alone, every one of them resolved against the *proxy's*
+		// origin and fired a request at it on each click.
+		fn: (value: string, meta: URLMeta) =>
+			value
+				.split(/\s+/)
+				.filter((url) => url !== "")
+				.map((url) => rewriteUrl(url, meta))
+				.join(" "),
+
+		ping: ["a", "area"],
+	},
+	{
 		// about:srcdoc inherits the embedding document's fallback base URL.
 		// rewriteHtml resolves the meta into its own object before traversing,
 		// so a <base> inside the srcdoc can't reach the parent document's base.

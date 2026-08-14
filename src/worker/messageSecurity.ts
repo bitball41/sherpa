@@ -1,3 +1,5 @@
+import { decodeProxyUrl } from "@/shared/urlCodec";
+
 export type ClientIdentity = {
 	id: string;
 	url: string;
@@ -82,16 +84,11 @@ export function getVirtualClientUrl(
 		return null;
 
 	try {
-		const encoded = identity.url.slice(proxyPrefix.length);
-		if (/^(?:blob|data):/i.test(encoded)) return null;
-
-		const hashIndex = encoded.indexOf("#");
-		const decoded =
-			hashIndex === -1
-				? decode(encoded)
-				: `${decode(encoded.slice(0, hashIndex))}#${decode(
-						encoded.slice(hashIndex + 1)
-					)}`;
+		// The shared decoder, rather than a second copy of the same splitting:
+		// it also strips Sherpa's own hints and applies a form submission's
+		// appended query, so a client that has submitted a GET form is still
+		// recognized as the URL it is actually on.
+		const decoded = decodeProxyUrl(identity.url, proxyPrefix, decode);
 		const url = new URL(decoded);
 
 		if (url.protocol !== "http:" && url.protocol !== "https:") return null;

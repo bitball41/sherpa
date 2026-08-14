@@ -41,9 +41,14 @@ function configLiteral(): string {
 
 export function getInjectScripts<T>(
 	cookieStore: CookieStore,
+	documentUrl: URL,
 	script: (src: string) => T
 ): T[] {
-	const dump = JSON.stringify(cookieStore.dump());
+	// Scoped to the document's own host, and never `httpOnly`. Every virtual
+	// origin shares one physical origin here, so a page can reach the client of
+	// any frame it embeds - handing each realm the whole jar handed every
+	// proxied page every other site's session cookies.
+	const dump = JSON.stringify(cookieStore.dumpForDocument(documentUrl));
 	const injected = `
 		self.COOKIE = ${dump};
 		$sherpaLoadClient().loadAndHook(${configLiteral()});
@@ -86,7 +91,8 @@ function rewriteHtmlInner(
 	// Resolve the caller's meta once. The traversal both reads it for every
 	// URL it rewrites and *writes* to `base` when it meets a `<base href>`;
 	// the client hands us a getter-only meta, where that write throws.
-	traverseParsedHtml(handler.root, cookieStore, snapshotMeta(meta));
+	const resolved = snapshotMeta(meta);
+	traverseParsedHtml(handler.root, cookieStore, resolved);
 
 	function findhead(node) {
 		if (node.type === ElementType.Tag && node.name === "head") {
@@ -109,7 +115,9 @@ function rewriteHtmlInner(
 		}
 
 		const script = (src: string) => new Element("script", { src });
-		head.children.unshift(...getInjectScripts(cookieStore, script));
+		head.children.unshift(
+			...getInjectScripts(cookieStore, resolved.origin, script)
+		);
 	}
 
 	return render(handler.root, {
@@ -143,9 +151,13 @@ function attributeValue(value: string): string {
  * `worker/htmlStream.ts`: they are written out before the document has finished
  * downloading, so there is no parsed tree to unshift them into yet.
  */
-export function renderInjectScripts(cookieStore: CookieStore): string {
+export function renderInjectScripts(
+	cookieStore: CookieStore,
+	documentUrl: URL
+): string {
 	return getInjectScripts(
 		cookieStore,
+		documentUrl,
 		(src) => `<script src="${attributeValue(src)}"></script>`
 	).join("");
 }
@@ -358,7 +370,12 @@ function rewriteMetaHttpEquiv(node: any, meta: URLMeta) {
 	const httpEquiv = node.attribs["http-equiv"].toLowerCase();
 	if (httpEquiv === "content-security-policy") {
 		// just delete it. this needs to be emulated eventually but like
-		node = new Comment(node.attribs.content);
+		//
+		// The policy is kept as a comment so it stays visible when debugging a
+		// page, but a comment can be closed from inside: a `-->` anywhere in the
+		// value (a `report-uri` path, say) would end it early and turn the rest
+		// of the policy into markup. Neutralize the terminator instead.
+		node = new Comment(String(node.attribs.content ?? "").replace(/--!?>/g, ""));
 	} else if (httpEquiv === "refresh" && node.attribs.content) {
 		// content looks like "<seconds>[; url=<url>]"; the same directive can
 		// also arrive as the HTTP `Refresh` header, so the parsing is shared.

@@ -64,6 +64,8 @@ export default function (client: SherpaClient, self: typeof window) {
 		// resolution), so the page has to be handed the value it authored
 		// rather than the rewritten one htmlRules put in the attribute.
 		background: [self.HTMLBodyElement],
+		// `ping` reflects verbatim too - it is a URL list, not a single URL.
+		ping: [self.HTMLAnchorElement, self.HTMLAreaElement],
 	};
 	const propertyAttributes = {
 		formAction: "formaction",
@@ -562,7 +564,11 @@ export default function (client: SherpaClient, self: typeof window) {
 			const present =
 				nativeHasAttribute.call(ctx.this, name) ||
 				nativeHasAttribute.call(ctx.this, shadow);
-			const shouldHave = ctx.args.length > 1 ? Boolean(ctx.args[1]) : !present;
+			// An explicit `undefined` counts as "not supplied", per WebIDL's
+			// optional-argument conversion - `Boolean(undefined)` would have made
+			// `toggleAttribute(name, undefined)` always remove.
+			const force = ctx.args.length > 1 ? ctx.args[1] : undefined;
+			const shouldHave = force === undefined ? !present : Boolean(force);
 			if (!shouldHave) {
 				nativeRemoveAttribute.call(ctx.this, name);
 				nativeRemoveAttribute.call(ctx.this, shadow);

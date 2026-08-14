@@ -18,6 +18,13 @@ wisp.options.allow_private_ips = true;
 
 export const ORIGIN_PORT = 4720;
 export const HOST_PORT = 4721;
+/**
+ * A second, unrelated site. It is on a different loopback *address* rather
+ * than a different port: cookies are keyed by host and ignore the port, so two
+ * ports on 127.0.0.1 are the same site as far as the jar is concerned.
+ */
+export const ALT_ORIGIN_HOST = "127.0.0.2";
+export const ALT_ORIGIN_PORT = 4722;
 export const PREFIX = "/proxied/";
 
 const MIME = {
@@ -31,10 +38,65 @@ const MIME = {
 	".json": "application/json",
 };
 
+function formPage(query) {
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>form</title></head>
+<body>
+<form id="search" method="get"><input name="q" value="new"><input type="hidden" name="page" value="2"></form>
+<pre id="upstream">${query.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c])}</pre>
+<pre id="seen"></pre>
+<script>document.getElementById("seen").textContent = location.search;</script>
+</body></html>`;
+}
+
 export function startOriginServer({ extraPages = {} } = {}) {
 	const allPages = { ...pages, ...extraPages };
 	const server = createServer((req, res) => {
-		const path = req.url.split("?")[0];
+		const [path, query = ""] = req.url.split("?");
+
+		// Sets one httpOnly and one ordinary cookie for this origin, so the
+		// suite can check which of them a page realm is handed.
+		if (path === "/set-cookie") {
+			res.writeHead(200, {
+				"content-type": "text/plain",
+				"cache-control": "no-store",
+				"set-cookie": [
+					"ownsession=OWN_SECRET_VALUE; Path=/; HttpOnly",
+					"ownpublic=OWN_PUBLIC_VALUE; Path=/",
+				],
+			});
+
+			return res.end("set");
+		}
+
+		// Echoes back exactly the query the origin received, so the suite can
+		// assert what actually left the proxy rather than what the page thinks
+		// it asked for.
+		if (path === "/api/query") {
+			const body = query;
+			res.writeHead(200, {
+				"content-type": "text/plain",
+				"content-length": Buffer.byteLength(body),
+				"cache-control": "no-store",
+				"access-control-allow-origin": "*",
+			});
+
+			return res.end(body);
+		}
+
+		// A document that reports the query the origin actually received for it
+		// alongside the query the proxied page believes it is on. A GET form
+		// with no action submits to the document's own URL, which is the one
+		// place a browser mutates a proxied URL's query directly.
+		if (path === "/form.html") {
+			const body = formPage(query);
+			res.writeHead(200, {
+				"content-type": "text/html; charset=utf-8",
+				"content-length": Buffer.byteLength(body),
+				"cache-control": "no-store",
+			});
+
+			return res.end(body);
+		}
 
 		if (allPages[path]) {
 			const body = allPages[path];
@@ -73,6 +135,41 @@ export function startOriginServer({ extraPages = {} } = {}) {
 
 	return new Promise((r) =>
 		server.listen(ORIGIN_PORT, "127.0.0.1", () => r(server))
+	);
+}
+
+/**
+ * A second site. It exists so the suite can assert what one virtual origin is
+ * allowed to learn about another - every virtual origin Sherpa serves shares
+ * one physical origin, so "cross-origin" is entirely an engine property here
+ * and needs a real second host to be tested at all.
+ */
+export function startAltOriginServer() {
+	const server = createServer((req, res) => {
+		const path = req.url.split("?")[0];
+		const cors = {
+			"access-control-allow-origin": "*",
+			"cache-control": "no-store",
+		};
+
+		if (path === "/set-cookie") {
+			res.writeHead(200, {
+				...cors,
+				"content-type": "text/plain",
+				"set-cookie": [
+					"altsession=ALT_SECRET_VALUE; Path=/; HttpOnly",
+					"altpublic=ALT_PUBLIC_VALUE; Path=/",
+				],
+			});
+
+			return res.end("set");
+		}
+
+		res.writeHead(404, { ...cors, "content-type": "text/plain" }).end("no");
+	});
+
+	return new Promise((r) =>
+		server.listen(ALT_ORIGIN_PORT, ALT_ORIGIN_HOST, () => r(server))
 	);
 }
 
