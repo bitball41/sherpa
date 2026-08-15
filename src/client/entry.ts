@@ -7,6 +7,7 @@ import { SherpaContextEvent, UrlChangeEvent } from "@client/events";
 import { SherpaServiceWorkerRuntime } from "@client/swruntime";
 import type { SherpaConfig } from "@/types";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
+import { beginWasmFetch } from "@rewriters/wasm";
 
 export const iswindow = "window" in globalThis && window instanceof Window;
 export const isworker = "WorkerGlobalScope" in globalThis;
@@ -28,6 +29,12 @@ function createFrameId() {
 export function loadAndHook(config: SherpaConfig) {
 	setConfig(config);
 	dbg.log("initializing sherpa client");
+	// Overlap the binary WASM fetch with hook installation. Inline scripts in
+	// the document were already rewritten in the service worker; the client
+	// only needs the rewriter for runtime `eval` / `innerHTML` / etc., and
+	// `getRewriter` will wait (synchronously, as a last resort) if this has
+	// not resolved by then.
+	void beginWasmFetch(config.files.wasm);
 	// if it already exists, that means the handlers have probably already been setup by the parent document
 	if (!(SHERPACLIENT in <Partial<typeof self>>globalThis)) {
 		loadCodecs();

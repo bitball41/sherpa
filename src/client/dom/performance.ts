@@ -1,6 +1,10 @@
 import { proxyOrigin, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
+import {
+	engineBootPathname,
+	engineErrorPathname,
+} from "@/shared/bootScripts";
 
 export default function (client: SherpaClient, _self: Self) {
 	client.Trap("PerformanceEntry.prototype.name", {
@@ -23,14 +27,22 @@ export default function (client: SherpaClient, _self: Self) {
 	let ownResourcePaths: string[] = [];
 	let ownResourceFiles: typeof config.files | null = null;
 	let ownResourceOrigin: string | null = null;
+	let ownResourcePrefix: string | null = null;
 	const sherpaResourceUrls = () => {
 		const origin = proxyOrigin();
-		if (ownResourceFiles !== config.files || ownResourceOrigin !== origin) {
+		if (
+			ownResourceFiles !== config.files ||
+			ownResourceOrigin !== origin ||
+			ownResourcePrefix !== config.prefix
+		) {
 			ownResourceFiles = config.files;
 			ownResourceOrigin = origin;
-			ownResourcePaths = Object.values(config.files).map(
-				(file) => origin + file
-			);
+			ownResourcePrefix = config.prefix;
+			ownResourcePaths = [
+				...Object.values(config.files).map((file) => origin + file),
+				origin + engineBootPathname(config.prefix),
+				origin + engineErrorPathname(config.prefix),
+			];
 		}
 
 		return ownResourcePaths;

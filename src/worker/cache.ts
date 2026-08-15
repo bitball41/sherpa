@@ -304,7 +304,8 @@ export async function refreshCachedResponse(
 	keyUrl: string,
 	entry: CachedEntry,
 	responseHeaders: HeaderRecord,
-	now: number
+	now: number,
+	destination: string = ""
 ): Promise<Response> {
 	const merged = new Headers(entry.response.headers);
 	for (const name of Object.keys(responseHeaders)) {
@@ -331,7 +332,7 @@ export async function refreshCachedResponse(
 	merged.forEach((value, name) => {
 		flattened[name] = value;
 	});
-	const policy = responseCachePolicy(200, flattened, now);
+	const policy = responseCachePolicy(200, flattened, now, destination);
 	if (policy) {
 		storeCachedResponse(keyUrl, policy, served.clone(), now).catch(() => {});
 	}

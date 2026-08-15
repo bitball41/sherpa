@@ -39,6 +39,6 @@ export declare function storeCachedResponse(keyUrl: string, policy: StorePolicy,
  * Upstream may restate headers alongside the `304`; those win over the stored
  * copy's.
  */
-export declare function refreshCachedResponse(keyUrl: string, entry: CachedEntry, responseHeaders: HeaderRecord, now: number): Promise<Response>;
+export declare function refreshCachedResponse(keyUrl: string, entry: CachedEntry, responseHeaders: HeaderRecord, now: number, destination?: string): Promise<Response>;
 /** Drops every stored response. Exposed for cache-busting and for tests. */
 export declare function clearResponseCache(): Promise<void>;

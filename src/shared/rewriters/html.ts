@@ -7,10 +7,10 @@ import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
 import { rewriteRefresh } from "@rewriters/refresh";
 import { CookieStore } from "@/shared/cookie";
-import { config } from "@/shared";
 import { findHtmlRule } from "@/shared/htmlRules";
 import { appendUrlParams, resolveBaseHref } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
+import { injectScriptSrcs } from "@/shared/bootScripts";
 import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
 import {
 	SCRIPT_SOURCE_ATTRIBUTE,
@@ -19,60 +19,11 @@ import {
 
 export { SCRIPT_SOURCE_ATTRIBUTE, SHADOW_ATTRIBUTE_PREFIX };
 
-// `JSON.stringify(config)` walks the whole configuration (flags, per-site flag
-// overrides, the error-page theme, both codec sources) and it is embedded,
-// unchanged, in the boot script of every single proxied document and iframe.
-// The configuration object is replaced wholesale by `setConfig`, never mutated
-// in place, so identity is a sound cache key.
-let serializedConfig = "";
-let serializedConfigSource: object | null = null;
-
-let lastInjectedSource: string | null = null;
-let lastInjectedBase64 = "";
-
-function configLiteral(): string {
-	if (serializedConfigSource !== config) {
-		serializedConfigSource = config;
-		serializedConfig = JSON.stringify(config);
-	}
-
-	return serializedConfig;
-}
-
 export function getInjectScripts<T>(
-	cookieStore: CookieStore,
 	documentUrl: URL,
 	script: (src: string) => T
 ): T[] {
-	// Scoped to the document's own host, and never `httpOnly`. Every virtual
-	// origin shares one physical origin here, so a page can reach the client of
-	// any frame it embeds - handing each realm the whole jar handed every
-	// proxied page every other site's session cookies.
-	const dump = JSON.stringify(cookieStore.dumpForDocument(documentUrl));
-	const injected = `
-		self.COOKIE = ${dump};
-		$sherpaLoadClient().loadAndHook(${configLiteral()});
-		if ("document" in self && document?.currentScript) {
-			document.currentScript.remove();
-		}
-	`;
-
-	// for compatibility purpose
-	//
-	// A page and every iframe on it are rewritten against the same jar and the
-	// same configuration, so this is the same few kilobytes being UTF-8 encoded
-	// and base64'd over and over within one navigation.
-	if (injected !== lastInjectedSource) {
-		lastInjectedSource = injected;
-		lastInjectedBase64 = bytesToBase64(encoder.encode(injected));
-	}
-	const base64Injected = lastInjectedBase64;
-
-	return [
-		script(config.files.wasm),
-		script(config.files.all),
-		script("data:application/javascript;base64," + base64Injected),
-	];
+	return injectScriptSrcs(documentUrl).map(script);
 }
 
 const encoder = new TextEncoder();
@@ -115,9 +66,7 @@ function rewriteHtmlInner(
 		}
 
 		const script = (src: string) => new Element("script", { src });
-		head.children.unshift(
-			...getInjectScripts(cookieStore, resolved.origin, script)
-		);
+		head.children.unshift(...getInjectScripts(resolved.origin, script));
 	}
 
 	return render(handler.root, {
@@ -151,12 +100,8 @@ function attributeValue(value: string): string {
  * `worker/htmlStream.ts`: they are written out before the document has finished
  * downloading, so there is no parsed tree to unshift them into yet.
  */
-export function renderInjectScripts(
-	cookieStore: CookieStore,
-	documentUrl: URL
-): string {
+export function renderInjectScripts(documentUrl: URL): string {
 	return getInjectScripts(
-		cookieStore,
 		documentUrl,
 		(src) => `<script src="${attributeValue(src)}"></script>`
 	).join("");

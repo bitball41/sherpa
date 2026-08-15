@@ -1,6 +1,7 @@
 import { config } from "@/shared";
 import { rewriteJs } from "@rewriters/js";
 import { URLMeta } from "@rewriters/url";
+import { configLiteral, wasmSyncLoaderSource } from "@/shared/bootScripts";
 
 export function rewriteWorkers(
 	js: string | Uint8Array,
@@ -10,17 +11,17 @@ export function rewriteWorkers(
 ) {
 	let str = "";
 	const module = type === "module";
-	const script = (script) => {
-		if (module) {
-			str += `import "${config.files[script]}"\n`;
-		} else {
-			str += `importScripts("${config.files[script]}");\n`;
-		}
-	};
-
-	script("wasm");
-	script("all");
-	str += `$sherpaLoadClient().loadAndHook(${JSON.stringify(config)});`;
+	if (module) {
+		// Imports are hoisted, so a static `import` of the runtime would
+		// evaluate before this fetch. Dynamic import after the await keeps
+		// `loadAndHook` from running until the binary is in hand.
+		str += `self.__sherpaWasmBuffer=await(await fetch(${JSON.stringify(config.files.wasm)})).arrayBuffer();\n`;
+		str += `await import(${JSON.stringify(config.files.all)});\n`;
+	} else {
+		str += wasmSyncLoaderSource(config.files.wasm);
+		str += `importScripts(${JSON.stringify(config.files.all)});\n`;
+	}
+	str += `$sherpaLoadClient().loadAndHook(${configLiteral()});`;
 
 	let rewritten = rewriteJs(js, url, meta, module);
 	if (rewritten instanceof Uint8Array) {

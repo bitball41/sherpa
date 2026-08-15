@@ -136,6 +136,9 @@ export type StorePolicy = {
 	mustRevalidate: boolean;
 };
 
+/** Destinations that represent a navigable document. */
+const DOCUMENT_DESTINATIONS = new Set(["document", "iframe"]);
+
 /**
  * Decides whether a response may be stored, and until when.
  *
@@ -147,11 +150,13 @@ export type StorePolicy = {
  * @param status HTTP status of the upstream response
  * @param headers Rewritten response headers
  * @param now Current time in epoch ms
+ * @param destination Fetch destination; documents skip heuristic freshness
  */
 export function responseCachePolicy(
 	status: number,
 	headers: HeaderRecord,
-	now: number
+	now: number,
+	destination: string = ""
 ): StorePolicy | null {
 	// Only plain `200 OK` bodies. A `206` is a fragment of a resource, a `304`
 	// carries no body, and the redirect statuses are handled (and rewritten)
@@ -199,10 +204,15 @@ export function responseCachePolicy(
 			lifetime = Math.max(0, (expires - date) / 1000);
 		}
 	}
-	if (lifetime === null) {
+	if (lifetime === null && !DOCUMENT_DESTINATIONS.has(destination)) {
 		// RFC 9111 heuristic freshness: a tenth of the time since the resource
 		// last changed. This is what browsers do for validator-only responses,
 		// and it is where most real-world static-asset hits come from.
+		// Documents skip it: HTML is often personalized and sent without
+		// Cache-Control, and guessing a lifetime from Last-Modified would
+		// replay a logged-in page into a logged-out session. Validator-only
+		// storage (lifetime 0) still applies below, so a 304 can skip the
+		// rewrite without ever serving stale markup.
 		const lastModified = parseDate(lastModifiedHeader);
 		if (lastModified !== null && lastModified <= date) {
 			lifetime = Math.min(
@@ -230,25 +240,20 @@ export function responseCachePolicy(
 	};
 }
 
-/** Destinations whose rewritten output is not safely reusable. */
-const UNCACHEABLE_DESTINATIONS = new Set(["document", "iframe"]);
-
 /**
  * Whether a request's *response* may be stored at all.
  *
- * Documents are excluded on purpose: `rewriteHtml` injects a snapshot of the
- * cookie jar (`self.COOKIE = ...`) into every proxied document, so a replayed
- * document would boot the client with a stale jar - a logged-in page served
- * to a logged-out session, or the reverse. Subresources carry no such state,
- * and they are where the repeat-visit cost actually is.
+ * Documents are cacheable now that the cookie jar is no longer snapshotted
+ * into the rewritten HTML (`${prefix}$boot` serves a fresh dump per load).
+ * Personalized pages are still refused by {@link responseCachePolicy} when
+ * they set cookies, say `no-store`, or rely on heuristic freshness.
  */
 export function canStoreResponseFor(
 	method: string,
-	destination: string,
+	_destination: string,
 	requestHeaders: { has(name: string): boolean }
 ): boolean {
 	if (method !== "GET") return false;
-	if (UNCACHEABLE_DESTINATIONS.has(destination)) return false;
 	// A range request yields a partial body, and a conditional request is the
 	// page running its own cache protocol - stay out of both.
 	if (

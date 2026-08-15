@@ -645,6 +645,24 @@ const ASYNC_CHECKS = String.raw`
 		return seen.length + " shapes";
 	});
 
+	await check("a document served as octet-stream is still rewritten", async () => {
+		// Browsers sniff HTML on a navigation when the server omitted a real
+		// type or sent application/octet-stream. Sherpa used to pass those
+		// through unrewritten, so every relative URL resolved against the
+		// proxy origin.
+		const frame = document.createElement("iframe");
+		document.body.appendChild(frame);
+		await new Promise((done, fail) => {
+			frame.addEventListener("load", done, { once: true });
+			setTimeout(() => fail(new Error("sniffed document timed out")), 15000);
+			frame.src = "/doc/sniff.html";
+		});
+		const doc = frame.contentDocument;
+		const src = doc.getElementById("pic").src;
+		frame.remove();
+		return eq(src, "http://127.0.0.1:4720/img/pixel-a.png", "sniffed img");
+	});
+
 	await check("a non-utf8 document still decodes correctly", async () => {
 		const frame = document.createElement("iframe");
 		document.body.appendChild(frame);
@@ -852,7 +870,7 @@ const ASYNC_CHECKS = String.raw`
 			.getEntriesByType("resource")
 			.map((entry) => entry.name)
 			.filter((name) => name.indexOf("http://127.0.0.1:4721/") === 0)
-			.filter((name) => name.indexOf("/engine/") === -1 && name.indexOf("/baremux/") === -1 && name.indexOf("/epoxy/") === -1);
+			.filter((name) => name.indexOf("/engine/") === -1 && name.indexOf("/baremux/") === -1 && name.indexOf("/epoxy/") === -1 && name.indexOf("/proxied/$") === -1);
 		if (leaked.length)
 			throw new Error("escaped to the proxy origin: " + leaked.join(", "));
 		return "none";
@@ -955,6 +973,10 @@ export const textRoutes = {
 			),
 		]),
 		type: "text/html; charset=shift_jis",
+	},
+	"/doc/sniff.html": {
+		body: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${docBody}${PADDING}</body></html>`,
+		type: "application/octet-stream",
 	},
 };
 

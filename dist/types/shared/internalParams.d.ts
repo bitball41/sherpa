@@ -31,6 +31,8 @@ export declare const INTERNAL_PARAMS: {
     /** Frame names used to emulate `_top` / `_parent` targeting. */
     readonly topFrame: "sherpa.topFrame";
     readonly parentFrame: "sherpa.parentFrame";
+    /** The virtual document URL, threaded through `${prefix}$boot`. */
+    readonly url: "sherpa.url";
 };
 /** True for query parameters that belong to Sherpa rather than to the site. */
 export declare function isInternalParam(name: string): boolean;

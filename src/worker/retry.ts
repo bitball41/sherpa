@@ -6,10 +6,7 @@ const TRANSIENT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * before Hyper establishes a fresh connection.
  */
 export function isRetryableHttp2GoAway(error: unknown): boolean {
-	const details =
-		error instanceof Error
-			? `${error.message}\n${error.cause ? String(error.cause) : ""}`
-			: String(error);
+	const details = errorDetails(error);
 
 	return (
 		/\bhttp2\b/i.test(details) &&
@@ -17,6 +14,44 @@ export function isRetryableHttp2GoAway(error: unknown): boolean {
 		/\bno_error\b/i.test(details) &&
 		/\bremote\b/i.test(details)
 	);
+}
+
+/**
+ * Transport failures that are safe to retry once on a bodyless GET/HEAD/OPTIONS.
+ *
+ * Wisp/Epoxy surfaces several of these as a rejected `fetch` rather than an
+ * HTTP status: a GOAWAY, a dropped WebSocket, a TLS handshake that lost the
+ * race with a connection rotation. Retrying a request that already sent a
+ * body is not safe (the origin may have processed it), so the caller still
+ * has to pass `hasBody`.
+ */
+export function isRetryableTransportError(error: unknown): boolean {
+	if (isRetryableHttp2GoAway(error)) return true;
+
+	const details = errorDetails(error);
+	if (/failed to fetch/i.test(details)) return true;
+	if (/\bnetworkerror\b/i.test(details)) return true;
+	if (
+		/\b(econnreset|econnrefused|etimedout|eai_again|epipe)\b/i.test(
+			details
+		)
+	)
+		return true;
+	if (/connection (reset|closed|aborted|refused|terminated)/i.test(details))
+		return true;
+	if (/\bbroken pipe\b/i.test(details)) return true;
+	if (/\b(tls|ssl).*(handshake|alert|protocol|closed)/i.test(details))
+		return true;
+	if (/\bwisp\b/i.test(details) && /\b(closed|reset|error|fail)/i.test(details))
+		return true;
+
+	return false;
+}
+
+function errorDetails(error: unknown): string {
+	return error instanceof Error
+		? `${error.message}\n${error.cause ? String(error.cause) : ""}`
+		: String(error);
 }
 
 export async function retryTransientHttp2Request<T>(
@@ -30,14 +65,12 @@ export async function retryTransientHttp2Request<T>(
 		if (
 			hasBody ||
 			!TRANSIENT_RETRY_METHODS.has(method.toUpperCase()) ||
-			!isRetryableHttp2GoAway(error)
+			!isRetryableTransportError(error)
 		) {
 			throw error;
 		}
 
-		console.warn(
-			"Sherpa: remote HTTP/2 connection closed gracefully; retrying request once"
-		);
+		console.warn("Sherpa: transient transport error; retrying request once");
 
 		return request();
 	}

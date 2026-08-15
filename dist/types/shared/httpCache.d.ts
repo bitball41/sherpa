@@ -60,18 +60,18 @@ export type StorePolicy = {
  * @param status HTTP status of the upstream response
  * @param headers Rewritten response headers
  * @param now Current time in epoch ms
+ * @param destination Fetch destination; documents skip heuristic freshness
  */
-export declare function responseCachePolicy(status: number, headers: HeaderRecord, now: number): StorePolicy | null;
+export declare function responseCachePolicy(status: number, headers: HeaderRecord, now: number, destination?: string): StorePolicy | null;
 /**
  * Whether a request's *response* may be stored at all.
  *
- * Documents are excluded on purpose: `rewriteHtml` injects a snapshot of the
- * cookie jar (`self.COOKIE = ...`) into every proxied document, so a replayed
- * document would boot the client with a stale jar - a logged-in page served
- * to a logged-out session, or the reverse. Subresources carry no such state,
- * and they are where the repeat-visit cost actually is.
+ * Documents are cacheable now that the cookie jar is no longer snapshotted
+ * into the rewritten HTML (`${prefix}$boot` serves a fresh dump per load).
+ * Personalized pages are still refused by {@link responseCachePolicy} when
+ * they set cookies, say `no-store`, or rely on heuristic freshness.
  */
-export declare function canStoreResponseFor(method: string, destination: string, requestHeaders: {
+export declare function canStoreResponseFor(method: string, _destination: string, requestHeaders: {
     has(name: string): boolean;
 }): boolean;
 /**

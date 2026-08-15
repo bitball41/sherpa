@@ -1,5 +1,7 @@
 export type VirtualRequestContext = {
     credentials: RequestCredentials;
+    /** The virtual URL of the document that issued this request, if any. */
+    clientUrl: URL | null;
     initiatorUrl: URL | null;
     isNavigation: boolean;
     isSameOrigin: boolean;
