@@ -60,7 +60,16 @@ test("repeated site parameters keep every value, in order", () => {
 	]);
 });
 
-test("unknown parameters inside Sherpa's namespace are dropped, not forwarded", () => {
+test("the boot document url hint is consumed, not forwarded to the site", () => {
+	const url = new URL(
+		`https://proxy.test/sherpa/encoded?${INTERNAL_PARAMS.url}=https%3A%2F%2Fexample.com%2F&q=1`
+	);
+	const hints = takeInternalParams(url);
+	assert.deepEqual(hints.siteParams, [["q", "1"]]);
+	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
+});
+
+test("unknown sherpa.* parameters are stripped, not forwarded", () => {
 	const url = new URL(
 		"https://proxy.test/sherpa/encoded?sherpa.somethingnew=1&keep=2"
 	);

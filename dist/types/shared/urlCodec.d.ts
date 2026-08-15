@@ -1,5 +1,17 @@
 export type UrlCodec = (value: string) => string;
 /**
+ * Removes Sherpa's own query parameters from a decoded URL.
+ *
+ * The hints Sherpa threads through the query string (`sherpa.type`,
+ * `sherpa.dest`, ...) are stripped before the upstream request, but they were
+ * still part of what the *page* saw when it read a URL back: a worker's
+ * `self.location.href` came out as `.../worker.js?sherpa.dest=worker`, and a
+ * module's `import.meta.url` carried `?sherpa.type=module`. Any site that
+ * parses its own query string - workers configured by search params are the
+ * usual case - saw a parameter it never set.
+ */
+export declare function stripInternalParams(url: string): string;
+/**
  * Encodes an HTTP(S) URL behind a proxy prefix without mutating the URL.
  * The fragment is encoded separately so it remains a browser-visible hash
  * instead of being sent to the service worker.

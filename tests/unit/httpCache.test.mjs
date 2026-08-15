@@ -223,14 +223,48 @@ test("a malformed max-age is not guessed at", () => {
 	);
 });
 
-test("documents are never stored", () => {
+test("documents may be stored; they are no longer banned at the request layer", () => {
 	const headers = new Headers();
-	assert.equal(canStoreResponseFor("GET", "document", headers), false);
-	assert.equal(canStoreResponseFor("GET", "iframe", headers), false);
+	assert.equal(canStoreResponseFor("GET", "document", headers), true);
+	assert.equal(canStoreResponseFor("GET", "iframe", headers), true);
 	assert.equal(canStoreResponseFor("GET", "script", headers), true);
 	assert.equal(canStoreResponseFor("GET", "style", headers), true);
 	assert.equal(canStoreResponseFor("GET", "image", headers), true);
 	assert.equal(canStoreResponseFor("GET", "", headers), true);
+});
+
+test("documents skip heuristic freshness but still store for revalidation", () => {
+	assert.equal(responseCachePolicy(200, {}, NOW, "document"), null);
+
+	const lastModifiedOnly = responseCachePolicy(
+		200,
+		{ "last-modified": httpDate(NOW - 10 * 24 * 3600 * 1000) },
+		NOW,
+		"document"
+	);
+	assert.ok(lastModifiedOnly);
+	assert.ok(
+		lastModifiedOnly.expiresAt <= NOW,
+		"Last-Modified alone must not invent a freshness window for HTML"
+	);
+
+	const scriptHeuristic = responseCachePolicy(
+		200,
+		{ "last-modified": httpDate(NOW - 10 * 24 * 3600 * 1000) },
+		NOW,
+		"script"
+	);
+	assert.ok(scriptHeuristic);
+	assert.ok(scriptHeuristic.expiresAt > NOW);
+
+	const explicit = responseCachePolicy(
+		200,
+		{ "cache-control": "max-age=60", date: httpDate(NOW) },
+		NOW,
+		"document"
+	);
+	assert.ok(explicit);
+	assert.equal(explicit.expiresAt, NOW + 60_000);
 });
 
 test("only GET is stored", () => {

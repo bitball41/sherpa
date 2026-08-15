@@ -1,10 +1,12 @@
 /**
  * Document responses, and why they are not simply buffered.
  *
- * Every proxied document loads three parser-blocking boot scripts - the WASM
- * rewriter payload, the runtime bundle, and a small inline script - before any
- * of the page's own content runs. Those scripts live on the proxy's origin and
- * cost roughly 45-60 ms of main-thread work per document once fetched.
+ * Every proxied document loads three parser-blocking boot scripts - a tiny
+ * WASM prefetch, the runtime bundle, and a no-store `$boot` script that
+ * seeds the cookie jar and calls `loadAndHook` - before any of the page's
+ * own content runs. The rewriter binary itself is fetched as `application/wasm`
+ * in parallel with the runtime, instead of being parsed as a 695 KiB classic
+ * script per document.
  *
  * On the buffered design the browser could not even *ask* for them until the
  * entire upstream document had crossed the transport and been rewritten,
@@ -29,6 +31,7 @@ import {
 	rewriteHtmlAfterPrelude,
 } from "@rewriters/html";
 import type { URLMeta } from "@rewriters/url";
+import { sniffHtml } from "@/worker/response";
 
 /**
  * Bytes to wait for before flushing. The HTML spec's encoding sniff looks at
@@ -36,6 +39,8 @@ import type { URLMeta } from "@rewriters/url";
  * going to; this is also comfortably inside the first network chunk.
  */
 const PREFLUSH_BYTES = 1024;
+/** Don't keep reading a mislabelled binary just because it starts with spaces. */
+const SNIFF_CAP_BYTES = 8192;
 
 const encoder = new TextEncoder();
 
@@ -181,6 +186,41 @@ async function drain(
 	return concatChunks(chunks, size);
 }
 
+export type HtmlResponseRewrite = {
+	rewrote: boolean;
+	body: string | ReadableStream<Uint8Array> | Uint8Array;
+};
+
+function passthroughBody(
+	head: Uint8Array,
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	complete: boolean
+): Uint8Array | ReadableStream<Uint8Array> {
+	if (complete) return head;
+
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(head);
+			void (async () => {
+				try {
+					for (;;) {
+						// eslint-disable-next-line no-await-in-loop
+						const { done, value } = await reader.read();
+						if (done) break;
+						if (value?.length) controller.enqueue(value);
+					}
+					controller.close();
+				} catch (error) {
+					controller.error(error);
+				}
+			})();
+		},
+		cancel(reason) {
+			void reader.cancel(reason);
+		},
+	});
+}
+
 /**
  * Rewrites an HTML document response, flushing the doctype and boot scripts as
  * soon as the shape of the document is known.
@@ -189,14 +229,20 @@ async function drain(
  * nothing (the whole document already arrived) or cannot be done safely (a
  * UTF-16 document, or one whose leading doctype is still unresolved after
  * `PREFLUSH_BYTES`).
+ *
+ * When `sniff` is set, the first chunk is MIME-sniffed: bytes that do not look
+ * like HTML (a PDF served as `application/octet-stream`, say) are passed
+ * through unrewritten so a mislabelled binary download is not turned into a
+ * document.
  */
 export async function rewriteHtmlResponse(
 	body: ReadableStream<Uint8Array> | null,
 	contentTypeHeader: string | null,
 	cookieStore: CookieStore,
-	meta: URLMeta
-): Promise<string | ReadableStream<Uint8Array>> {
-	if (!body) return "";
+	meta: URLMeta,
+	sniff = false
+): Promise<HtmlResponseRewrite> {
+	if (!body) return { rewrote: true, body: "" };
 
 	const reader = body.getReader();
 	const chunks: Uint8Array[] = [];
@@ -217,7 +263,32 @@ export async function rewriteHtmlResponse(
 		}
 	}
 
-	const head = concatChunks(chunks, size);
+	let head = concatChunks(chunks, size);
+	if (sniff) {
+		for (;;) {
+			const verdict = sniffHtml(head, complete);
+			if (verdict === "html") break;
+			if (verdict === "binary" || complete || size >= SNIFF_CAP_BYTES) {
+				return {
+					rewrote: false,
+					body: passthroughBody(head, reader, complete),
+				};
+			}
+			// sequential by nature: each read depends on the previous one finishing
+			// eslint-disable-next-line no-await-in-loop
+			const { done, value } = await reader.read();
+			if (done) {
+				complete = true;
+				continue;
+			}
+			if (value?.length) {
+				chunks.push(value);
+				size += value.length;
+				head = concatChunks(chunks, size);
+			}
+		}
+	}
+
 	const charset = detectHtmlCharset(head, contentTypeHeader);
 	const doctype =
 		complete || !canSplitPrelude(charset) ? null : leadingDoctype(head);
@@ -225,48 +296,52 @@ export async function rewriteHtmlResponse(
 	if (doctype === null) {
 		const full = complete ? head : await drain(reader, chunks, size);
 
-		return rewriteHtml(
-			decodeWithCharset(full, charset),
-			cookieStore,
-			meta,
-			true
-		);
+		return {
+			rewrote: true,
+			body: rewriteHtml(
+				decodeWithCharset(full, charset),
+				cookieStore,
+				meta,
+				true
+			),
+		};
 	}
 
-	const prelude = encoder.encode(
-		doctype + renderInjectScripts(cookieStore, meta.origin)
-	);
+	const prelude = encoder.encode(doctype + renderInjectScripts(meta.origin));
 
-	return new ReadableStream<Uint8Array>({
-		start(controller) {
-			controller.enqueue(prelude);
+	return {
+		rewrote: true,
+		body: new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(prelude);
 
-			// Not awaited: the point of the whole exercise is that this runs
-			// while the renderer is already fetching the boot scripts.
-			void (async () => {
-				try {
-					const full = await drain(reader, chunks, size);
-					controller.enqueue(
-						encoder.encode(
-							rewriteHtmlAfterPrelude(
-								decodeWithCharset(full, charset),
-								cookieStore,
-								meta
+				// Not awaited: the point of the whole exercise is that this runs
+				// while the renderer is already fetching the boot scripts.
+				void (async () => {
+					try {
+						const full = await drain(reader, chunks, size);
+						controller.enqueue(
+							encoder.encode(
+								rewriteHtmlAfterPrelude(
+									decodeWithCharset(full, charset),
+									cookieStore,
+									meta
+								)
 							)
-						)
-					);
-					controller.close();
-				} catch (error) {
-					// The upstream headers were already delivered, so the error
-					// page is no longer an option; fail the body instead, the
-					// same way a truncated upstream response would.
-					console.error("failed to rewrite a proxied document", error);
-					controller.error(error);
-				}
-			})();
-		},
-		cancel(reason) {
-			void reader.cancel(reason);
-		},
-	});
+						);
+						controller.close();
+					} catch (error) {
+						// The upstream headers were already delivered, so the error
+						// page is no longer an option; fail the body instead, the
+						// same way a truncated upstream response would.
+						console.error("failed to rewrite a proxied document", error);
+						controller.error(error);
+					}
+				})();
+			},
+			cancel(reason) {
+				void reader.cancel(reason);
+			},
+		}),
+	};
 }

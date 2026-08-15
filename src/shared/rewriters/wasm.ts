@@ -7,11 +7,78 @@ export type { JsRewriterOutput, Rewriter };
 
 import { base64ToBytes } from "@/shared/base64";
 
-let wasm_u8: Uint8Array<ArrayBuffer>;
+let wasm_u8: Uint8Array<ArrayBuffer> | undefined;
+let wasmLoadPromise: Promise<Uint8Array<ArrayBuffer>> | null = null;
+let compiledModule: WebAssembly.Module | undefined;
+let compileInFlight = false;
+let compileGen = 0;
 
 declare const REWRITERWASM: string | undefined;
-if (REWRITERWASM) wasm_u8 = base64ToBytes(REWRITERWASM);
-else if (self.WASM) wasm_u8 = base64ToBytes(self.WASM);
+
+type WasmHolder = {
+	WASM?: string;
+	__sherpaWasm?: Promise<ArrayBuffer>;
+	__sherpaWasmBuffer?: ArrayBuffer | Uint8Array<ArrayBuffer>;
+};
+
+function wasmHolder(): WasmHolder {
+	return self as unknown as WasmHolder;
+}
+
+function takePendingWasmBuffer(): Uint8Array<ArrayBuffer> | undefined {
+	const holder = wasmHolder();
+	const pending = holder.__sherpaWasmBuffer;
+	if (pending instanceof ArrayBuffer) return new Uint8Array(pending);
+	if (pending instanceof Uint8Array) return pending;
+	if (typeof holder.WASM === "string") return base64ToBytes(holder.WASM);
+
+	return undefined;
+}
+
+function setWasmBytes(
+	bytes: Uint8Array<ArrayBuffer>
+): Uint8Array<ArrayBuffer> {
+	if (wasm_u8 === bytes && (compiledModule || compileInFlight)) return bytes;
+
+	if (wasm_u8 !== bytes) {
+		compiledModule = undefined;
+		compileInFlight = false;
+		compileGen++;
+	}
+	wasm_u8 = bytes;
+	// Overlap compilation with the rest of boot (`loadAndHook`, trap install).
+	// `getRewriter` is synchronous, so if this has not finished we still fall
+	// back to `new WebAssembly.Module` on first use.
+	if (
+		typeof WebAssembly === "undefined" ||
+		typeof WebAssembly.compile !== "function"
+	)
+		return bytes;
+
+	const gen = compileGen;
+	compileInFlight = true;
+	void WebAssembly.compile(bytes).then(
+		(mod) => {
+			if (gen === compileGen) compiledModule = mod;
+		},
+		() => {
+			if (gen === compileGen) compileInFlight = false;
+		}
+	);
+
+	return bytes;
+}
+
+if (REWRITERWASM) setWasmBytes(base64ToBytes(REWRITERWASM));
+else {
+	const pending = takePendingWasmBuffer();
+	if (pending) setWasmBytes(pending);
+}
+
+/** The rewriter bytes already loaded in this realm, if any. */
+export function getWasmBytes(): Uint8Array<ArrayBuffer> | undefined {
+	return wasm_u8;
+}
 
 // only use in sw
 export async function asyncSetWasm() {
@@ -21,12 +88,81 @@ export async function asyncSetWasm() {
 			`failed to fetch rewriter wasm: HTTP ${response.status} ${response.statusText}`
 		);
 	}
-	const buf = await response.arrayBuffer();
-	wasm_u8 = new Uint8Array(buf);
+	setWasmBytes(new Uint8Array(await response.arrayBuffer()));
+}
+
+/**
+ * Starts (or joins) the binary WASM fetch the document's prefetch script
+ * kicked off. Safe to call when the bytes are already present - including
+ * the `REWRITERWASM`-embedded bundle, which never fetches.
+ */
+export function beginWasmFetch(
+	url: string
+): Promise<Uint8Array<ArrayBuffer>> {
+	if (wasm_u8) return Promise.resolve(wasm_u8);
+	const existing = takePendingWasmBuffer();
+	if (existing) {
+		return Promise.resolve(setWasmBytes(existing));
+	}
+	if (wasmLoadPromise) return wasmLoadPromise;
+
+	const started = wasmHolder().__sherpaWasm;
+	wasmLoadPromise = Promise.resolve(
+		started ??
+			fetch(url).then((response) => {
+				if (!response.ok) {
+					throw new Error(
+						`failed to fetch rewriter wasm: HTTP ${response.status} ${response.statusText}`
+					);
+				}
+
+				return response.arrayBuffer();
+			})
+	).then((buf) => {
+		const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+
+		return setWasmBytes(bytes);
+	});
+	wasmLoadPromise.catch(() => {
+		wasmLoadPromise = null;
+	});
+
+	return wasmLoadPromise;
+}
+
+function loadWasmSync(url: string): Uint8Array<ArrayBuffer> {
+	try {
+		const xhr = new XMLHttpRequest();
+		xhr.open("GET", url, false);
+		xhr.responseType = "arraybuffer";
+		xhr.send(null);
+		if (xhr.response instanceof ArrayBuffer)
+			return new Uint8Array(xhr.response);
+	} catch {
+		// Firefox rejects non-default `responseType` on a synchronous XHR.
+	}
+
+	const xhr = new XMLHttpRequest();
+	xhr.open("GET", url, false);
+	xhr.overrideMimeType("text/plain; charset=x-user-defined");
+	xhr.send(null);
+	const text = xhr.responseText;
+	const bytes = new Uint8Array(text.length);
+	for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+
+	return bytes;
+}
+
+function ensureWasmBytes(): Uint8Array<ArrayBuffer> {
+	if (wasm_u8) return wasm_u8;
+	const pending = takePendingWasmBuffer();
+	if (pending) return setWasmBytes(pending);
+
+	return setWasmBytes(loadWasmSync(config.files.wasm));
 }
 
 export const textDecoder = new TextDecoder();
-const MAGIC = "\0asm".split("").map((x) => x.charCodeAt(0));
+const WASM_MAGIC = [0x00, 0x61, 0x73, 0x6d] as const;
 
 let wasmInitialized = false;
 
@@ -37,17 +173,23 @@ function initWasm() {
 	// JS rewrite. Latch here instead so the compile happens exactly once.
 	if (wasmInitialized) return;
 
-	if (!(wasm_u8 instanceof Uint8Array))
+	const bytes = ensureWasmBytes();
+	if (!(bytes instanceof Uint8Array))
 		throw new Error("rewriter wasm not found (was it fetched correctly?)");
 
-	if (![...wasm_u8.slice(0, 4)].every((x, i) => x === MAGIC[i]))
+	if (
+		bytes[0] !== WASM_MAGIC[0] ||
+		bytes[1] !== WASM_MAGIC[1] ||
+		bytes[2] !== WASM_MAGIC[2] ||
+		bytes[3] !== WASM_MAGIC[3]
+	)
 		throw new Error(
 			"rewriter wasm does not have wasm magic (was it fetched correctly?)\nrewriter wasm contents: " +
-				textDecoder.decode(wasm_u8)
+				textDecoder.decode(bytes)
 		);
 
 	initSync({
-		module: new WebAssembly.Module(wasm_u8),
+		module: compiledModule ?? new WebAssembly.Module(bytes),
 	});
 	wasmInitialized = true;
 }

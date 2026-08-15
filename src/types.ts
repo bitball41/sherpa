@@ -44,10 +44,12 @@ export type SherpaFlags = {
 	 *
 	 * A service worker's synthesized responses are never kept in the browser's
 	 * HTTP cache, so with this off every navigation re-downloads *and*
-	 * re-rewrites every script, stylesheet, font and image the page touches.
-	 * Documents are never cached (a proxied document embeds a snapshot of the
-	 * cookie jar), and neither are responses that set cookies, carry
-	 * credentials, or `Vary` on anything Sherpa cannot reproduce.
+	 * re-rewrites every script, stylesheet, font, image and cacheable document
+	 * the page touches. Responses that set cookies, carry credentials, or
+	 * `Vary` on anything Sherpa cannot reproduce are still refused. Documents
+	 * skip heuristic freshness (they are stored only with an explicit lifetime
+	 * or a validator) because the cookie jar is loaded from a separate
+	 * no-store `$boot` script rather than being snapshotted into the HTML.
 	 */
 	responseCache: boolean;
 };
@@ -151,6 +153,8 @@ declare global {
 		COOKIE: string;
 		WASM: string;
 		REAL_WASM: Uint8Array;
+		__sherpaWasm?: Promise<ArrayBuffer>;
+		__sherpaWasmBuffer?: ArrayBuffer | Uint8Array;
 
 		/**
 		 * The sherpa client belonging to a window.

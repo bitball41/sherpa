@@ -84,6 +84,23 @@ export declare class SherpaClient {
     loadcookies(cookiestr: string): void;
     hook(): void;
     get url(): URL;
+    /**
+     * The URL relative references in this realm resolve against when the
+     * document carries no `<base href>`.
+     *
+     * Normally that is the document's own URL. `about:blank` and `about:srcdoc`
+     * have no URL to resolve against, though: per HTML they inherit their
+     * creator's base URL, and a proxied page uses those frames constantly -
+     * every ad slot, every widget that builds its contents with
+     * `contentDocument.write` or `innerHTML`, every `<iframe srcdoc>`. Sherpa
+     * resolved their relative URLs against `about:blank`, which resolves to
+     * nothing, so `rewriteUrl` handed the markup straight back and the browser
+     * resolved it against the *proxy's* origin instead of the site's.
+     *
+     * The document's own URL is deliberately left alone: `location.href` in an
+     * `about:blank` frame really is `"about:blank"`.
+     */
+    get fallbackBase(): URL;
     set url(url: URL | string);
     Proxy(name: string | string[], handler: Proxy): void;
     RawProxy(target: any, prop: string, handler: Proxy): void;

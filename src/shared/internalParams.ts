@@ -32,6 +32,8 @@ export const INTERNAL_PARAMS = {
 	/** Frame names used to emulate `_top` / `_parent` targeting. */
 	topFrame: `${INTERNAL_PARAM_PREFIX}topFrame`,
 	parentFrame: `${INTERNAL_PARAM_PREFIX}parentFrame`,
+	/** The virtual document URL, threaded through `${prefix}$boot`. */
+	url: `${INTERNAL_PARAM_PREFIX}url`,
 } as const;
 
 /** True for query parameters that belong to Sherpa rather than to the site. */
@@ -89,6 +91,8 @@ export function takeInternalParams(url: URL): SherpaRequestHints {
 				break;
 			case INTERNAL_PARAMS.parentFrame:
 				hints.parentFrameName = value;
+				break;
+			case INTERNAL_PARAMS.url:
 				break;
 			default:
 				if (!isInternalParam(param)) hints.siteParams.push([param, value]);

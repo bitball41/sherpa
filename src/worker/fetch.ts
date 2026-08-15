@@ -25,11 +25,11 @@ import { rewriteJs } from "@rewriters/js";
 import { flattenResponseHeaders, SherpaHeaders } from "@/shared/headers";
 import { config, flagEnabled } from "@/shared";
 import { rewriteHeaders } from "@rewriters/headers";
-import { bytesToBase64 } from "@rewriters/html";
 import { rewriteHtmlResponse } from "@/worker/htmlStream";
 import { rewriteCss } from "@rewriters/css";
 import { rewriteManifest } from "@rewriters/manifest";
 import { rewriteWorkers } from "@rewriters/worker";
+import { getWasmBytes, asyncSetWasm } from "@rewriters/wasm";
 import { SherpaDownload } from "@client/events";
 import {
 	createOriginHeader,
@@ -42,10 +42,18 @@ import { persistCookieStore } from "@/worker/cookiePersistence";
 import {
 	isHtmlContentType,
 	isRedirectStatus,
+	isSniffableHtmlContentType,
 	normalizeHtmlContentType,
 } from "@/worker/response";
 import { appendUrlParamEntries } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS, takeInternalParams } from "@/shared/internalParams";
+import {
+	engineBootPathname,
+	engineErrorPathname,
+	parseHttpUrl,
+	pickBootDocumentUrl,
+	renderBootScript,
+} from "@/shared/bootScripts";
 import {
 	canStoreResponseFor,
 	canUseStoredResponse,
@@ -71,8 +79,45 @@ async function fetchWithTransientRetry(
 	);
 }
 
-let cachedWasmPayload: Promise<string> | null = null;
-let cachedWasmPayloadPath: string | null = null;
+const WASM_FILE_HEADERS = {
+	"content-type": "application/wasm",
+	"cache-control": "public, max-age=31536000, immutable",
+	"cross-origin-resource-policy": "same-origin",
+};
+
+let wasmFileProto: Response | null = null;
+let wasmFileProtoBytes: Uint8Array | null = null;
+
+function wasmFileResponse(bytes: Uint8Array): Response {
+	if (wasmFileProto && wasmFileProtoBytes === bytes) return wasmFileProto.clone();
+	wasmFileProtoBytes = bytes;
+	wasmFileProto = new Response(bytes.slice(), { headers: WASM_FILE_HEADERS });
+
+	return wasmFileProto.clone();
+}
+
+function decodeTrustedDocumentUrl(
+	value: string | undefined | null
+): URL | null {
+	if (!value || value === "about:client") return null;
+	try {
+		return parseHttpUrl(unrewriteUrl(value));
+	} catch {
+		return null;
+	}
+}
+
+function bootDocumentUrl(
+	requestUrl: URL,
+	referrer: string,
+	clientHref?: string
+): URL | null {
+	return pickBootDocumentUrl(
+		parseHttpUrl(requestUrl.searchParams.get(INTERNAL_PARAMS.url)),
+		decodeTrustedDocumentUrl(referrer),
+		decodeTrustedDocumentUrl(clientHref)
+	);
+}
 
 // Destinations that render a document, and the destinations that must carry
 // COOP/COEP when the page is cross-origin isolated. Hoisted out of the
@@ -149,44 +194,27 @@ export async function handleFetch(
 		const requestUrl = new URL(request.url);
 
 		if (requestUrl.pathname === this.config.files.wasm) {
-			// this bootstrap script is requested by every proxied document, and
-			// base64-ing the ~0.5 MB rewriter used to happen on each one - build
-			// the payload once per worker lifetime and share it
-			if (cachedWasmPayloadPath !== this.config.files.wasm) {
-				const wasmPath = this.config.files.wasm;
-				cachedWasmPayloadPath = wasmPath;
-				cachedWasmPayload = fetch(wasmPath).then(async (x) => {
-					if (!x.ok) {
-						throw new Error(
-							`failed to fetch rewriter wasm: HTTP ${x.status} ${x.statusText}`
-						);
-					}
-					const b64 = bytesToBase64(new Uint8Array(await x.arrayBuffer()));
-
-					return (
-						"if ('document' in self && document.currentScript) { document.currentScript.remove(); }\n" +
-						`self.WASM = '${b64}';`
-					);
-				});
-				// don't pin a transient fetch failure for the worker's lifetime
-				cachedWasmPayload.catch(() => {
-					if (cachedWasmPayloadPath === wasmPath) {
-						cachedWasmPayloadPath = null;
-						cachedWasmPayload = null;
-					}
-				});
+			// Serve the rewriter as `application/wasm` from the copy the worker
+			// already loaded. Embedding it as a 695 KiB base64 classic script
+			// forced every document (and every iframe) to parse that JS on the
+			// main thread; a binary fetch overlaps the runtime download instead.
+			let bytes = getWasmBytes();
+			if (!bytes) {
+				await asyncSetWasm();
+				bytes = getWasmBytes();
+			}
+			if (!bytes) {
+				throw new Error("rewriter wasm not loaded");
 			}
 
-			return new Response(await cachedWasmPayload, {
-				headers: { "content-type": "text/javascript" },
-			});
+			return wasmFileResponse(bytes);
 		}
 
 		// Error-page preview. Navigating to `${prefix}$error` renders the themed
 		// error page with a representative sample trace, so developers can preview
 		// their `errorPage` customization without triggering a real fetch failure.
 		// `SherpaController.errorPreviewUrl` returns this URL.
-		if (requestUrl.pathname === this.config.prefix + "$error") {
+		if (requestUrl.pathname === engineErrorPathname(this.config.prefix)) {
 			const sampleTrace = [
 				"Message: Failed to fetch",
 				"Url: https://example.com/",
@@ -195,6 +223,27 @@ export async function handleFetch(
 			].join("\n\n");
 
 			return renderError(sampleTrace, "https://example.com/");
+		}
+
+		// Per-document boot script: a fresh cookie dump plus `loadAndHook`.
+		// Kept off the document HTML so rewritten documents can be cached
+		// without freezing a session into the replayed markup.
+		if (requestUrl.pathname === engineBootPathname(this.config.prefix)) {
+			const documentUrl = bootDocumentUrl(
+				requestUrl,
+				request.referrer,
+				client?.url
+			);
+			const dump = documentUrl
+				? this.cookieStore.dumpForDocument(documentUrl)
+				: "{}";
+
+			return new Response(renderBootScript(dump), {
+				headers: {
+					"content-type": "text/javascript; charset=utf-8",
+					"cache-control": "no-store",
+				},
+			});
 		}
 
 		// Only parameters under Sherpa's own namespace are hints for the engine.
@@ -498,7 +547,8 @@ export async function handleFetch(
 				cacheKey,
 				cachedEntry,
 				lowercaseHeaderRecord(response.rawHeaders),
-				now
+				now,
+				request.destination
 			);
 		}
 
@@ -631,30 +681,36 @@ async function handleResponse(
 	}
 
 	if (isRedirectResponse) {
-		const redirectUrl = new URL(unrewriteUrl(responseHeaders["location"]));
+		try {
+			const redirectUrl = new URL(unrewriteUrl(responseHeaders["location"]));
 
-		await updateTracker(
-			url.toString(),
-			redirectUrl.toString(),
-			responseHeaders["referrer-policy"]
-		);
+			await updateTracker(
+				url.toString(),
+				redirectUrl.toString(),
+				responseHeaders["referrer-policy"]
+			);
 
-		const redirectMeta = {
-			origin: redirectUrl,
-			base: redirectUrl,
-		};
-		const newSiteDirective = await getSiteDirective(
-			redirectMeta,
-			url,
-			bareClient
-		);
-		await getMostRestrictiveSite(redirectUrl.toString(), newSiteDirective);
+			const redirectMeta = {
+				origin: redirectUrl,
+				base: redirectUrl,
+			};
+			const newSiteDirective = await getSiteDirective(
+				redirectMeta,
+				url,
+				bareClient
+			);
+			await getMostRestrictiveSite(redirectUrl.toString(), newSiteDirective);
 
-		// ensure the module hint is not lost in a redirect
-		if (scriptType) {
-			const url = new URL(responseHeaders["location"]);
-			url.searchParams.set(INTERNAL_PARAMS.type, scriptType);
-			responseHeaders["location"] = url.href;
+			// ensure the module hint is not lost in a redirect
+			if (scriptType) {
+				const loc = new URL(responseHeaders["location"]);
+				loc.searchParams.set(INTERNAL_PARAMS.type, scriptType);
+				responseHeaders["location"] = loc.href;
+			}
+		} catch (error) {
+			// A malformed Location must not turn the redirect into an error page;
+			// the browser will fail the navigation on its own.
+			console.warn("Sherpa: ignoring an unparseable redirect Location", error);
 		}
 	}
 
@@ -821,7 +877,7 @@ async function handleResponse(
 	// drops `Set-Cookie` (it is consumed by the jar and never exposed to the
 	// page), and a response that sets cookies must not be replayed from cache.
 	const storePolicy = cacheKey
-		? responseCachePolicy(ev.status, rewrittenHeaders, now)
+		? responseCachePolicy(ev.status, rewrittenHeaders, now, destination)
 		: null;
 
 	const finalResponse = new Response(ev.responseBody, {
@@ -861,26 +917,43 @@ async function rewriteBody(
 ): Promise<BodyType> {
 	switch (destination) {
 		case "iframe":
-		case "document":
-			if (isHtmlContentType(response.headers.get("content-type"))) {
-				// The rewritten body always goes back out as UTF-8 regardless of
-				// the upstream charset, so the outgoing header must say so - an
-				// explicit HTTP charset takes priority over any now-stale
-				// in-document <meta charset> declaration, so this alone is
-				// enough to stop the browser re-mojibake-ing it.
-				responseHeaders["content-type"] = normalizeHtmlContentType(
-					responseHeaders["content-type"]
-				);
-
-				return rewriteHtmlResponse(
+		case "document": {
+			const contentType = response.headers.get("content-type");
+			if (
+				isHtmlContentType(contentType) ||
+				isSniffableHtmlContentType(contentType)
+			) {
+				const rewritten = await rewriteHtmlResponse(
 					response.body,
-					response.headers.get("content-type"),
+					contentType,
 					cookieStore,
-					meta
+					meta,
+					!isHtmlContentType(contentType)
 				);
-			} else {
-				return response.body;
+				if (rewritten.rewrote) {
+					// The rewritten body always goes back out as UTF-8 regardless of
+					// the upstream charset, so the outgoing header must say so - an
+					// explicit HTTP charset takes priority over any now-stale
+					// in-document <meta charset> declaration, so this alone is
+					// enough to stop the browser re-mojibake-ing it.
+					responseHeaders["content-type"] = normalizeHtmlContentType(
+						responseHeaders["content-type"]
+					);
+				}
+
+				const body = rewritten.body;
+				if (body instanceof Uint8Array) {
+					const copy = new Uint8Array(body.byteLength);
+					copy.set(body);
+
+					return copy.buffer;
+				}
+
+				return body;
 			}
+
+			return response.body;
+		}
 		case "script": {
 			return rewriteJs(
 				new Uint8Array(await response.arrayBuffer()),
