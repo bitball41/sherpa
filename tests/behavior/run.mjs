@@ -54,9 +54,21 @@ try {
 		.find((f) => f !== page.mainFrame() && f.url() === href);
 	if (!frame) throw new Error(`could not find the proxied frame for ${href}`);
 
-	await frame.waitForFunction(() => window.__sherpaDone === true, null, {
-		timeout: 30000,
-	});
+	try {
+		await frame.waitForFunction(() => window.__sherpaDone === true, null, {
+			timeout: 30000,
+		});
+	} catch (error) {
+		const state = await frame.evaluate(() => ({
+			readyState: document.readyState,
+			done: window.__sherpaDone ?? null,
+			results: window.__sherpaResults ?? null,
+			loadClient: typeof window.$scramjetLoadClient,
+		}));
+		console.error("proxied frame did not finish", state);
+		if (pageErrors.length) console.error("page errors", pageErrors);
+		throw error;
+	}
 
 	const results = await frame.evaluate(() => window.__sherpaResults);
 
