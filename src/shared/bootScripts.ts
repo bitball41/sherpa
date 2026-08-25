@@ -40,11 +40,21 @@ export function engineErrorPathname(prefix: string): string {
 let serializedConfig = "";
 let serializedConfigSource: object | null = null;
 
-/** `JSON.stringify(config)`, cached on config identity (see `setConfig`). */
+/**
+ * Config JSON embedded in every proxied document's `$boot` script.
+ *
+ * Omits `errorPage` — that theme is only needed on the worker's `$error`
+ * route, and dumping `repoUrl` / brand colors into every page is needless
+ * page-surface signal. The worker still holds the full config via IDB /
+ * `loadConfig`.
+ */
 export function configLiteral(): string {
 	if (serializedConfigSource !== config) {
 		serializedConfigSource = config;
-		serializedConfig = JSON.stringify(config);
+		const { errorPage: _errorPage, ...pageConfig } = config as typeof config & {
+			errorPage?: unknown;
+		};
+		serializedConfig = JSON.stringify(pageConfig);
 	}
 
 	return serializedConfig;
@@ -72,9 +82,9 @@ export function parseHttpUrl(value: string | null | undefined): URL | null {
 /**
  * The virtual document whose cookies `${prefix}$boot` may dump.
  *
- * `sherpa.url` is a hint from the injected script tag, not authentication.
+ * `scramjet.url` is a hint from the injected script tag, not authentication.
  * Every virtual origin shares one physical origin, so a page could otherwise
- * `fetch("${prefix}$boot?sherpa.url=https://other.example/")` and read that
+ * `fetch("${prefix}$boot?scramjet.url=https://other.example/")` and read that
  * host's `document.cookie` jar. The hint is honored only when it same-origin
  * matches a URL the browser itself attributed to this request (Referer or the
  * requesting client); otherwise those trusted URLs win, and a request with
@@ -103,9 +113,9 @@ function wasmPrefetchSrc(wasmUrl: string): string {
 	// `loadAndHook` also starts the same fetch in case this script was skipped
 	// (a worker bootstrap, a srcdoc that inherited a different inject path).
 	const source =
-		"self.__sherpaWasm=fetch(" +
+		"self.__scramjetWasm=fetch(" +
 		JSON.stringify(wasmUrl) +
-		").then(function(r){return r.arrayBuffer()}).then(function(b){self.__sherpaWasmBuffer=b;return b});" +
+		").then(function(r){return r.arrayBuffer()}).then(function(b){self.__scramjetWasmBuffer=b;return b});" +
 		"if('document' in self && document.currentScript)document.currentScript.remove();";
 	if (source !== lastPrefetchSource) {
 		lastPrefetchSource = source;
@@ -136,7 +146,7 @@ export function renderBootScript(cookieDump: string): string {
 	return (
 		"self.COOKIE=" +
 		JSON.stringify(cookieDump) +
-		";$sherpaLoadClient().loadAndHook(" +
+		";$scramjetLoadClient().loadAndHook(" +
 		configLiteral() +
 		');if("document" in self && document.currentScript)document.currentScript.remove();'
 	);
@@ -156,11 +166,11 @@ export function wasmSyncLoaderSource(wasmUrl: string): string {
 		"(function(){var x=new XMLHttpRequest();x.open('GET'," +
 		href +
 		",false);try{x.responseType='arraybuffer'}catch(e){}" +
-		"x.send(null);if(x.response instanceof ArrayBuffer)self.__sherpaWasmBuffer=x.response;" +
+		"x.send(null);if(x.response instanceof ArrayBuffer)self.__scramjetWasmBuffer=x.response;" +
 		"else{x=new XMLHttpRequest();x.open('GET'," +
 		href +
 		",false);x.overrideMimeType('text/plain; charset=x-user-defined');x.send(null);" +
 		"var t=x.responseText,b=new Uint8Array(t.length);for(var i=0;i<t.length;i++)b[i]=t.charCodeAt(i)&255;" +
-		"self.__sherpaWasmBuffer=b.buffer}})();\n"
+		"self.__scramjetWasmBuffer=b.buffer}})();\n"
 	);
 }

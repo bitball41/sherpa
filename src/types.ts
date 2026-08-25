@@ -147,6 +147,7 @@ export interface SherpaInitConfig extends Omit<
 declare global {
 	var $sherpaLoadController: () => typeof controller;
 	var $sherpaLoadClient: () => typeof client;
+	var $scramjetLoadClient: () => typeof client;
 	var $sherpaLoadWorker: () => typeof worker;
 	var $sherpaVersion: SherpaVersionInfo;
 	interface Window {

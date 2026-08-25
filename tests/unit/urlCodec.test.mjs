@@ -100,7 +100,7 @@ test("restoring form parameters preserves duplicate names and order", () => {
 test("decoding strips sherpa's own query hints but keeps the site's", () => {
 	// The hints are appended to the *proxied* URL in cleartext, after the
 	// encoded target - exactly how the client builds a worker or module URL.
-	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker&sherpa.type=module`;
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?scramjet.dest=worker&scramjet.type=module`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),
@@ -119,11 +119,11 @@ test("a site parameter that merely looks internal is preserved", () => {
 
 test("stripping hints leaves the fragment alone", () => {
 	assert.equal(
-		stripInternalParams("https://example.com/a?sherpa.type=module#frag"),
+		stripInternalParams("https://example.com/a?scramjet.type=module#frag"),
 		"https://example.com/a#frag"
 	);
 	assert.equal(
-		stripInternalParams("https://example.com/a?x=1&sherpa.type=module#frag"),
+		stripInternalParams("https://example.com/a?x=1&scramjet.type=module#frag"),
 		"https://example.com/a?x=1#frag"
 	);
 	// nothing internal: returned by identity, no re-serialization
@@ -150,7 +150,7 @@ test("a query appended to a proxied url replaces the target's own", () => {
 });
 
 test("an appended query survives alongside the fragment and sherpa's hints", () => {
-	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?q=new&sherpa.type=module#${encode("frag")}`;
+	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?q=new&scramjet.type=module#${encode("frag")}`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),
@@ -168,7 +168,7 @@ test("an empty appended query clears the target's own", () => {
 });
 
 test("hints alone never disturb the target's own query", () => {
-	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker`;
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?scramjet.dest=worker`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),

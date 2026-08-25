@@ -327,7 +327,7 @@ test("the cache key separates variants that rewrite differently", () => {
 	assert.notEqual(asScript, asStyle);
 	assert.notEqual(asScript, asModule);
 	assert.equal(asScript, cacheKeyUrl(url, "script", "", none));
-	assert.ok(asScript.startsWith("https://example.com/asset?sherpa.cache="));
+	assert.ok(asScript.startsWith("https://example.com/asset?scramjet.cache="));
 });
 
 test("the cache key separates the request headers a response may vary on", () => {
@@ -354,5 +354,5 @@ test("the cache key keeps the site's own query string intact", () => {
 	const parsed = new URL(key);
 	assert.equal(parsed.searchParams.get("v"), "2");
 	assert.equal(parsed.searchParams.get("q"), "hi");
-	assert.ok(parsed.searchParams.has("sherpa.cache"));
+	assert.ok(parsed.searchParams.has("scramjet.cache"));
 });

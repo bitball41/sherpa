@@ -13,12 +13,16 @@
  * `?dest=serviceworker` made the client boot as an emulated service worker.
  *
  * Namespacing them removes the collision: everything under this prefix
- * belongs to Sherpa and is stripped before the upstream request, everything
+ * belongs to the engine and is stripped before the upstream request, everything
  * else is the site's and is passed through untouched. The prefix uses `.`
  * rather than `$` or `_` so `URLSearchParams` serialization leaves it
  * readable instead of percent-encoding it.
+ *
+ * Spelled `scramjet.` (not `sherpa.`) so proxied script/worker URLs share the
+ * same vocabulary as stock Scramjet 1.x on the page surface. The namespace is
+ * still required — bare `type`/`dest` collided with real site query params.
  */
-export const INTERNAL_PARAM_PREFIX = "sherpa.";
+export const INTERNAL_PARAM_PREFIX = "scramjet.";
 
 export const INTERNAL_PARAMS = {
 	/** `"module"` for module scripts/workers, so the rewriter picks the right parse goal. */

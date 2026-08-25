@@ -338,7 +338,7 @@ export function cacheVariantToken(
  * keeps zero imports and stays loadable on its own; `tests/unit/httpCache`
  * pins it to the shared namespace.
  */
-export const CACHE_KEY_PARAM = "sherpa.cache";
+export const CACHE_KEY_PARAM = "scramjet.cache";
 
 /**
  * Builds the key a variant is stored under: the real upstream URL (so the

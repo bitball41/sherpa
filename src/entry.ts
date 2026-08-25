@@ -205,6 +205,9 @@ globalThis.$sherpaLoadController = $sherpaLoadController;
 globalThis.$sherpaLoadClient = $sherpaLoadClient;
 globalThis.$sherpaLoadWorker = $sherpaLoadWorker;
 globalThis.$sherpaVersion = $sherpaVersion;
+// Page-facing boot scripts call the Scramjet-compatible name so proxied
+// documents do not embed the rarer Sherpa brand in every `$boot` body.
+globalThis.$scramjetLoadClient = $sherpaLoadClient;
 
 if ("document" in globalThis && document?.currentScript) {
 	document.currentScript.remove();

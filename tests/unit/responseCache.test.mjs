@@ -70,7 +70,7 @@ class FakeCacheStorage {
 
 const baseConfig = {
 	prefix: "/sherpa/",
-	globals: { wrapfn: "$sherpa$wrap" },
+	globals: { wrapfn: "$scramjet$wrap" },
 	files: { wasm: "/sherpa.wasm.wasm" },
 	flags: { responseCache: true },
 	siteFlags: {},
@@ -98,7 +98,7 @@ async function reset() {
 	await cache.clearResponseCache();
 }
 
-const KEY = "https://example.com/app.js?sherpa.cache=deadbeef";
+const KEY = "https://example.com/app.js?scramjet.cache=deadbeef";
 
 test("a fresh entry round-trips body, status and headers", async () => {
 	install();
@@ -253,7 +253,7 @@ test("the bucket is trimmed once it grows past its ceiling", async () => {
 	for (let i = 0; i < 560; i++) {
 		// eslint-disable-next-line no-await-in-loop
 		await cache.storeCachedResponse(
-			`https://example.com/asset-${i}?sherpa.cache=x`,
+			`https://example.com/asset-${i}?scramjet.cache=x`,
 			policy,
 			new Response(`body ${i}`),
 			NOW
@@ -268,7 +268,7 @@ test("the bucket is trimmed once it grows past its ceiling", async () => {
 	// eviction is oldest-first, so the most recent writes have to survive
 	assert.ok(
 		await cache.lookupCachedResponse(
-			"https://example.com/asset-559?sherpa.cache=x",
+			"https://example.com/asset-559?scramjet.cache=x",
 			NOW
 		)
 	);

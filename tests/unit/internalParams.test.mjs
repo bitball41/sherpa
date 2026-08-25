@@ -69,9 +69,9 @@ test("the boot document url hint is consumed, not forwarded to the site", () => 
 	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
 });
 
-test("unknown sherpa.* parameters are stripped, not forwarded", () => {
+test("unknown scramjet.* parameters are stripped, not forwarded", () => {
 	const url = new URL(
-		"https://proxy.test/sherpa/encoded?sherpa.somethingnew=1&keep=2"
+		"https://proxy.test/sherpa/encoded?scramjet.somethingnew=1&keep=2"
 	);
 
 	assert.deepEqual(takeInternalParams(url).siteParams, [["keep", "2"]]);
@@ -104,5 +104,5 @@ test("internal parameter names survive URLSearchParams unescaped", () => {
 	const params = new URLSearchParams();
 	params.set(INTERNAL_PARAMS.type, "module");
 
-	assert.equal(params.toString(), "sherpa.type=module");
+	assert.equal(params.toString(), "scramjet.type=module");
 });

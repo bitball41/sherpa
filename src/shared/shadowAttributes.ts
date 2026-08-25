@@ -1,7 +1,12 @@
 /**
  * Sherpa rewrites a page's URL-bearing attributes in place and keeps the value
- * the page actually authored in a parallel `sherpa-attr-*` attribute, so the
- * attribute APIs (and now selectors) can hand the original back.
+ * the page actually authored in a parallel shadow attribute, so the attribute
+ * APIs (and now selectors) can hand the original back.
+ *
+ * The prefix deliberately matches Scramjet 1.x (`scramjet-attr-`). These names
+ * are written into every proxied document's DOM; a rare brand string there is
+ * what content filters latch onto when they scan the page. The public API
+ * stays Sherpa — only the page-facing surface shares Scramjet's vocabulary.
  *
  * This module is deliberately dependency-free: the selector rewriter needs to
  * know which attribute names are shadowed, and `htmlRules` - the table those
@@ -12,7 +17,7 @@
  * Prefix of the shadow attributes that keep a page's *original* attribute
  * values readable after Sherpa rewrites them.
  */
-export const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
+export const SHADOW_ATTRIBUTE_PREFIX = "scramjet-attr-";
 
 /** Shadow attribute holding the base64 source of a rewritten inline script. */
 export const SCRIPT_SOURCE_ATTRIBUTE = `${SHADOW_ATTRIBUTE_PREFIX}script-source-src`;

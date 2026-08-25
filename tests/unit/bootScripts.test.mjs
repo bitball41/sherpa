@@ -20,7 +20,7 @@ const { INTERNAL_PARAMS } = await import("../../src/shared/internalParams.ts");
 
 const config = {
 	prefix: "/sherpa/",
-	globals: { wrapfn: "$sherpa$wrap" },
+	globals: { wrapfn: "$scramjet$wrap" },
 	files: {
 		wasm: "/sherpa.wasm.wasm",
 		all: "/sherpa.all.js",
@@ -68,16 +68,23 @@ test("the boot script carries a cookie dump and loadAndHook, not the wasm", () =
 	});
 	const body = renderBootScript(dump);
 	assert.equal(body.startsWith("self.COOKIE="), true);
-	assert.equal(body.includes("$sherpaLoadClient().loadAndHook("), true);
+	assert.equal(body.includes("$scramjetLoadClient().loadAndHook("), true);
 	assert.equal(body.includes(configLiteral()), true);
 	assert.equal(body.includes("self.WASM"), false);
 	assert.ok(body.length < 4000, `boot script is ${body.length} bytes`);
 	const cookieLiteral = body.slice(
 		"self.COOKIE=".length,
-		body.indexOf(";$sherpaLoadClient")
+		body.indexOf(";$scramjetLoadClient")
 	);
 	const jar = JSON.parse(JSON.parse(cookieLiteral));
 	assert.equal(jar["example.com@session"].value, "abc");
+});
+
+test("boot config omits errorPage branding from every document", () => {
+	const literal = configLiteral();
+	assert.equal(literal.includes("errorPage"), false);
+	assert.equal(literal.includes("err"), false);
+	assert.ok(literal.includes("\"prefix\":\"/sherpa/\""));
 });
 
 test("the boot script url encodes the virtual document, not a proxied one", () => {
@@ -106,7 +113,7 @@ test("parseHttpUrl accepts only http(s)", () => {
 	assert.equal(parseHttpUrl(null), null);
 });
 
-test("$boot ignores a cross-origin sherpa.url hint", () => {
+test("$boot ignores a cross-origin scramjet.url hint", () => {
 	const hinted = new URL("https://victim.example/");
 	const attacker = new URL("https://evil.example/");
 	assert.equal(
@@ -117,7 +124,7 @@ test("$boot ignores a cross-origin sherpa.url hint", () => {
 	assert.equal(pickBootDocumentUrl(hinted, null, null), null);
 });
 
-test("$boot honors a same-origin sherpa.url hint", () => {
+test("$boot honors a same-origin scramjet.url hint", () => {
 	const hinted = new URL("https://example.com/app/page");
 	const referrer = new URL("https://example.com/");
 	assert.equal(

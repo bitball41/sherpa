@@ -27,6 +27,8 @@ export const DEFAULT_ERROR_PAGE: SherpaErrorPageConfig = {
 		'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 	title: "Uh oh!",
 	logo: "",
-	repoUrl: "https://github.com/bitball41/sherpa",
+	// Empty by default so every proxied document's boot config does not ship a
+	// distinctive repo URL. Hosts that want the troubleshooting link set it.
+	repoUrl: "",
 	css: "",
 };

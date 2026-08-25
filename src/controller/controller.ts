@@ -35,25 +35,29 @@ export class SherpaController extends EventTarget {
 		// sane ish defaults
 		const defaultConfig: SherpaConfig = {
 			// wisp: "/wisp/",
-			prefix: "/sherpa/",
+			prefix: "/scramjet/",
+			// Page-facing wrap identifiers match Scramjet 1.x. They are emitted
+			// into every rewritten script; keeping the rare "sherpa" brand here
+			// is what made filtered networks block Sherpa-proxied pages while
+			// the same sites worked under stock Scramjet.
 			globals: {
-				wrapfn: "$sherpa$wrap",
-				wrappropertybase: "$sherpa__",
-				wrappropertyfn: "$sherpa$prop",
-				cleanrestfn: "$sherpa$clean",
-				importfn: "$sherpa$import",
-				rewritefn: "$sherpa$rewrite",
-				metafn: "$sherpa$meta",
-				setrealmfn: "$sherpa$setrealm",
-				pushsourcemapfn: "$sherpa$pushsourcemap",
-				trysetfn: "$sherpa$tryset",
-				templocid: "$sherpa$temploc",
-				tempunusedid: "$sherpa$tempunused",
+				wrapfn: "$scramjet$wrap",
+				wrappropertybase: "$scramjet__",
+				wrappropertyfn: "$scramjet$prop",
+				cleanrestfn: "$scramjet$clean",
+				importfn: "$scramjet$import",
+				rewritefn: "$scramjet$rewrite",
+				metafn: "$scramjet$meta",
+				setrealmfn: "$scramjet$setrealm",
+				pushsourcemapfn: "$scramjet$pushsourcemap",
+				trysetfn: "$scramjet$tryset",
+				templocid: "$scramjet$temploc",
+				tempunusedid: "$scramjet$tempunused",
 			},
 			files: {
-				wasm: "/sherpa.wasm.wasm",
-				all: "/sherpa.all.js",
-				sync: "/sherpa.sync.js",
+				wasm: "/scramjet.wasm.wasm",
+				all: "/scramjet.all.js",
+				sync: "/scramjet.sync.js",
 			},
 			flags: {
 				serviceworkers: false,

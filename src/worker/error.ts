@@ -23,7 +23,12 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                 errorTrace.value = ${JSON.stringify(trace)};
                 fetchedURL.textContent = ${JSON.stringify(fetchedURL)};
                 errorTitle.textContent = ${JSON.stringify(theme.title)};
+                document.title = ${JSON.stringify(theme.title)};
                 repoLink.href = ${JSON.stringify(theme.repoUrl)};
+                if (!${JSON.stringify(Boolean(theme.repoUrl))}) {
+                    const repoItem = repoLink.closest("li");
+                    if (repoItem) repoItem.hidden = true;
+                }
                 for (const node of document.querySelectorAll("#hostname")) node.textContent = ${JSON.stringify(location.hostname)};
                 reload.addEventListener("click", () => location.reload());
                 version.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.version || "unknown")};
@@ -47,7 +52,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
             <html>
                 <head>
                     <meta charset="utf-8" />
-                    <title>Sherpa</title>
+                    <title></title>
                     <style>
                     :root {
                         --background: ${theme.background};
@@ -202,7 +207,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                                 <p>If you're the administrator of <b id="hostname"></b>, try:</p>
                                     <ul>
                                     <li>Restarting your server</li>
-                                    <li>Updating Sherpa</li>
+                                    <li>Updating the proxy engine</li>
                                     <li>Troubleshooting the error on the <a id="repoLink" target="_blank" rel="noreferrer">GitHub repository</a></li>
                                 </ul>
                             </div>
@@ -210,7 +215,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                         <br>
                         <button id="reload" class="primary">Reload</button>
                     </div>
-                    <p id="version-wrapper"><i>Sherpa v<span id="version"></span> (build <span id="build"></span>)</i></p>
+                    <p id="version-wrapper"><i>v<span id="version"></span> (build <span id="build"></span>)</i></p>
                     <script src="${"data:application/javascript," + encodeURIComponent(script)}"></script>
                 </body>
             </html>

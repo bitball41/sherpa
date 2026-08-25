@@ -97,7 +97,7 @@ check("element.attributes hides sherpa's shadow attributes", () => {
 	const a = document.getElementById("intro");
 	const names = [];
 	for (let i = 0; i < a.attributes.length; i++) names.push(a.attributes[i].name);
-	if (names.some((n) => n.startsWith("sherpa-attr-")))
+	if (names.some((n) => n.startsWith("scramjet-attr-")))
 		throw new Error("shadow attribute visible: " + names.join(","));
 	if (names.indexOf("href") === -1) throw new Error("href missing: " + names.join(","));
 	if (names.indexOf("id") === -1) throw new Error("id missing: " + names.join(","));
@@ -109,7 +109,7 @@ check("element.attributes hides sherpa's shadow attributes", () => {
 check("spreading element.attributes agrees with its length", () => {
 	const a = document.getElementById("intro");
 	const spread = Array.from(a.attributes);
-	if (spread.some((attr) => !attr || attr.name.startsWith("sherpa-attr-")))
+	if (spread.some((attr) => !attr || attr.name.startsWith("scramjet-attr-")))
 		throw new Error("shadow attribute leaked into iteration");
 	return eq(spread.length, a.attributes.length, "spread length");
 });
@@ -277,7 +277,7 @@ check("shadowRoot.setHTMLUnsafe rewrites a subresource url", () => {
 
 check("shadowRoot.innerHTML reads back the authored markup", () => {
 	const root = shadowHost('<img id="sr" src="/img/pixel-a.png">');
-	if (root.innerHTML.indexOf("sherpa-attr-") !== -1)
+	if (root.innerHTML.indexOf("scramjet-attr-") !== -1)
 		throw new Error("shadow attribute leaked: " + root.innerHTML);
 	return eq(root.innerHTML.indexOf('src="/img/pixel-a.png"') !== -1, true, "authored src");
 });
@@ -483,7 +483,7 @@ check("<a ping> is rewritten and reads back as authored", () => {
 	eq(a.getAttribute("ping"), "/beacon/one /beacon/two", "authored value");
 	eq(a.ping, "/beacon/one /beacon/two", "reflected value");
 	const rewritten = a.outerHTML;
-	if (rewritten.indexOf("sherpa-attr-ping") !== -1)
+	if (rewritten.indexOf("scramjet-attr-ping") !== -1)
 		throw new Error("shadow attribute leaked into markup: " + rewritten);
 	return "ok";
 });
@@ -596,7 +596,7 @@ const ASYNC_CHECKS = String.raw`
 	});
 
 	await check("a worker's own location carries none of sherpa's hints", async () => {
-		// The engine threads 'sherpa.dest'/'sherpa.type' through the query string
+		// The engine threads 'scramjet.dest'/'scramjet.type' through the query string
 		// of the URLs it hands the browser. They are stripped before the upstream
 		// request, but they used to survive into what the *page* reads back, so a
 		// worker configured by its own search params saw one it never set.
@@ -607,7 +607,7 @@ const ASYNC_CHECKS = String.raw`
 			setTimeout(() => rejectMsg(new Error("worker timed out")), 10000);
 		});
 		worker.terminate();
-		if (data.href.indexOf("sherpa.") !== -1)
+		if (data.href.indexOf("scramjet.") !== -1)
 			throw new Error("internal hint leaked into location.href: " + data.href);
 		eq(data.search, "", "location.search");
 		return eq(data.href, "http://127.0.0.1:4720/worker.js", "location.href");
@@ -745,7 +745,7 @@ const ASYNC_CHECKS = String.raw`
 	});
 
 	await check("a mutation observer never sees sherpa's bookkeeping", async () => {
-		// Sherpa records the authored value in a sherpa-attr-* attribute, which
+		// Sherpa records the authored value in a scramjet-attr-* attribute, which
 		// is a DOM mutation like any other: an observer saw two records per
 		// rewritten attribute, one of them for an attribute the page has never
 		// heard of, and the real one carried a proxied oldValue.

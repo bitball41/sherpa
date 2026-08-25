@@ -17,7 +17,11 @@ declare const REWRITERWASM: string | undefined;
 
 type WasmHolder = {
 	WASM?: string;
+	__scramjetWasm?: Promise<ArrayBuffer>;
+	__scramjetWasmBuffer?: ArrayBuffer | Uint8Array<ArrayBuffer>;
+	/** @deprecated Prefer `__scramjetWasm`; kept for in-flight pages mid-upgrade. */
 	__sherpaWasm?: Promise<ArrayBuffer>;
+	/** @deprecated Prefer `__scramjetWasmBuffer`. */
 	__sherpaWasmBuffer?: ArrayBuffer | Uint8Array<ArrayBuffer>;
 };
 
@@ -27,7 +31,7 @@ function wasmHolder(): WasmHolder {
 
 function takePendingWasmBuffer(): Uint8Array<ArrayBuffer> | undefined {
 	const holder = wasmHolder();
-	const pending = holder.__sherpaWasmBuffer;
+	const pending = holder.__scramjetWasmBuffer ?? holder.__sherpaWasmBuffer;
 	if (pending instanceof ArrayBuffer) return new Uint8Array(pending);
 	if (pending instanceof Uint8Array) return pending;
 	if (typeof holder.WASM === "string") return base64ToBytes(holder.WASM);
@@ -106,7 +110,7 @@ export function beginWasmFetch(
 	}
 	if (wasmLoadPromise) return wasmLoadPromise;
 
-	const started = wasmHolder().__sherpaWasm;
+	const started = wasmHolder().__scramjetWasm ?? wasmHolder().__sherpaWasm;
 	wasmLoadPromise = Promise.resolve(
 		started ??
 			fetch(url).then((response) => {
