@@ -66,12 +66,15 @@ fn get_config(sherpa: &Object) -> Result<Config> {
 
 pub struct WasmUrlRewriter(Function);
 
+/// Keep the module hint in the same private namespace as the TypeScript URL
+/// helpers. This URL is created inside the Rust rewriter, so it cannot import
+/// `src/shared/pageSurface.ts` and must stay covered by the test below.
 fn append_module_param(url: &mut String) {
 	let fragment = url.find('#').unwrap_or(url.len());
 	let separator = if url[..fragment].contains('?') {
-		"&type=module"
+		"&scramjet.type=module"
 	} else {
-		"?type=module"
+		"?scramjet.type=module"
 	};
 	url.insert_str(fragment, separator);
 }
@@ -114,13 +117,13 @@ mod tests {
 	fn module_param_precedes_fragments_and_preserves_queries() {
 		let mut plain = String::from("/proxy/encoded#fragment");
 		append_module_param(&mut plain);
-		assert_eq!(plain, "/proxy/encoded?type=module#fragment");
+		assert_eq!(plain, "/proxy/encoded?scramjet.type=module#fragment");
 
-		let mut queried = String::from("/proxy/encoded?dest=script#fragment");
+		let mut queried = String::from("/proxy/encoded?scramjet.dest=script#fragment");
 		append_module_param(&mut queried);
 		assert_eq!(
 			queried,
-			"/proxy/encoded?dest=script&type=module#fragment"
+			"/proxy/encoded?scramjet.dest=script&scramjet.type=module#fragment"
 		);
 	}
 }
