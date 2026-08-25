@@ -66,12 +66,15 @@ fn get_config(sherpa: &Object) -> Result<Config> {
 
 pub struct WasmUrlRewriter(Function);
 
+/// Keep the module hint in Sherpa's private namespace. This URL is created
+/// inside the Rust rewriter rather than by the TypeScript URL helpers, so it
+/// must stay in sync with `src/shared/internalParams.ts`.
 fn append_module_param(url: &mut String) {
 	let fragment = url.find('#').unwrap_or(url.len());
 	let separator = if url[..fragment].contains('?') {
-		"&type=module"
+		"&sherpa.type=module"
 	} else {
-		"?type=module"
+		"?sherpa.type=module"
 	};
 	url.insert_str(fragment, separator);
 }
@@ -114,13 +117,13 @@ mod tests {
 	fn module_param_precedes_fragments_and_preserves_queries() {
 		let mut plain = String::from("/proxy/encoded#fragment");
 		append_module_param(&mut plain);
-		assert_eq!(plain, "/proxy/encoded?type=module#fragment");
+		assert_eq!(plain, "/proxy/encoded?sherpa.type=module#fragment");
 
-		let mut queried = String::from("/proxy/encoded?dest=script#fragment");
+		let mut queried = String::from("/proxy/encoded?sherpa.dest=script#fragment");
 		append_module_param(&mut queried);
 		assert_eq!(
 			queried,
-			"/proxy/encoded?dest=script&type=module#fragment"
+			"/proxy/encoded?sherpa.dest=script&sherpa.type=module#fragment"
 		);
 	}
 }

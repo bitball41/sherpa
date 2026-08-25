@@ -53,6 +53,14 @@ test("decodeProxyUrl passes embedded blob and data URLs through", () => {
 		decodeProxyUrl("/sherpa/data:text/plain,hello", "/sherpa/", decode),
 		"data:text/plain,hello"
 	);
+  assert.equal(
+    decodeProxyUrl(
+      "/sherpa/blob:https://proxy.test/id?sherpa.dest=worker",
+      "/sherpa/",
+      decode
+    ),
+    "blob:https://proxy.test/id"
+  );
 });
 
 test("appendUrlParams inserts internal parameters before fragments", () => {

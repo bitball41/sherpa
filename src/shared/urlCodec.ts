@@ -119,7 +119,10 @@ export function decodeProxyUrl(
 	if (!url.startsWith(proxyPrefix)) return url;
 
 	const encoded = url.slice(proxyPrefix.length);
-	if (/^(?:blob|data):/i.test(encoded)) return encoded;
+  // Blob/data targets are carried through the prefix verbatim, but the
+  // runtime can still append Sherpa's internal hints to the proxied URL.
+  // Remove those hints before exposing the URL back to the page.
+  if (/^(?:blob|data):/i.test(encoded)) return stripInternalParams(encoded);
 
 	const hashIndex = encoded.indexOf("#");
 	if (hashIndex === -1) return decodeProxyTarget(encoded, decode);
