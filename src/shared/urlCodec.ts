@@ -1,4 +1,7 @@
-import { INTERNAL_PARAM_PREFIX } from "@/shared/internalParams";
+import {
+	INTERNAL_PARAM_PREFIX,
+	isInternalQueryParam,
+} from "@/shared/internalParams";
 
 export type UrlCodec = (value: string) => string;
 
@@ -16,7 +19,11 @@ export type UrlCodec = (value: string) => string;
 export function stripInternalParams(url: string): string {
 	// The overwhelming majority of URLs carry none of these, and this runs on
 	// every unrewrite; reject on a substring scan before doing any parsing.
-	if (url.indexOf(INTERNAL_PARAM_PREFIX) === -1) return url;
+	if (
+		url.indexOf(INTERNAL_PARAM_PREFIX) === -1 &&
+		url.indexOf("type=module") === -1
+	)
+		return url;
 
 	const queryIndex = url.indexOf("?");
 	if (queryIndex === -1) return url;
@@ -26,7 +33,11 @@ export function stripInternalParams(url: string): string {
 		queryIndex + 1,
 		hashIndex === -1 ? undefined : hashIndex
 	);
-	if (query.indexOf(INTERNAL_PARAM_PREFIX) === -1) return url;
+	if (
+		query.indexOf(INTERNAL_PARAM_PREFIX) === -1 &&
+		query.indexOf("type=module") === -1
+	)
+		return url;
 
 	// The prefix ends in `.`, which `URLSearchParams` serialization leaves
 	// as-is, so the raw parameter name can be tested without decoding it.
@@ -36,7 +47,8 @@ export function stripInternalParams(url: string): string {
 		if (pair === "") continue;
 		const equals = pair.indexOf("=");
 		const name = equals === -1 ? pair : pair.slice(0, equals);
-		if (name.startsWith(INTERNAL_PARAM_PREFIX)) removed = true;
+		const value = equals === -1 ? "" : pair.slice(equals + 1);
+		if (isInternalQueryParam(name, value)) removed = true;
 		else kept.push(pair);
 	}
 	if (!removed) return url;

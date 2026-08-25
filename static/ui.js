@@ -3,7 +3,7 @@ const { SherpaController } = $sherpaLoadController();
 const sherpa = new SherpaController({
 	files: {
 		wasm: "/engine/sherpa.wasm.wasm",
-		all: "/engine/sherpa.all.js",
+		all: "/engine/sherpa.client.js",
 		sync: "/engine/sherpa.sync.js",
 	},
 	flags: {

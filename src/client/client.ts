@@ -1,4 +1,4 @@
-import { SherpaFrame } from "@/controller/frame";
+import type { SherpaFrame } from "@/controller/frame";
 import { SHERPACLIENT, SHERPAFRAME } from "@/symbols";
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { createLocationProxy } from "@client/location";
@@ -133,7 +133,7 @@ export class SherpaClient {
 	constructor(public global: typeof globalThis) {
 		if (SHERPACLIENT in global) {
 			console.error(
-				"attempted to initialize a sherpa client, but one is already loaded - this is very bad"
+				"attempted to initialize a scramjet client, but one is already loaded - this is very bad"
 			);
 			throw new Error();
 		}
@@ -180,7 +180,7 @@ export class SherpaClient {
 				new Promise((resolve) => {
 					addEventListener("message", ({ data }) => {
 						if (typeof data !== "object") return;
-						if ("$sherpa$type" in data && data.$sherpa$type === "baremuxinit") {
+						if ("$scramjet$type" in data && data.$scramjet$type === "baremuxinit") {
 							resolve(data.port);
 						}
 					});
@@ -390,7 +390,7 @@ export class SherpaClient {
 				if (!frame.name) {
 					// the top frame is sherpa-controlled, but it has no name. this is user error
 					console.error(
-						"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
+						"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
 					);
 
 					return null;
@@ -423,7 +423,7 @@ export class SherpaClient {
 					if (!frame.name) {
 						// the parent frame is sherpa-controlled, but it has no name. this is user error
 						console.error(
-							"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
+							"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
 						);
 
 						return null;
@@ -440,7 +440,7 @@ export class SherpaClient {
 					if (!frame.name) {
 						// the parent frame is not sherpa-controlled, so we can't get a parent frame name
 						console.error(
-							"YOU NEED TO USE `new SherpaFrame()`! DIRECT IFRAMES WILL NOT WORK"
+							"YOU NEED TO USE `new ScramjetFrame()`! DIRECT IFRAMES WILL NOT WORK"
 						);
 
 						return null;
@@ -713,7 +713,7 @@ export class SherpaClient {
 							if ((err.stack as any) instanceof Object) {
 								//@ts-expect-error i'm not going to explain this
 								err.stack = err.stack.stack;
-								console.error("ERROR FROM SHERPA INTERNALS", err);
+								console.error("ERROR FROM SCRAMJET INTERNALS", err);
 								if (!flagEnabled("allowFailedIntercepts", this.url)) {
 									throw err;
 								}

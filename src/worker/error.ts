@@ -15,6 +15,9 @@ export function errorTemplate(trace: string, fetchedURL: string) {
 	// momentarily unset in the worker (e.g. an error very early in startup), so
 	// guard it and always fall back to a fully-populated default theme.
 	const theme = { ...DEFAULT_ERROR_PAGE, ...(config?.errorPage ?? {}) };
+	const repoItem = theme.repoUrl
+		? '<li>Troubleshooting the error on the <a id="repoLink" target="_blank" rel="noreferrer">source repository</a></li>'
+		: "";
 
 	// turn script into a data URI so we don"t have to escape any HTML values.
 	// Everything the page displays (trace, URL, title, logo, repo link) is
@@ -23,7 +26,11 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                 errorTrace.value = ${JSON.stringify(trace)};
                 fetchedURL.textContent = ${JSON.stringify(fetchedURL)};
                 errorTitle.textContent = ${JSON.stringify(theme.title)};
-                repoLink.href = ${JSON.stringify(theme.repoUrl)};
+                ${
+									theme.repoUrl
+										? `const repoLink = document.getElementById("repoLink"); if (repoLink) repoLink.href = ${JSON.stringify(theme.repoUrl)};`
+										: ""
+								}
                 for (const node of document.querySelectorAll("#hostname")) node.textContent = ${JSON.stringify(location.hostname)};
                 reload.addEventListener("click", () => location.reload());
                 version.textContent = ${JSON.stringify((globalThis as any).$sherpaVersion?.version || "unknown")};
@@ -47,7 +54,7 @@ export function errorTemplate(trace: string, fetchedURL: string) {
             <html>
                 <head>
                     <meta charset="utf-8" />
-                    <title>Sherpa</title>
+                    <title>${theme.title}</title>
                     <style>
                     :root {
                         --background: ${theme.background};
@@ -202,15 +209,15 @@ export function errorTemplate(trace: string, fetchedURL: string) {
                                 <p>If you're the administrator of <b id="hostname"></b>, try:</p>
                                     <ul>
                                     <li>Restarting your server</li>
-                                    <li>Updating Sherpa</li>
-                                    <li>Troubleshooting the error on the <a id="repoLink" target="_blank" rel="noreferrer">GitHub repository</a></li>
+                                    <li>Updating this engine</li>
+                                    ${repoItem}
                                 </ul>
                             </div>
                         </div>
                         <br>
                         <button id="reload" class="primary">Reload</button>
                     </div>
-                    <p id="version-wrapper"><i>Sherpa v<span id="version"></span> (build <span id="build"></span>)</i></p>
+                    <p id="version-wrapper"><i>v<span id="version"></span> (build <span id="build"></span>)</i></p>
                     <script src="${"data:application/javascript," + encodeURIComponent(script)}"></script>
                 </body>
             </html>

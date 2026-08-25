@@ -1,4 +1,4 @@
-// entrypoint for sherpa.client.js
+// Page-injected client. Host APIs live in src/entry.ts, not here.
 
 import { loadCodecs, setConfig } from "@/shared/index";
 import { SHERPACLIENT } from "@/symbols";
@@ -28,7 +28,7 @@ function createFrameId() {
 
 export function loadAndHook(config: SherpaConfig) {
 	setConfig(config);
-	dbg.log("initializing sherpa client");
+	dbg.log("initializing client");
 	// Overlap the binary WASM fetch with hook installation. Inline scripts in
 	// the document were already rewritten in the service worker; the client
 	// only needs the rewriter for runtime `eval` / `innerHTML` / etc., and

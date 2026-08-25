@@ -108,7 +108,7 @@ export default function (client: SherpaClient, self: Self) {
 						"ServiceWorker.prototype.postMessage",
 						controller,
 						{
-							sherpa$type: "postServiceWorkerMessage",
+							scramjet$type: "postServiceWorkerMessage",
 							origin: client.url.origin,
 							scope: state.scopeURL.pathname,
 							message,
@@ -174,7 +174,7 @@ export default function (client: SherpaClient, self: Self) {
 							"ServiceWorker.prototype.postMessage",
 							controller,
 							{
-								sherpa$type: "unregisterServiceWorker",
+								scramjet$type: "unregisterServiceWorker",
 								origin: client.url.origin,
 								scope: state.scopeURL.pathname,
 							} as MessageC2W
@@ -272,7 +272,7 @@ export default function (client: SherpaClient, self: Self) {
 					const controller = getPhysicalController();
 					if (!controller) {
 						throw new DOMException(
-							"Sherpa's physical Service Worker is not controlling this page",
+							"The physical Service Worker is not controlling this page",
 							"InvalidStateError"
 						);
 					}
@@ -300,7 +300,7 @@ export default function (client: SherpaClient, self: Self) {
 						"ServiceWorker.prototype.postMessage",
 						controller,
 						{
-							sherpa$type: "registerServiceWorker",
+							scramjet$type: "registerServiceWorker",
 							port: handle,
 							origin: client.url.origin,
 							scope: scopePath,

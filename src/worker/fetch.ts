@@ -728,7 +728,7 @@ async function handleResponse(
 	if (syncCookiesToClient) {
 		for (const cookie of setCookies) {
 			const promise = swtarget.dispatch(client, {
-				sherpa$type: "cookie",
+				scramjet$type: "cookie",
 				cookie,
 				url: url.href,
 			});
@@ -799,7 +799,7 @@ async function handleResponse(
 			};
 			clis[0].postMessage(
 				{
-					sherpa$type: "download",
+					scramjet$type: "download",
 					download,
 				} as MessageW2C,
 				response.body ? [response.body] : []

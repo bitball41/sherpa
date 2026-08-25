@@ -18,24 +18,33 @@
  * rather than `$` or `_` so `URLSearchParams` serialization leaves it
  * readable instead of percent-encoding it.
  */
-export declare const INTERNAL_PARAM_PREFIX = "sherpa.";
+import { INTERNAL_PARAM_PREFIX } from "./pageSurface";
+export { INTERNAL_PARAM_PREFIX };
 export declare const INTERNAL_PARAMS: {
     /** `"module"` for module scripts/workers, so the rewriter picks the right parse goal. */
-    readonly type: "sherpa.type";
+    readonly type: "scramjet.type";
     /** The real request destination for contexts the browser reports as `"empty"`. */
-    readonly dest: "sherpa.dest";
+    readonly dest: "scramjet.dest";
     /** A registered service worker's scope path. */
-    readonly scope: "sherpa.scope";
+    readonly scope: "scramjet.scope";
     /** Marks a request issued by Sherpa's emulated service-worker runtime. */
-    readonly from: "sherpa.from";
+    readonly from: "scramjet.from";
     /** Frame names used to emulate `_top` / `_parent` targeting. */
-    readonly topFrame: "sherpa.topFrame";
-    readonly parentFrame: "sherpa.parentFrame";
+    readonly topFrame: "scramjet.topFrame";
+    readonly parentFrame: "scramjet.parentFrame";
     /** The virtual document URL, threaded through `${prefix}$boot`. */
-    readonly url: "sherpa.url";
+    readonly url: "scramjet.url";
 };
 /** True for query parameters that belong to Sherpa rather than to the site. */
 export declare function isInternalParam(name: string): boolean;
+/**
+ * True for a query pair the worker/client should consume rather than forward.
+ *
+ * The committed WASM rewriter still appends the pre-namespace `type=module`
+ * token (`rewriter/wasm/src/jsr.rs`); that exact pair is ours. Any other
+ * `type=` value is the site's.
+ */
+export declare function isInternalQueryParam(name: string, value?: string): boolean;
 export type SherpaRequestHints = {
     /** `"module"` when the request is for a module script/worker. */
     scriptType: string;

@@ -1,5 +1,6 @@
 /// <reference types="@rspack/core/module" />
 
+import { PAGE_LOAD_CLIENT } from "./shared/pageSurface";
 import type { SherpaVersionInfo } from "./types";
 
 /**
@@ -205,6 +206,9 @@ globalThis.$sherpaLoadController = $sherpaLoadController;
 globalThis.$sherpaLoadClient = $sherpaLoadClient;
 globalThis.$sherpaLoadWorker = $sherpaLoadWorker;
 globalThis.$sherpaVersion = $sherpaVersion;
+(globalThis as typeof globalThis & { [PAGE_LOAD_CLIENT]: typeof $sherpaLoadClient })[
+	PAGE_LOAD_CLIENT
+] = $sherpaLoadClient;
 
 if ("document" in globalThis && document?.currentScript) {
 	document.currentScript.remove();

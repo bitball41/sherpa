@@ -26,7 +26,16 @@ anything that seems stale from those.)
   Settings → Advanced pane to satisfy AGPL §13 — this does NOT require
   open-sourcing the rest of Bardo, just this component.
 - **Rewrite goals (owner-selected):** (1) better site compatibility, (2)
-  performance/size. Explicitly NOT a goal: stealth/anti-detection.
+  performance/size. Explicitly NOT a goal: stealth/anti-detection against
+  bot-checks (Cloudflare, etc.).
+- **Page-facing identifiers match Scramjet 1.x.** Host APIs stay Sherpa
+  (`$sherpaLoadController`, the package, the demo). Wrap functions, shadow
+  attributes, query hints, boot globals, postMessage keys, IndexedDB, and
+  the injected client bundle (`sherpa.client.js`, pointed at by `files.all`)
+  use the Scramjet 1.x spellings so a rewritten document does not advertise
+  this fork. `$sherpaLoadController` / `$sherpaLoadWorker` stay on
+  `sherpa.all.js`, which is not injected into pages. Defined in
+  `src/shared/pageSurface.ts`.
 - **Engine slot in Bardo:** Sherpa is meant to become a 5th selectable engine
   alongside Bardo's existing `scramjet` / `scramjet2` / `klystron` / `opulent`
   — additive, not a replacement, not the default, labeled "experimental".

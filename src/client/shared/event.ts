@@ -27,7 +27,7 @@ export default function (client: SherpaClient, self: Self) {
 				if (
 					typeof this.data === "object" &&
 					this.data !== null &&
-					("$sherpa$type" in this.data || "sherpa$type" in this.data)
+					("$scramjet$type" in this.data || "scramjet$type" in this.data)
 				) {
 					// this is a ctl message
 					return false;
@@ -52,9 +52,9 @@ export default function (client: SherpaClient, self: Self) {
 				if (
 					typeof this.data === "object" &&
 					this.data !== null &&
-					"$sherpa$origin" in this.data
+					"$scramjet$origin" in this.data
 				)
-					return this.data.$sherpa$origin;
+					return this.data.$scramjet$origin;
 
 				return client.url.origin;
 			},
@@ -62,9 +62,9 @@ export default function (client: SherpaClient, self: Self) {
 				if (
 					typeof this.data === "object" &&
 					this.data !== null &&
-					"$sherpa$data" in this.data
+					"$scramjet$data" in this.data
 				)
-					return this.data.$sherpa$data;
+					return this.data.$scramjet$data;
 
 				return this.data;
 			},
@@ -375,7 +375,7 @@ export default function (client: SherpaClient, self: Self) {
 				key.startsWith("on") &&
 				handlers[key.slice(2)]
 			) {
-				const realOnEvent = Symbol(`sherpa original ${key} function`);
+				const realOnEvent = Symbol(`original ${key} function`);
 				const descriptor = client.natives.call(
 					"Object.getOwnPropertyDescriptor",
 					null,

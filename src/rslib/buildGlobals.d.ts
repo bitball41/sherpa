@@ -8,6 +8,7 @@ declare global {
 	interface GlobalThis {
 		$sherpaLoadController: any;
 		$sherpaLoadClient: any;
+		$scramjetLoadClient: any;
 		$sherpaLoadWorker: any;
 		$sherpaRequire: any;
 		$sherpaVersion: {

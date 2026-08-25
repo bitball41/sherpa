@@ -68,13 +68,13 @@ test("the boot script carries a cookie dump and loadAndHook, not the wasm", () =
 	});
 	const body = renderBootScript(dump);
 	assert.equal(body.startsWith("self.COOKIE="), true);
-	assert.equal(body.includes("$sherpaLoadClient().loadAndHook("), true);
+	assert.equal(body.includes("$scramjetLoadClient().loadAndHook("), true);
 	assert.equal(body.includes(configLiteral()), true);
 	assert.equal(body.includes("self.WASM"), false);
 	assert.ok(body.length < 4000, `boot script is ${body.length} bytes`);
 	const cookieLiteral = body.slice(
 		"self.COOKIE=".length,
-		body.indexOf(";$sherpaLoadClient")
+		body.indexOf(";$scramjetLoadClient")
 	);
 	const jar = JSON.parse(JSON.parse(cookieLiteral));
 	assert.equal(jar["example.com@session"].value, "abc");

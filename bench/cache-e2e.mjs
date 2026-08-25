@@ -264,7 +264,7 @@ try {
 	const buckets = await page.evaluate(async () => {
 		const names = await caches.keys();
 
-		return names.filter((name) => name.startsWith("sherpa$response$"));
+		return names.filter((name) => name.startsWith("scramjet$response$"));
 	});
 	check(
 		"the engine wrote exactly one response-cache bucket",

@@ -98,7 +98,7 @@ async function reset() {
 	await cache.clearResponseCache();
 }
 
-const KEY = "https://example.com/app.js?sherpa.cache=deadbeef";
+const KEY = "https://example.com/app.js?scramjet.cache=deadbeef";
 
 test("a fresh entry round-trips body, status and headers", async () => {
 	install();
@@ -140,8 +140,8 @@ test("the freshness bookkeeping never reaches the page", async () => {
 
 	const hit = await cache.lookupCachedResponse(KEY, NOW);
 	assert.ok(hit);
-	assert.equal(hit.response.headers.get("sherpa-cache-expires"), null);
-	assert.equal(hit.response.headers.get("sherpa-cache-stored"), null);
+	assert.equal(hit.response.headers.get("scramjet-cache-expires"), null);
+	assert.equal(hit.response.headers.get("scramjet-cache-stored"), null);
 	// the variance is already baked into the key, so the copy the page gets
 	// must not carry a Vary the browser could act on
 	assert.equal(hit.response.headers.get("vary"), null);
@@ -253,7 +253,7 @@ test("the bucket is trimmed once it grows past its ceiling", async () => {
 	for (let i = 0; i < 560; i++) {
 		// eslint-disable-next-line no-await-in-loop
 		await cache.storeCachedResponse(
-			`https://example.com/asset-${i}?sherpa.cache=x`,
+			`https://example.com/asset-${i}?scramjet.cache=x`,
 			policy,
 			new Response(`body ${i}`),
 			NOW
@@ -268,7 +268,7 @@ test("the bucket is trimmed once it grows past its ceiling", async () => {
 	// eviction is oldest-first, so the most recent writes have to survive
 	assert.ok(
 		await cache.lookupCachedResponse(
-			"https://example.com/asset-559?sherpa.cache=x",
+			"https://example.com/asset-559?scramjet.cache=x",
 			NOW
 		)
 	);

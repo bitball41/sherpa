@@ -32,9 +32,9 @@ export class FakeServiceWorker {
 			if (
 				typeof event.data === "object" &&
 				event.data !== null &&
-				"sherpa$type" in event.data
+				"scramjet$type" in event.data
 			) {
-				if (event.data.sherpa$type === "init") {
+				if (event.data.scramjet$type === "init") {
 					this.connected = true;
 				} else {
 					this.handleMessage(event.data);
@@ -45,18 +45,18 @@ export class FakeServiceWorker {
 
 		this.handle.postMessage(
 			{
-				sherpa$type: "init",
-				sherpa$port: this.messageChannel.port2,
+				scramjet$type: "init",
+				scramjet$port: this.messageChannel.port2,
 			},
 			[this.messageChannel.port2]
 		);
 	}
 
 	handleMessage(data: MessageR2W) {
-		if (!Number.isSafeInteger(data.sherpa$token)) return;
-		const cb = this.promises.get(data.sherpa$token);
+		if (!Number.isSafeInteger(data.scramjet$token)) return;
+		const cb = this.promises.get(data.scramjet$token);
 		if (cb) {
-			this.promises.delete(data.sherpa$token);
+			this.promises.delete(data.scramjet$token);
 			clearTimeout(cb.timeout);
 			cb.resolve(data);
 		}
@@ -83,8 +83,8 @@ export class FakeServiceWorker {
 		try {
 			this.handle.postMessage(
 				{
-					sherpa$type: "message",
-					sherpa$data: data,
+					scramjet$type: "message",
+					scramjet$data: data,
 				} satisfies MessageW2R,
 				transfer
 			);
@@ -104,9 +104,9 @@ export class FakeServiceWorker {
 		const clonedRequest = request.clone();
 
 		const message: MessageW2R = {
-			sherpa$type: "fetch",
-			sherpa$token: token,
-			sherpa$request: {
+			scramjet$type: "fetch",
+			scramjet$token: token,
+			scramjet$request: {
 				url: clonedRequest.url,
 				body: clonedRequest.body,
 				headers: Array.from(clonedRequest.headers.entries()),
@@ -143,7 +143,7 @@ export class FakeServiceWorker {
 
 		const result = await response;
 		if (!result) return false;
-		const { sherpa$response: r } = result;
+		const { scramjet$response: r } = result;
 
 		if (!r) return false;
 		if ("error" in r) {

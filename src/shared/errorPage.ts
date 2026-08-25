@@ -27,6 +27,6 @@ export const DEFAULT_ERROR_PAGE: SherpaErrorPageConfig = {
 		'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 	title: "Uh oh!",
 	logo: "",
-	repoUrl: "https://github.com/bitball41/sherpa",
+	repoUrl: "",
 	css: "",
 };

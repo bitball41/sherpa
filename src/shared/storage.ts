@@ -1,3 +1,5 @@
+import { STORAGE_DIRECTORY_PREFIX } from "./pageSurface";
+
 export function storagePrefix(origin: string): string {
 	return `${origin}@`;
 }
@@ -20,5 +22,5 @@ export function unprefixStorageKey(key: string, origin: string): string {
 
 /** A collision-free, filesystem-safe OPFS directory for one virtual origin. */
 export function storageDirectoryName(origin: string): string {
-	return `sherpa-${encodeURIComponent(origin)}`;
+	return `${STORAGE_DIRECTORY_PREFIX}${encodeURIComponent(origin)}`;
 }

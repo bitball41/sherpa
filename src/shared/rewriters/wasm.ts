@@ -6,6 +6,7 @@ import { codecDecode, codecEncode, config, flagEnabled } from "@/shared";
 export type { JsRewriterOutput, Rewriter };
 
 import { base64ToBytes } from "@/shared/base64";
+import { WASM_BUFFER_KEY, WASM_PROMISE_KEY } from "@/shared/pageSurface";
 
 let wasm_u8: Uint8Array<ArrayBuffer> | undefined;
 let wasmLoadPromise: Promise<Uint8Array<ArrayBuffer>> | null = null;
@@ -17,8 +18,8 @@ declare const REWRITERWASM: string | undefined;
 
 type WasmHolder = {
 	WASM?: string;
-	__sherpaWasm?: Promise<ArrayBuffer>;
-	__sherpaWasmBuffer?: ArrayBuffer | Uint8Array<ArrayBuffer>;
+	[WASM_PROMISE_KEY]?: Promise<ArrayBuffer>;
+	[WASM_BUFFER_KEY]?: ArrayBuffer | Uint8Array<ArrayBuffer>;
 };
 
 function wasmHolder(): WasmHolder {
@@ -27,7 +28,7 @@ function wasmHolder(): WasmHolder {
 
 function takePendingWasmBuffer(): Uint8Array<ArrayBuffer> | undefined {
 	const holder = wasmHolder();
-	const pending = holder.__sherpaWasmBuffer;
+	const pending = holder[WASM_BUFFER_KEY];
 	if (pending instanceof ArrayBuffer) return new Uint8Array(pending);
 	if (pending instanceof Uint8Array) return pending;
 	if (typeof holder.WASM === "string") return base64ToBytes(holder.WASM);
@@ -106,7 +107,7 @@ export function beginWasmFetch(
 	}
 	if (wasmLoadPromise) return wasmLoadPromise;
 
-	const started = wasmHolder().__sherpaWasm;
+	const started = wasmHolder()[WASM_PROMISE_KEY];
 	wasmLoadPromise = Promise.resolve(
 		started ??
 			fetch(url).then((response) => {

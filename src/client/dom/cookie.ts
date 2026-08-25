@@ -5,14 +5,14 @@ export default function (client: SherpaClient, self: typeof window) {
 	client.serviceWorker.addEventListener(
 		"message",
 		({ data }: { data: MessageW2C }) => {
-			if (typeof data !== "object" || data === null || !("sherpa$type" in data))
+			if (typeof data !== "object" || data === null || !("scramjet$type" in data))
 				return;
 
-			if (data.sherpa$type === "cookie") {
+			if (data.scramjet$type === "cookie") {
 				client.cookieStore.setCookies([data.cookie], new URL(data.url));
 				const msg = {
-					sherpa$token: data.sherpa$token,
-					sherpa$type: "cookie",
+					scramjet$token: data.scramjet$token,
+					scramjet$type: "cookie",
 				};
 				client.serviceWorker.controller.postMessage(msg);
 			}
@@ -31,7 +31,7 @@ export default function (client: SherpaClient, self: typeof window) {
 			);
 			if (controller) {
 				client.natives.call("ServiceWorker.prototype.postMessage", controller, {
-					sherpa$type: "cookie",
+					scramjet$type: "cookie",
 					cookie: value,
 					url: client.url.href,
 					fromJs: true,

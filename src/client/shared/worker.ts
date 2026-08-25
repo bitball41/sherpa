@@ -22,7 +22,7 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 					"Worker.prototype.postMessage",
 					worker,
 					{
-						$sherpa$type: "baremuxinit",
+						$scramjet$type: "baremuxinit",
 						port,
 					},
 					[port]
@@ -62,7 +62,7 @@ export default function (client: SherpaClient, _self: typeof globalThis) {
 					"MessagePort.prototype.postMessage",
 					worker.port,
 					{
-						$sherpa$type: "baremuxinit",
+						$scramjet$type: "baremuxinit",
 						port,
 					},
 					[port]

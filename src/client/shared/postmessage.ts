@@ -45,9 +45,9 @@ export default function (client: SherpaClient) {
 				const wrappedPostMessage = Function("...args", "this(...args)");
 
 				ctx.args[0] = {
-					$sherpa$messagetype: "window",
-					$sherpa$origin: callerClient.url.origin,
-					$sherpa$data: ctx.args[0],
+					$scramjet$messagetype: "window",
+					$scramjet$origin: callerClient.url.origin,
+					$scramjet$data: ctx.args[0],
 				};
 
 				// * origin because obviously
@@ -68,8 +68,8 @@ export default function (client: SherpaClient) {
 			// origin/source doesn't need to be preserved - it's null in the message event
 
 			ctx.args[0] = {
-				$sherpa$messagetype: "worker",
-				$sherpa$data: ctx.args[0],
+				$scramjet$messagetype: "worker",
+				$scramjet$data: ctx.args[0],
 			};
 		},
 	});

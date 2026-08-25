@@ -18,7 +18,9 @@
  * rather than `$` or `_` so `URLSearchParams` serialization leaves it
  * readable instead of percent-encoding it.
  */
-export const INTERNAL_PARAM_PREFIX = "sherpa.";
+import { INTERNAL_PARAM_PREFIX } from "./pageSurface";
+
+export { INTERNAL_PARAM_PREFIX };
 
 export const INTERNAL_PARAMS = {
 	/** `"module"` for module scripts/workers, so the rewriter picks the right parse goal. */
@@ -39,6 +41,18 @@ export const INTERNAL_PARAMS = {
 /** True for query parameters that belong to Sherpa rather than to the site. */
 export function isInternalParam(name: string): boolean {
 	return name.startsWith(INTERNAL_PARAM_PREFIX);
+}
+
+/**
+ * True for a query pair the worker/client should consume rather than forward.
+ *
+ * The committed WASM rewriter still appends the pre-namespace `type=module`
+ * token (`rewriter/wasm/src/jsr.rs`); that exact pair is ours. Any other
+ * `type=` value is the site's.
+ */
+export function isInternalQueryParam(name: string, value = ""): boolean {
+	if (name.startsWith(INTERNAL_PARAM_PREFIX)) return true;
+	return name === "type" && value === "module";
 }
 
 export type SherpaRequestHints = {
@@ -79,6 +93,10 @@ export function takeInternalParams(url: URL): SherpaRequestHints {
 		switch (param) {
 			case INTERNAL_PARAMS.type:
 				hints.scriptType = value;
+				break;
+			case "type":
+				if (value === "module") hints.scriptType = value;
+				else hints.siteParams.push([param, value]);
 				break;
 			case INTERNAL_PARAMS.dest:
 			case INTERNAL_PARAMS.scope:

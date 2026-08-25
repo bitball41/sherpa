@@ -1,7 +1,8 @@
+import { REALM_POLLUTANT_KEY } from "@/shared/pageSurface";
 import { SherpaClient } from "@client/index";
 import { config } from "@/shared";
 
-export const POLLUTANT = Symbol.for("sherpa realm pollutant");
+export const POLLUTANT = Symbol.for(REALM_POLLUTANT_KEY);
 
 export default function (client: SherpaClient, self: typeof globalThis) {
 	// object.$setrealm({}).postMessage(...)

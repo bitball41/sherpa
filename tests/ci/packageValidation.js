@@ -24,6 +24,7 @@ function exportTargets(value) {
  */
 const EXPECTED_DIST_FILES = [
 	"dist/sherpa.all.js",
+	"dist/sherpa.client.js",
 	"dist/sherpa.bundle.js",
 	"dist/sherpa.sync.js",
 	"dist/sherpa.wasm.wasm",
@@ -64,7 +65,9 @@ test("Package contains all required distribution files", async (t) => {
  * @param {import("ava").ExecutionContext} t - AVA unit test context.
  */
 test("All required JS bundles have corresponding source maps", async (t) => {
-	const jsFiles = EXPECTED_DIST_FILES.filter((file) => file.endsWith(".js"));
+	const jsFiles = EXPECTED_DIST_FILES.filter(
+		(file) => file.endsWith(".js") && !file.endsWith("sherpa.client.js")
+	);
 	const missingMaps = [];
 
 	for (const jsFile of jsFiles) {
@@ -133,6 +136,16 @@ test("Package structure is valid for distribution", async (t) => {
 	t.true(hasJsFiles, "Distribution should contain JS files");
 	t.true(hasWasmFile, "Distribution should contain WASM file");
 	t.true(hasTypeFiles, "Library should contain core type definition files");
+});
+
+test("the page-injected client bundle does not advertise Sherpa or Bardo", (t) => {
+	const source = readFileSync("dist/sherpa.client.js", "utf8");
+	t.false(/sherpa/i.test(source), 'sherpa.client.js contains "sherpa"');
+	t.false(/bardo/i.test(source), 'sherpa.client.js contains "bardo"');
+	t.false(
+		/sourceMappingURL/.test(source),
+		"sherpa.client.js must not carry a source map"
+	);
 });
 
 test("Every declared package export exists", (t) => {

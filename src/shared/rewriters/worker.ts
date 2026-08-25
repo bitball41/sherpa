@@ -2,6 +2,7 @@ import { config } from "@/shared";
 import { rewriteJs } from "@rewriters/js";
 import { URLMeta } from "@rewriters/url";
 import { configLiteral, wasmSyncLoaderSource } from "@/shared/bootScripts";
+import { PAGE_LOAD_CLIENT, WASM_BUFFER_KEY } from "@/shared/pageSurface";
 
 export function rewriteWorkers(
 	js: string | Uint8Array,
@@ -15,13 +16,13 @@ export function rewriteWorkers(
 		// Imports are hoisted, so a static `import` of the runtime would
 		// evaluate before this fetch. Dynamic import after the await keeps
 		// `loadAndHook` from running until the binary is in hand.
-		str += `self.__sherpaWasmBuffer=await(await fetch(${JSON.stringify(config.files.wasm)})).arrayBuffer();\n`;
+		str += `self.${WASM_BUFFER_KEY}=await(await fetch(${JSON.stringify(config.files.wasm)})).arrayBuffer();\n`;
 		str += `await import(${JSON.stringify(config.files.all)});\n`;
 	} else {
 		str += wasmSyncLoaderSource(config.files.wasm);
 		str += `importScripts(${JSON.stringify(config.files.all)});\n`;
 	}
-	str += `$sherpaLoadClient().loadAndHook(${configLiteral()});`;
+	str += `${PAGE_LOAD_CLIENT}().loadAndHook(${configLiteral()});`;
 
 	let rewritten = rewriteJs(js, url, meta, module);
 	if (rewritten instanceof Uint8Array) {

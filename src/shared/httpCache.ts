@@ -17,6 +17,8 @@
  * `s-maxage` is not consulted.
  */
 
+import { CACHE_KEY_PARAM } from "./pageSurface";
+
 /** A response header record as produced by `flattenResponseHeaders`. */
 export type HeaderRecord = Record<string, string | string[] | undefined>;
 
@@ -334,11 +336,10 @@ export function cacheVariantToken(
 /**
  * Query parameter carrying the variant token on a cache key URL.
  *
- * Spelled out rather than built from `INTERNAL_PARAM_PREFIX` so this module
- * keeps zero imports and stays loadable on its own; `tests/unit/httpCache`
- * pins it to the shared namespace.
+ * Re-exported from `pageSurface` so the cache key stays in the same namespace
+ * as the other engine query hints. `tests/unit/httpCache` pins it there.
  */
-export const CACHE_KEY_PARAM = "sherpa.cache";
+export { CACHE_KEY_PARAM };
 
 /**
  * Builds the key a variant is stored under: the real upstream URL (so the
