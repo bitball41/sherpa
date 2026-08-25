@@ -131,7 +131,10 @@ export function decodeProxyUrl(
 	if (!url.startsWith(proxyPrefix)) return url;
 
 	const encoded = url.slice(proxyPrefix.length);
-	if (/^(?:blob|data):/i.test(encoded)) return encoded;
+	// Blob/data targets ride through the prefix verbatim, but worker/module
+	// hints may still be appended to the proxied URL. Never expose those
+	// engine-owned parameters back to page code.
+	if (/^(?:blob|data):/i.test(encoded)) return stripInternalParams(encoded);
 
 	const hashIndex = encoded.indexOf("#");
 	if (hashIndex === -1) return decodeProxyTarget(encoded, decode);
