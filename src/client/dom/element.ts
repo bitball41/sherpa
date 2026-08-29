@@ -6,12 +6,14 @@ import {
 	SCRIPT_SOURCE_ATTRIBUTE,
 	SHADOW_ATTRIBUTE_PREFIX,
 	unrewriteHtml,
+	unrewriteXml,
 } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SHERPACLIENT } from "@/symbols";
 import { SherpaClient } from "@client/index";
 import { base64ToBytes, bytesToBase64 } from "@/shared/base64";
+import { toWebIdlString } from "@/shared/urlCodec";
 import { resolveBaseHref } from "@/shared/urlCodec";
 
 const encoder = new TextEncoder();
@@ -120,6 +122,14 @@ export default function (client: SherpaClient, self: typeof window) {
 	const nativeRemoveAttribute = client.natives.store[
 		"Element.prototype.removeAttribute"
 	] as typeof Element.prototype.removeAttribute;
+	const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+	const normalizeAttributeName = (element: Element, rawName: unknown): string => {
+		const name = String(rawName);
+		return element.namespaceURI === HTML_NAMESPACE &&
+			element.ownerDocument?.contentType === "text/html"
+			? name.toLowerCase()
+			: name;
+	};
 
 	function namespacedShadowAttribute(
 		element: Element,
@@ -255,7 +265,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.getAttribute", {
 		apply(ctx) {
-			const name = String(ctx.args[0]);
+			const name = normalizeAttributeName(ctx.this, ctx.args[0]);
 
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
 				return ctx.return(null);
@@ -267,6 +277,13 @@ export default function (client: SherpaClient, self: typeof window) {
 				if (attrib === null) return ctx.return("");
 
 				return ctx.return(attrib);
+			}
+
+			// CSSOM writes such as `el.style.background = "url(...)"` bypass
+			// setAttribute(), so no authored shadow exists for the style value.
+			if (name.toLowerCase() === "style") {
+				const value = ctx.call() as string | null;
+				return ctx.return(value === null ? null : unrewriteCss(value));
 			}
 		},
 	});
@@ -300,7 +317,11 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.getAttributeNode", {
 		apply(ctx) {
-			if (String(ctx.args[0]).startsWith(SHADOW_ATTRIBUTE_PREFIX))
+			if (
+				normalizeAttributeName(ctx.this, ctx.args[0]).startsWith(
+					SHADOW_ATTRIBUTE_PREFIX
+				)
+			)
 				return ctx.return(null);
 		},
 	});
@@ -314,7 +335,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.hasAttribute", {
 		apply(ctx) {
-			const name = String(ctx.args[0]);
+			const name = normalizeAttributeName(ctx.this, ctx.args[0]);
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) return ctx.return(false);
 			if (nativeHasAttribute.call(ctx.this, SHADOW_ATTRIBUTE_PREFIX + name)) {
 				return ctx.return(true);
@@ -338,11 +359,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.setAttribute", {
 		apply(ctx) {
-			const rawName = String(ctx.args[0]);
-			const name =
-				ctx.this.namespaceURI === "http://www.w3.org/1999/xhtml"
-					? rawName.toLowerCase()
-					: rawName;
+			const name = normalizeAttributeName(ctx.this, ctx.args[0]);
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
 				return ctx.return(undefined);
 			const value = String(ctx.args[1]);
@@ -573,7 +590,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.removeAttribute", {
 		apply(ctx) {
-			const name = String(ctx.args[0]);
+			const name = normalizeAttributeName(ctx.this, ctx.args[0]);
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX))
 				return ctx.return(undefined);
 			ctx.fn.call(ctx.this, SHADOW_ATTRIBUTE_PREFIX + name);
@@ -596,7 +613,7 @@ export default function (client: SherpaClient, self: typeof window) {
 
 	client.Proxy("Element.prototype.toggleAttribute", {
 		apply(ctx) {
-			const name = String(ctx.args[0]);
+			const name = normalizeAttributeName(ctx.this, ctx.args[0]);
 			if (name.startsWith(SHADOW_ATTRIBUTE_PREFIX)) return ctx.return(false);
 			const shadow = SHADOW_ATTRIBUTE_PREFIX + name;
 			const present =
@@ -750,6 +767,14 @@ export default function (client: SherpaClient, self: typeof window) {
 		},
 	});
 
+	// XMLSerializer is a separate serialization path from inner/outerHTML.
+	// Keep it in XML mode so SVG self-closing elements retain their structure.
+	client.Proxy("XMLSerializer.prototype.serializeToString", {
+		apply(ctx) {
+			ctx.return(unrewriteXml(ctx.call() as string));
+		},
+	});
+
 	client.Proxy("Element.prototype.insertAdjacentHTML", {
 		apply(ctx) {
 			if (ctx.args[1])
@@ -765,7 +790,10 @@ export default function (client: SherpaClient, self: typeof window) {
 	});
 	client.Proxy("Audio", {
 		construct(ctx) {
-			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
+			if (ctx.args.length === 0 || ctx.args[0] === undefined) return;
+
+			const src = toWebIdlString(ctx.args[0]);
+			ctx.args[0] = src === "" ? src : rewriteUrl(src, client.meta);
 		},
 	});
 	// The `<style>` text traps that used to live here (`appendData`,

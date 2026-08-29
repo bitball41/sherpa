@@ -47,7 +47,7 @@ export default function (client: SherpaClient, self: typeof window) {
 					target.removeItem(key);
 			},
 			key: (index: number) => {
-				const key = storageKeys(target, namespace)[index];
+				const key = storageKeys(target, namespace)[index >>> 0];
 
 				return key === undefined ? null : unprefixStorageKey(key, namespace);
 			},

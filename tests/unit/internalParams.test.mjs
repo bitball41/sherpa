@@ -26,6 +26,25 @@ test("reads Sherpa's own hints off a proxied request URL", () => {
 	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
 });
 
+test("validated metadata wins without consuming target-owned query names", () => {
+	const url = new URL(
+		`https://proxy.test/sherpa/encoded?${INTERNAL_PARAMS.type}=user&keep=1`
+	);
+	const hints = takeInternalParams(url, {
+		[INTERNAL_PARAMS.type]: "module",
+		[INTERNAL_PARAMS.from]: "swruntime",
+	});
+
+	assert.equal(hints.scriptType, "module");
+	assert.equal(hints.fromServiceWorkerRuntime, true);
+	assert.deepEqual(hints.siteParams, []);
+	assert.equal(
+		url.search,
+		`?${INTERNAL_PARAMS.type}=user&keep=1`,
+		"the encoded target must stay byte-for-byte intact"
+	);
+});
+
 // A GET form submitted through the proxy lands its fields on the proxied
 // action URL. Sherpa used to claim the bare names `type`, `dest`, `from`,
 // `scope`, `topFrame` and `parentFrame` for itself, so a site's own field

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	mapCacheRequestSequence,
 	matchNamespacedCaches,
 	namespaceCacheName,
 } from "../../src/shared/cacheNamespace.ts";
@@ -10,6 +11,26 @@ test("cache names are isolated by the full virtual-origin prefix", () => {
 	assert.equal(
 		namespaceCacheName("https://example.com@", "assets"),
 		"https://example.com@assets"
+	);
+});
+
+test("Cache.addAll mapping preserves frozen caller inputs and generic iterables", () => {
+	const frozen = Object.freeze(["/a", "/b"]);
+	assert.deepEqual(mapCacheRequestSequence(frozen, (value) => `proxy:${value}`), [
+		"proxy:/a",
+		"proxy:/b",
+	]);
+	assert.deepEqual(frozen, ["/a", "/b"]);
+	assert.deepEqual(
+		mapCacheRequestSequence(new Set(["/a", "/b"]), (value) => `proxy:${value}`),
+		["proxy:/a", "proxy:/b"]
+	);
+});
+
+test("Cache.addAll mapping rejects non-iterable input", () => {
+	assert.throws(
+		() => mapCacheRequestSequence({ 0: "/a", length: 1 }, (value) => value),
+		TypeError
 	);
 });
 

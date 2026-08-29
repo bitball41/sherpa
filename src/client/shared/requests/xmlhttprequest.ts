@@ -2,6 +2,7 @@ import { config, flagEnabled } from "@/shared";
 import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { readSyncResponse } from "@/shared/syncResponse";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 const SYNC_XHR_WATCHDOG_MS = 30_000;
 
@@ -15,7 +16,9 @@ export default function (client: SherpaClient, self: Self) {
 
 	client.Proxy("XMLHttpRequest.prototype.open", {
 		apply(ctx) {
-			if (ctx.args[1]) ctx.args[1] = rewriteUrl(ctx.args[1], client.meta);
+			if (ctx.args.length > 1) {
+				ctx.args[1] = rewriteUrl(toWebIdlString(ctx.args[1]), client.meta);
+			}
 			if (ctx.args[2] === undefined) ctx.args[2] = true;
 			ctx.this[ARGS] = ctx.args;
 		},

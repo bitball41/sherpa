@@ -9,8 +9,12 @@ const {
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
+	extractUrlParams,
+	matchesSherpaRoute,
+	normalizeHistoryUrl,
 	resolveBaseHref,
 	stripInternalParams,
+	toWebIdlString,
 } = await import("../../src/shared/urlCodec.ts");
 
 const encode = encodeURIComponent;
@@ -72,19 +76,70 @@ test("decodeProxyUrl passes embedded blob and data URLs through", () => {
 });
 
 test("appendUrlParams inserts internal parameters before fragments", () => {
-	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded#section", {
+	const first = appendUrlParams(
+		"https://proxy.test/sherpa/encoded#section",
+		{
 			dest: "worker",
 			type: "module",
-		}),
-		"https://proxy.test/sherpa/encoded?dest=worker&type=module#section"
+		}
+	);
+	const secondOriginal =
+		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F#x";
+	const second = appendUrlParams(secondOriginal, { dest: "serviceworker" });
+
+	assert.equal(first.endsWith("#section"), true);
+	assert.deepEqual(
+		{
+			...extractUrlParams(first),
+			params: { ...extractUrlParams(first).params },
+		},
+		{
+			url: "https://proxy.test/sherpa/encoded#section",
+			params: { dest: "worker", type: "module" },
+		}
+	);
+	assert.deepEqual(
+		{
+			...extractUrlParams(second),
+			params: { ...extractUrlParams(second).params },
+		},
+		{ url: secondOriginal, params: { dest: "serviceworker" } }
+	);
+});
+
+test("marked metadata does not collide with target query names", () => {
+	const original =
+		"https://proxy.test/sherpa/https://target.test/?scramjet.type=user&scramjet.from=page";
+	const proxied = appendUrlParams(original, {
+		"scramjet.dest": "worker",
+		"scramjet.type": "module",
+	});
+	const extracted = extractUrlParams(proxied);
+
+	assert.equal(extracted.url, original);
+	assert.deepEqual(
+		{ ...extracted.params },
+		{ "scramjet.dest": "worker", "scramjet.type": "module" }
 	);
 	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded?scope=%2Fapp%2F#x", {
-			dest: "serviceworker",
-		}),
-		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F&dest=serviceworker#x"
+		decodeProxyUrl(extracted.url, "https://proxy.test/sherpa/", (x) => x, false),
+		"https://target.test/?scramjet.type=user&scramjet.from=page"
 	);
+});
+
+test("malformed metadata lookalikes are preserved", () => {
+	const lookalike = new URLSearchParams({
+		"scramjet.meta": JSON.stringify([["scramjet.type", "module"]]),
+		"scramjet.type": "user",
+	});
+	const target = `https://proxy.test/sherpa/value?${lookalike}`;
+
+	assert.deepEqual(extractUrlParams(target), { url: target, params: null });
+	const malformed = `${target}&scramjet.meta=%7Bbad&scramjet.type=module`;
+	assert.deepEqual(extractUrlParams(malformed), {
+		url: malformed,
+		params: null,
+	});
 });
 
 test("relative HTML base URLs resolve from the document directory", () => {
@@ -199,4 +254,32 @@ test("hints alone never disturb the target's own query", () => {
 		decodeProxyUrl(proxied, "/sherpa/", decode),
 		"https://example.com/w.js?id=3"
 	);
+});
+
+test("route matching rejects prefix lookalikes and foreign origins", () => {
+	const args = ["https://proxy.test", "/sherpa/", "/sherpa.wasm.wasm"];
+
+	assert.equal(matchesSherpaRoute("https://proxy.test/sherpa/x", ...args), true);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa.wasm.wasm?v=1", ...args),
+		true
+	);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa-escape/x", ...args),
+		false
+	);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa.wasm.wasm-evil", ...args),
+		false
+	);
+	assert.equal(matchesSherpaRoute("https://other.test/sherpa/x", ...args), false);
+});
+
+test("DOM URL arguments follow Web IDL string conversion", () => {
+	assert.equal(toWebIdlString(0), "0");
+	assert.equal(toWebIdlString(false), "false");
+	assert.throws(() => toWebIdlString(Symbol("url")), TypeError);
+	assert.equal(normalizeHistoryUrl(undefined), null);
+	assert.equal(normalizeHistoryUrl(null), null);
+	assert.equal(normalizeHistoryUrl(0), "0");
 });

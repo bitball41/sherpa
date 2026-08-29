@@ -75,12 +75,24 @@ export type SherpaRequestHints = {
  * leftover query would corrupt decoding. Parameters that aren't Sherpa's are
  * handed back so they can be re-attached to the decoded URL.
  */
-export function takeInternalParams(url: URL): SherpaRequestHints {
+export function takeInternalParams(
+	url: URL,
+	markedParams: Record<string, string> | null = null
+): SherpaRequestHints {
 	const hints: SherpaRequestHints = {
 		scriptType: "",
 		fromServiceWorkerRuntime: false,
 		siteParams: [],
 	};
+	if (markedParams) {
+		hints.scriptType = markedParams[INTERNAL_PARAMS.type] ?? "";
+		hints.fromServiceWorkerRuntime =
+			markedParams[INTERNAL_PARAMS.from] === "swruntime";
+		hints.topFrameName = markedParams[INTERNAL_PARAMS.topFrame];
+		hints.parentFrameName = markedParams[INTERNAL_PARAMS.parentFrame];
+
+		return hints;
+	}
 
 	// Most proxied requests carry no query at all - the target is encoded into
 	// the path - and this runs on every one of them. Reading `searchParams`

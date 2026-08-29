@@ -64,4 +64,4 @@ export type SherpaRequestHints = {
  * leftover query would corrupt decoding. Parameters that aren't Sherpa's are
  * handed back so they can be re-attached to the decoded URL.
  */
-export declare function takeInternalParams(url: URL): SherpaRequestHints;
+export declare function takeInternalParams(url: URL, markedParams?: Record<string, string> | null): SherpaRequestHints;

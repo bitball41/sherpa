@@ -11,7 +11,7 @@ import {
 	type URLMeta,
 } from "@rewriters/url";
 import { SHADOW_ATTRIBUTE_PREFIX } from "@rewriters/html";
-import { resolveBaseHref } from "@/shared/urlCodec";
+import { resolveBaseHref, toWebIdlString } from "@/shared/urlCodec";
 import { config, flagEnabled } from "@/shared";
 import { CookieStore } from "@/shared/cookie";
 import { iswindow } from "./entry";
@@ -596,7 +596,7 @@ export class SherpaClient {
 	}
 
 	set url(url: URL | string) {
-		if (url instanceof URL) url = url.toString();
+		url = url instanceof URL ? url.href : toWebIdlString(url);
 
 		const ev = new NavigateEvent(url);
 		if (this.frame) {

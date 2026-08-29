@@ -2,12 +2,31 @@ import { rewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { storagePrefix, unprefixStorageKey } from "@/shared/storage";
 import {
+	mapCacheRequestSequence,
 	matchNamespacedCaches,
 	namespaceCacheName,
 } from "@/shared/cacheNamespace";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient, _self: Self) {
 	const prefix = storagePrefix(client.url.origin);
+	const nativeRequest = client.natives.store["Request"] as
+		| typeof Request
+		| undefined;
+	const objectToString = Object.prototype.toString;
+	const isRequest = (value: unknown) =>
+		Boolean(nativeRequest && value instanceof nativeRequest) ||
+		(typeof value === "object" &&
+			value !== null &&
+			objectToString.call(value) === "[object Request]");
+	const rewriteRequiredRequest = (value: unknown) =>
+		isRequest(value)
+			? value
+			: rewriteUrl(toWebIdlString(value), client.meta);
+	const rewriteOptionalRequest = (args: any[]) => {
+		if (args.length === 0 || args[0] === undefined) return;
+		args[0] = rewriteRequiredRequest(args[0]);
+	};
 
 	client.Proxy("CacheStorage.prototype.open", {
 		apply(ctx) {
@@ -23,9 +42,8 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("CacheStorage.prototype.match", {
 		apply(ctx) {
-			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			if (ctx.args.length > 0)
+				ctx.args[0] = rewriteRequiredRequest(ctx.args[0]);
 
 			const request = ctx.args[0];
 			const options = ctx.args[1] as
@@ -81,68 +99,51 @@ export default function (client: SherpaClient, _self: Self) {
 
 	client.Proxy("Cache.prototype.add", {
 		apply(ctx) {
-			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			if (ctx.args.length > 0)
+				ctx.args[0] = rewriteRequiredRequest(ctx.args[0]);
 		},
 	});
 
 	client.Proxy("Cache.prototype.addAll", {
 		apply(ctx) {
-			for (let i = 0; i < ctx.args[0].length; i++) {
-				if (
-					typeof ctx.args[0][i] === "string" ||
-					ctx.args[0][i] instanceof URL
-				) {
-					ctx.args[0][i] = rewriteUrl(ctx.args[0][i], client.meta);
-				}
-			}
+			ctx.args[0] = mapCacheRequestSequence(
+				ctx.args[0],
+				(request: RequestInfo | URL) =>
+					rewriteRequiredRequest(request) as RequestInfo
+			);
 		},
 	});
 
 	client.Proxy("Cache.prototype.put", {
 		apply(ctx) {
-			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			if (ctx.args.length > 0)
+				ctx.args[0] = rewriteRequiredRequest(ctx.args[0]);
 		},
 	});
 
 	client.Proxy("Cache.prototype.match", {
 		apply(ctx) {
-			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			if (ctx.args.length > 0)
+				ctx.args[0] = rewriteRequiredRequest(ctx.args[0]);
 		},
 	});
 
 	client.Proxy("Cache.prototype.matchAll", {
 		apply(ctx) {
-			if (
-				(ctx.args[0] && typeof ctx.args[0] === "string") ||
-				(ctx.args[0] && ctx.args[0] instanceof URL)
-			) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			rewriteOptionalRequest(ctx.args);
 		},
 	});
 
 	client.Proxy("Cache.prototype.keys", {
 		apply(ctx) {
-			if (
-				(ctx.args[0] && typeof ctx.args[0] === "string") ||
-				(ctx.args[0] && ctx.args[0] instanceof URL)
-			) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			rewriteOptionalRequest(ctx.args);
 		},
 	});
 
 	client.Proxy("Cache.prototype.delete", {
 		apply(ctx) {
-			if (typeof ctx.args[0] === "string" || ctx.args[0] instanceof URL) {
-				ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
-			}
+			if (ctx.args.length > 0)
+				ctx.args[0] = rewriteRequiredRequest(ctx.args[0]);
 		},
 	});
 }

@@ -2,7 +2,7 @@ import { ElementType, Parser } from "htmlparser2";
 import { ChildNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
 import { URLMeta, rewriteUrl, snapshotMeta } from "@rewriters/url";
-import { isCssStyleType, rewriteCss } from "@rewriters/css";
+import { isCssStyleType, rewriteCss, unrewriteCss } from "@rewriters/css";
 import { rewriteJs } from "@rewriters/js";
 import { rewriteImportMap } from "@rewriters/importMap";
 import { rewriteRefresh } from "@rewriters/refresh";
@@ -152,58 +152,90 @@ export function rewriteHtmlAfterPrelude(
 // 	origin?: URL;
 // };
 
+const SHADOW_STYLE_ATTRIBUTE = SHADOW_ATTRIBUTE_PREFIX + "style";
+
+/** Restore authored attributes in-place and report whether anything changed. */
+function restoreAuthoredAttributes(node: ChildNode): boolean {
+	let changed = false;
+
+	if ("attribs" in node) {
+		let styleShadowed = false;
+
+		for (const key in node.attribs) {
+			if (key === SCRIPT_SOURCE_ATTRIBUTE) {
+				if (node.children[0] && "data" in node.children[0]) {
+					node.children[0].data = utf8Decoder.decode(
+						base64ToBytes(node.attribs[key])
+					);
+				}
+				// The source snapshot belongs to the runtime, not to the page.
+				delete node.attribs[key];
+				changed = true;
+				continue;
+			}
+
+			if (key.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
+				if (key === SHADOW_STYLE_ATTRIBUTE) styleShadowed = true;
+				node.attribs[key.slice(SHADOW_ATTRIBUTE_PREFIX.length)] =
+					node.attribs[key];
+				delete node.attribs[key];
+				changed = true;
+			}
+		}
+
+		// CSSOM writes bypass setAttribute(), so they have no authored shadow
+		// attribute. Undo rewritten url() values before handing markup back.
+		if (!styleShadowed && typeof node.attribs.style === "string") {
+			const authored = unrewriteCss(node.attribs.style);
+			if (authored !== node.attribs.style) {
+				node.attribs.style = authored;
+				changed = true;
+			}
+		}
+	}
+
+	if ("childNodes" in node) {
+		for (const child of node.childNodes) {
+			if (restoreAuthoredAttributes(child)) changed = true;
+		}
+	}
+
+	return changed;
+}
+
 export function unrewriteHtml(html: string) {
-	// Every `innerHTML`/`outerHTML`/`getHTML()` read routes through here, and
-	// the only thing this function does is undo `sherpa-attr-*` shadow
-	// attributes. Markup that carries none of them needs no work - and
-	// round-tripping it through the parser + serializer anyway was not just
-	// wasted time, it also handed the page back re-serialized markup (quoting,
-	// entities and void/self-closing tags normalized) rather than its own.
+	// This is a hot path for innerHTML/outerHTML reads. If no runtime shadow
+	// attribute exists, preserve the page's exact serialization and skip parsing.
 	if (typeof html !== "string" || !html.includes(SHADOW_ATTRIBUTE_PREFIX))
 		return html;
 
 	const handler = new DomHandler((err, dom) => dom);
 	const parser = new Parser(handler);
-
 	parser.write(html);
 	parser.end();
 
-	function traverse(node: ChildNode) {
-		if ("attribs" in node) {
-			for (const key in node.attribs) {
-				if (key == SCRIPT_SOURCE_ATTRIBUTE) {
-					// The source was UTF-8 encoded before it was base64'd, so it
-					// has to be decoded the same way round. `atob` alone yields
-					// one character per *byte*, which mojibakes every inline
-					// script containing a non-ASCII character (an accented
-					// string literal, an emoji, any CJK text) the moment a page
-					// reads its own `innerHTML` back.
-					if (node.children[0] && "data" in node.children[0])
-						node.children[0].data = utf8Decoder.decode(
-							base64ToBytes(node.attribs[key])
-						);
-					continue;
-				}
-
-				if (key.startsWith(SHADOW_ATTRIBUTE_PREFIX)) {
-					node.attribs[key.slice(SHADOW_ATTRIBUTE_PREFIX.length)] =
-						node.attribs[key];
-					delete node.attribs[key];
-				}
-			}
-		}
-
-		if ("childNodes" in node) {
-			for (const child of node.childNodes) {
-				traverse(child);
-			}
-		}
-	}
-
-	traverse(handler.root);
+	if (!restoreAuthoredAttributes(handler.root)) return html;
 
 	return render(handler.root, {
 		decodeEntities: false,
+	});
+}
+
+/** Undo runtime markup in XMLSerializer output without applying HTML rules. */
+export function unrewriteXml(xml: string) {
+	if (typeof xml !== "string" || !xml.includes(SHADOW_ATTRIBUTE_PREFIX))
+		return xml;
+
+	const handler = new DomHandler((err, dom) => dom);
+	const parser = new Parser(handler, { xmlMode: true });
+	parser.write(xml);
+	parser.end();
+
+	if (!restoreAuthoredAttributes(handler.root)) return xml;
+
+	return render(handler.root, {
+		decodeEntities: false,
+		xmlMode: true,
 	});
 }
 

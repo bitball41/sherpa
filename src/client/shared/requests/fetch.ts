@@ -3,6 +3,7 @@ import { rewriteUrl, unrewriteUrl } from "@rewriters/url";
 import { SherpaClient } from "@client/index";
 import { appendUrlParams } from "@/shared/urlCodec";
 import { INTERNAL_PARAMS } from "@/shared/internalParams";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 const objectToString = Object.prototype.toString;
 
@@ -35,7 +36,7 @@ export default function (client: SherpaClient) {
 		)
 			return;
 
-		args[0] = rewriteUrl(String(input), client.meta);
+		args[0] = rewriteUrl(toWebIdlString(input), client.meta);
 
 		if (isemulatedsw)
 			args[0] = appendUrlParams(args[0], {
