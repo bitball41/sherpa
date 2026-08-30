@@ -26,7 +26,7 @@ export declare class SherpaServiceWorker extends EventTarget {
      */
     syncPool: Record<number, {
         clientId: string;
-        type: MessageW2C["sherpa$type"];
+        type: MessageW2C["scramjet$type"];
         resolve: (value: MessageC2W) => void;
         reject: (reason: Error) => void;
         timeout: ReturnType<typeof setTimeout>;
@@ -98,21 +98,21 @@ export declare class SherpaServiceWorker extends EventTarget {
 }
 /**
  * Sherpa fake Service Worker event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type RegisterServiceWorkerMessage = {
-    sherpa$type: "registerServiceWorker";
+    scramjet$type: "registerServiceWorker";
     port: MessagePort;
     origin: string;
     scope: string;
 };
 type UnregisterServiceWorkerMessage = {
-    sherpa$type: "unregisterServiceWorker";
+    scramjet$type: "unregisterServiceWorker";
     origin: string;
     scope: string;
 };
 type PostServiceWorkerMessage = {
-    sherpa$type: "postServiceWorkerMessage";
+    scramjet$type: "postServiceWorkerMessage";
     origin: string;
     scope: string;
     message: unknown;
@@ -120,40 +120,40 @@ type PostServiceWorkerMessage = {
 };
 /**
  * Sherpa cookie jar event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type CookieMessage = {
-    sherpa$type: "cookie";
+    scramjet$type: "cookie";
     cookie: string;
     url: string;
     fromJs?: boolean;
 };
 /**
  * Sherpa config event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type ConfigMessage = {
-    sherpa$type: "loadConfig";
+    scramjet$type: "loadConfig";
     config: SherpaConfig;
 };
 /**
  * Sherpa proxified download event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type DownloadMessage = {
-    sherpa$type: "download";
+    scramjet$type: "download";
     download: SherpaDownload;
 };
 /**
  * Default Sherpa message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type MessageCommon = {
-    sherpa$token?: number;
+    scramjet$token?: number;
 };
 /**
  * Message types sent from the client to the Service Worker.
- * These are routed by their `sherpa$type` to identify the messages apart from each other.
+ * These are routed by their `scramjet$type` to identify the messages apart from each other.
  */
 type MessageTypeC2W = RegisterServiceWorkerMessage | UnregisterServiceWorkerMessage | PostServiceWorkerMessage | CookieMessage | ConfigMessage;
 /**

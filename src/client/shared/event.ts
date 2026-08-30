@@ -8,6 +8,12 @@ import type {
 import { getOwnPropertyDescriptorHandler } from "@client/helpers";
 import { storagePrefix } from "@/shared/storage";
 import { getVirtualStorageArea } from "@client/dom/storage";
+import {
+	isLegacyWindowMessageEnvelope,
+	isVirtualMessageEnvelope,
+	isWindowMessageEnvelope,
+	shouldDeliverWindowMessage,
+} from "@/shared/postMessage";
 
 export default function (client: SherpaClient, self: Self) {
 	// Membership in these tables is tested with `in`, and an ordinary object
@@ -24,10 +30,17 @@ export default function (client: SherpaClient, self: Self) {
 	const handlers = nullProto({
 		message: nullProto({
 			_init() {
+				const data = this.data;
 				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					("$sherpa$type" in this.data || "sherpa$type" in this.data)
+					isWindowMessageEnvelope(data) &&
+					!shouldDeliverWindowMessage(data, client.url.origin)
+				) {
+					return false;
+				}
+				if (
+					typeof data === "object" &&
+					data !== null &&
+					("$scramjet$type" in data || "scramjet$type" in data)
 				) {
 					// this is a ctl message
 					return false;
@@ -49,22 +62,14 @@ export default function (client: SherpaClient, self: Self) {
 				return this.source;
 			},
 			origin() {
-				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					"$sherpa$origin" in this.data
-				)
-					return this.data.$sherpa$origin;
+				if (isLegacyWindowMessageEnvelope(this.data))
+					return this.data.$scramjet$origin;
 
-				return client.url.origin;
+				return this.origin;
 			},
 			data() {
-				if (
-					typeof this.data === "object" &&
-					this.data !== null &&
-					"$sherpa$data" in this.data
-				)
-					return this.data.$sherpa$data;
+				if (isVirtualMessageEnvelope(this.data))
+					return this.data.$scramjet$data;
 
 				return this.data;
 			},
@@ -147,7 +152,10 @@ export default function (client: SherpaClient, self: Self) {
 		};
 	}
 
-	function wraplistener(listener: (...args: any) => any) {
+	function wraplistener(
+		listener: (...args: any) => any,
+		onAccepted?: () => void
+	) {
 		return new Proxy(listener, {
 			apply(target, that, args) {
 				const realEvent: Event = args[0];
@@ -214,6 +222,7 @@ export default function (client: SherpaClient, self: Self) {
 				// global once per dispatch until then, on paths as hot as
 				// `mousemove`. One accessor, installed below, reading a variable
 				// that is saved and restored around each dispatch instead.
+				onAccepted?.();
 				const previousEvent = activeEvent;
 				activeEvent = args[0];
 				try {
@@ -242,6 +251,7 @@ export default function (client: SherpaClient, self: Self) {
 		const index = entries.indexOf(entry);
 		if (index >= 0) entries.splice(index, 1);
 		if (entries.length === 0) byCallback.delete(entry.originalCallback);
+		if (byCallback.size === 0) client.eventcallbacks.delete(target);
 	}
 
 	/**
@@ -292,18 +302,27 @@ export default function (client: SherpaClient, self: Self) {
 				once,
 			};
 
-			let proxylistener = wraplistener(listenerFunction);
+			function removeOnce() {
+				dropEntry(target, entry);
+				client.natives.call(
+					"EventTarget.prototype.removeEventListener",
+					target,
+					type,
+					proxylistener,
+					capture
+				);
+			}
+			const proxylistener = wraplistener(
+				listenerFunction,
+				once ? removeOnce : undefined
+			);
 			if (once) {
-				const wrapped = proxylistener;
-				proxylistener = new Proxy(wrapped, {
-					apply(target, that, args) {
-						try {
-							return Reflect.apply(target, that, args);
-						} finally {
-							dropEntry(target, entry);
-						}
-					},
-				});
+				ctx.args[2] = {
+					capture,
+					once: false,
+					passive: Boolean(options?.passive),
+					signal,
+				};
 			}
 			entry.proxiedCallback = proxylistener;
 
@@ -375,7 +394,7 @@ export default function (client: SherpaClient, self: Self) {
 				key.startsWith("on") &&
 				handlers[key.slice(2)]
 			) {
-				const realOnEvent = Symbol(`sherpa original ${key} function`);
+				const realOnEvent = Symbol(`original ${key} function`);
 				const descriptor = client.natives.call(
 					"Object.getOwnPropertyDescriptor",
 					null,

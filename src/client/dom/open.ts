@@ -1,11 +1,15 @@
 import { SherpaClient } from "@client/index";
 import { SHERPACLIENT } from "@/symbols";
 import { rewriteUrl } from "@rewriters/url";
+import { toWebIdlString } from "@/shared/urlCodec";
 
 export default function (client: SherpaClient) {
 	client.Proxy("window.open", {
 		apply(ctx) {
-			if (ctx.args[0]) ctx.args[0] = rewriteUrl(ctx.args[0], client.meta);
+			if (ctx.args.length > 0 && ctx.args[0] !== undefined) {
+				const url = toWebIdlString(ctx.args[0]);
+				ctx.args[0] = url === "" ? url : rewriteUrl(url, client.meta);
+			}
 
 			// `_top`/`_parent` are retargeted at the real frame's name, but that
 			// name is null whenever the current frame already *is* the top of

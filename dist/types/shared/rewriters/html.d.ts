@@ -23,6 +23,8 @@ export declare function renderInjectScripts(documentUrl: URL): string;
  */
 export declare function rewriteHtmlAfterPrelude(html: string, cookieStore: CookieStore, meta: URLMeta): string;
 export declare function unrewriteHtml(html: string): string;
+/** Undo runtime markup in XMLSerializer output without applying HTML rules. */
+export declare function unrewriteXml(xml: string): string;
 export declare function rewriteSrcset(srcset: string, meta: URLMeta): string;
 export { bytesToBase64 };
 export declare function isEventAttribute(name: string): boolean;

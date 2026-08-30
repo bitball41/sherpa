@@ -46,7 +46,7 @@ export function decodeRewrites(buf: ArrayLike<number> | Uint8Array): Rewrite[] {
 
 	const ensure = (size: number) => {
 		if (cursor + size > sourcemap.byteLength) {
-			throw new RangeError("truncated Sherpa source map");
+			throw new RangeError("truncated source map");
 		}
 	};
 	const readUint32 = () => {
@@ -70,7 +70,7 @@ export function decodeRewrites(buf: ArrayLike<number> | Uint8Array): Rewrite[] {
 			continue;
 		}
 		if (type !== RewriteType.Replace) {
-			throw new TypeError(`unknown Sherpa source-map rewrite type ${type}`);
+			throw new TypeError(`unknown source-map rewrite type ${type}`);
 		}
 
 		const oldLength = readUint32();

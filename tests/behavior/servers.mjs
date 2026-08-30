@@ -186,7 +186,7 @@ window.harnessReady = (async () => {
 		prefix: ${JSON.stringify(PREFIX)},
 		files: {
 			wasm: "/engine/sherpa.wasm.wasm",
-			all: "/engine/sherpa.all.js",
+			all: "/engine/sherpa.client.js",
 			sync: "/engine/sherpa.sync.js",
 		},
 		flags: { rewriterLogs: false, scramitize: false, cleanErrors: true },

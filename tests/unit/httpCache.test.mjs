@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { register } from "node:module";
 
-import {
+register("./helpers/srcResolver.mjs", import.meta.url);
+
+const {
 	CACHE_KEY_PARAM,
 	cacheKeyUrl,
 	canStoreResponseFor,
@@ -9,15 +12,13 @@ import {
 	isStorableVary,
 	parseCacheControl,
 	responseCachePolicy,
-} from "../../src/shared/httpCache.ts";
-import {
+} = await import("../../src/shared/httpCache.ts");
+const {
 	INTERNAL_PARAM_PREFIX,
 	isInternalParam,
-} from "../../src/shared/internalParams.ts";
+} = await import("../../src/shared/internalParams.ts");
 
-test("the cache key parameter lives in Sherpa's internal namespace", () => {
-	// httpCache.ts spells the name out to stay import-free; this keeps the two
-	// definitions from drifting, and keeps the key out of a site's parameters.
+test("the cache key parameter lives in the internal namespace", () => {
 	assert.ok(CACHE_KEY_PARAM.startsWith(INTERNAL_PARAM_PREFIX));
 	assert.ok(isInternalParam(CACHE_KEY_PARAM));
 });
@@ -327,7 +328,7 @@ test("the cache key separates variants that rewrite differently", () => {
 	assert.notEqual(asScript, asStyle);
 	assert.notEqual(asScript, asModule);
 	assert.equal(asScript, cacheKeyUrl(url, "script", "", none));
-	assert.ok(asScript.startsWith("https://example.com/asset?sherpa.cache="));
+	assert.ok(asScript.startsWith(`https://example.com/asset?${CACHE_KEY_PARAM}=`));
 });
 
 test("the cache key separates the request headers a response may vary on", () => {
@@ -354,5 +355,5 @@ test("the cache key keeps the site's own query string intact", () => {
 	const parsed = new URL(key);
 	assert.equal(parsed.searchParams.get("v"), "2");
 	assert.equal(parsed.searchParams.get("q"), "hi");
-	assert.ok(parsed.searchParams.has("sherpa.cache"));
+	assert.ok(parsed.searchParams.has(CACHE_KEY_PARAM));
 });

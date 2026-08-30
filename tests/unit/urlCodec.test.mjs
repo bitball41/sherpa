@@ -9,8 +9,12 @@ const {
 	appendUrlParams,
 	decodeProxyUrl,
 	encodeProxyUrl,
+	extractUrlParams,
+	matchesSherpaRoute,
+	normalizeHistoryUrl,
 	resolveBaseHref,
 	stripInternalParams,
+	toWebIdlString,
 } = await import("../../src/shared/urlCodec.ts");
 
 const encode = encodeURIComponent;
@@ -53,22 +57,89 @@ test("decodeProxyUrl passes embedded blob and data URLs through", () => {
 		decodeProxyUrl("/sherpa/data:text/plain,hello", "/sherpa/", decode),
 		"data:text/plain,hello"
 	);
+	assert.equal(
+		decodeProxyUrl(
+			"/sherpa/blob:https://proxy.test/id?scramjet.dest=worker",
+			"/sherpa/",
+			decode
+		),
+		"blob:https://proxy.test/id"
+	);
+	assert.equal(
+		decodeProxyUrl(
+			"/sherpa/data:text/javascript,postMessage(1)?scramjet.type=module",
+			"/sherpa/",
+			decode
+		),
+		"data:text/javascript,postMessage(1)"
+	);
 });
 
 test("appendUrlParams inserts internal parameters before fragments", () => {
-	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded#section", {
+	const first = appendUrlParams(
+		"https://proxy.test/sherpa/encoded#section",
+		{
 			dest: "worker",
 			type: "module",
-		}),
-		"https://proxy.test/sherpa/encoded?dest=worker&type=module#section"
+		}
+	);
+	const secondOriginal =
+		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F#x";
+	const second = appendUrlParams(secondOriginal, { dest: "serviceworker" });
+
+	assert.equal(first.endsWith("#section"), true);
+	assert.deepEqual(
+		{
+			...extractUrlParams(first),
+			params: { ...extractUrlParams(first).params },
+		},
+		{
+			url: "https://proxy.test/sherpa/encoded#section",
+			params: { dest: "worker", type: "module" },
+		}
+	);
+	assert.deepEqual(
+		{
+			...extractUrlParams(second),
+			params: { ...extractUrlParams(second).params },
+		},
+		{ url: secondOriginal, params: { dest: "serviceworker" } }
+	);
+});
+
+test("marked metadata does not collide with target query names", () => {
+	const original =
+		"https://proxy.test/sherpa/https://target.test/?scramjet.type=user&scramjet.from=page";
+	const proxied = appendUrlParams(original, {
+		"scramjet.dest": "worker",
+		"scramjet.type": "module",
+	});
+	const extracted = extractUrlParams(proxied);
+
+	assert.equal(extracted.url, original);
+	assert.deepEqual(
+		{ ...extracted.params },
+		{ "scramjet.dest": "worker", "scramjet.type": "module" }
 	);
 	assert.equal(
-		appendUrlParams("https://proxy.test/sherpa/encoded?scope=%2Fapp%2F#x", {
-			dest: "serviceworker",
-		}),
-		"https://proxy.test/sherpa/encoded?scope=%2Fapp%2F&dest=serviceworker#x"
+		decodeProxyUrl(extracted.url, "https://proxy.test/sherpa/", (x) => x, false),
+		"https://target.test/?scramjet.type=user&scramjet.from=page"
 	);
+});
+
+test("malformed metadata lookalikes are preserved", () => {
+	const lookalike = new URLSearchParams({
+		"scramjet.meta": JSON.stringify([["scramjet.type", "module"]]),
+		"scramjet.type": "user",
+	});
+	const target = `https://proxy.test/sherpa/value?${lookalike}`;
+
+	assert.deepEqual(extractUrlParams(target), { url: target, params: null });
+	const malformed = `${target}&scramjet.meta=%7Bbad&scramjet.type=module`;
+	assert.deepEqual(extractUrlParams(malformed), {
+		url: malformed,
+		params: null,
+	});
 });
 
 test("relative HTML base URLs resolve from the document directory", () => {
@@ -97,10 +168,19 @@ test("restoring form parameters preserves duplicate names and order", () => {
 	assert.equal(url.search, "?tag=first&tag=second&page=1");
 });
 
+test("decoding strips the WASM leftover type=module hint", () => {
+	const proxied = `/sherpa/${encode("https://example.com/mod.js?id=3")}?type=module`;
+
+	assert.equal(
+		decodeProxyUrl(proxied, "/sherpa/", decode),
+		"https://example.com/mod.js?id=3"
+	);
+});
+
 test("decoding strips sherpa's own query hints but keeps the site's", () => {
 	// The hints are appended to the *proxied* URL in cleartext, after the
 	// encoded target - exactly how the client builds a worker or module URL.
-	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker&sherpa.type=module`;
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?scramjet.dest=worker&scramjet.type=module`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),
@@ -119,11 +199,11 @@ test("a site parameter that merely looks internal is preserved", () => {
 
 test("stripping hints leaves the fragment alone", () => {
 	assert.equal(
-		stripInternalParams("https://example.com/a?sherpa.type=module#frag"),
+		stripInternalParams("https://example.com/a?scramjet.type=module#frag"),
 		"https://example.com/a#frag"
 	);
 	assert.equal(
-		stripInternalParams("https://example.com/a?x=1&sherpa.type=module#frag"),
+		stripInternalParams("https://example.com/a?x=1&scramjet.type=module#frag"),
 		"https://example.com/a?x=1#frag"
 	);
 	// nothing internal: returned by identity, no re-serialization
@@ -150,7 +230,7 @@ test("a query appended to a proxied url replaces the target's own", () => {
 });
 
 test("an appended query survives alongside the fragment and sherpa's hints", () => {
-	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?q=new&sherpa.type=module#${encode("frag")}`;
+	const proxied = `/sherpa/${encode("https://example.com/s?q=old")}?q=new&scramjet.type=module#${encode("frag")}`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),
@@ -168,10 +248,38 @@ test("an empty appended query clears the target's own", () => {
 });
 
 test("hints alone never disturb the target's own query", () => {
-	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?sherpa.dest=worker`;
+	const proxied = `/sherpa/${encode("https://example.com/w.js?id=3")}?scramjet.dest=worker`;
 
 	assert.equal(
 		decodeProxyUrl(proxied, "/sherpa/", decode),
 		"https://example.com/w.js?id=3"
 	);
+});
+
+test("route matching rejects prefix lookalikes and foreign origins", () => {
+	const args = ["https://proxy.test", "/sherpa/", "/sherpa.wasm.wasm"];
+
+	assert.equal(matchesSherpaRoute("https://proxy.test/sherpa/x", ...args), true);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa.wasm.wasm?v=1", ...args),
+		true
+	);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa-escape/x", ...args),
+		false
+	);
+	assert.equal(
+		matchesSherpaRoute("https://proxy.test/sherpa.wasm.wasm-evil", ...args),
+		false
+	);
+	assert.equal(matchesSherpaRoute("https://other.test/sherpa/x", ...args), false);
+});
+
+test("DOM URL arguments follow Web IDL string conversion", () => {
+	assert.equal(toWebIdlString(0), "0");
+	assert.equal(toWebIdlString(false), "false");
+	assert.throws(() => toWebIdlString(Symbol("url")), TypeError);
+	assert.equal(normalizeHistoryUrl(undefined), null);
+	assert.equal(normalizeHistoryUrl(null), null);
+	assert.equal(normalizeHistoryUrl(0), "0");
 });

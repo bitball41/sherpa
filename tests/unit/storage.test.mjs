@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { register } from "node:module";
 
-import {
+register("./helpers/srcResolver.mjs", import.meta.url);
+
+const {
 	storageKeys,
 	storagePrefix,
 	storageDirectoryName,
 	unprefixStorageKey,
-} from "../../src/shared/storage.ts";
+} = await import("../../src/shared/storage.ts");
 
 function fakeStorage(keys) {
 	return {

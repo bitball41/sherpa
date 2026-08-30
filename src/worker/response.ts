@@ -73,6 +73,10 @@ export function looksLikeHtml(bytes: Uint8Array): boolean {
 
 export function normalizeHtmlContentType(contentType?: string): string {
 	const value = contentType?.trim() || "text/html";
+	// Once a sniffable response has been positively identified and rewritten as
+	// HTML, expose it as HTML. Keeping application/octet-stream here makes modern
+	// browsers download the rewritten document instead of rendering it.
+	if (!isHtmlContentType(value)) return "text/html; charset=utf-8";
 	const charset = /;\s*charset\s*=\s*(?:"[^"]*"|'[^']*'|[^;\s]*)/i;
 	if (charset.test(value)) return value.replace(charset, "; charset=utf-8");
 

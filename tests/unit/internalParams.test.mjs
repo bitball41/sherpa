@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { register } from "node:module";
 
-import {
+register("./helpers/srcResolver.mjs", import.meta.url);
+
+const {
 	INTERNAL_PARAMS,
 	isInternalParam,
 	takeInternalParams,
-} from "../../src/shared/internalParams.ts";
+} = await import("../../src/shared/internalParams.ts");
 
 test("reads Sherpa's own hints off a proxied request URL", () => {
 	const url = new URL(
@@ -21,6 +24,25 @@ test("reads Sherpa's own hints off a proxied request URL", () => {
 	assert.deepEqual(hints.siteParams, []);
 	// the encoded upstream URL is the path; a leftover query would corrupt it
 	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
+});
+
+test("validated metadata wins without consuming target-owned query names", () => {
+	const url = new URL(
+		`https://proxy.test/sherpa/encoded?${INTERNAL_PARAMS.type}=user&keep=1`
+	);
+	const hints = takeInternalParams(url, {
+		[INTERNAL_PARAMS.type]: "module",
+		[INTERNAL_PARAMS.from]: "swruntime",
+	});
+
+	assert.equal(hints.scriptType, "module");
+	assert.equal(hints.fromServiceWorkerRuntime, true);
+	assert.deepEqual(hints.siteParams, []);
+	assert.equal(
+		url.search,
+		`?${INTERNAL_PARAMS.type}=user&keep=1`,
+		"the encoded target must stay byte-for-byte intact"
+	);
 });
 
 // A GET form submitted through the proxy lands its fields on the proxied
@@ -69,9 +91,21 @@ test("the boot document url hint is consumed, not forwarded to the site", () => 
 	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
 });
 
-test("unknown sherpa.* parameters are stripped, not forwarded", () => {
+test("the WASM leftover type=module is a module hint, not a site field", () => {
 	const url = new URL(
-		"https://proxy.test/sherpa/encoded?sherpa.somethingnew=1&keep=2"
+		"https://proxy.test/sherpa/encoded?type=module&keep=1"
+	);
+
+	const hints = takeInternalParams(url);
+
+	assert.equal(hints.scriptType, "module");
+	assert.deepEqual(hints.siteParams, [["keep", "1"]]);
+	assert.equal(url.href, "https://proxy.test/sherpa/encoded");
+});
+
+test("unknown scramjet.* parameters are stripped, not forwarded", () => {
+	const url = new URL(
+		"https://proxy.test/sherpa/encoded?scramjet.somethingnew=1&keep=2"
 	);
 
 	assert.deepEqual(takeInternalParams(url).siteParams, [["keep", "2"]]);
@@ -104,5 +138,5 @@ test("internal parameter names survive URLSearchParams unescaped", () => {
 	const params = new URLSearchParams();
 	params.set(INTERNAL_PARAMS.type, "module");
 
-	assert.equal(params.toString(), "sherpa.type=module");
+	assert.equal(params.toString(), `${INTERNAL_PARAMS.type}=module`);
 });

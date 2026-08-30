@@ -148,13 +148,14 @@ declare global {
 	var $sherpaLoadController: () => typeof controller;
 	var $sherpaLoadClient: () => typeof client;
 	var $sherpaLoadWorker: () => typeof worker;
+	var $scramjetLoadClient: () => typeof client;
 	var $sherpaVersion: SherpaVersionInfo;
 	interface Window {
 		COOKIE: string;
 		WASM: string;
 		REAL_WASM: Uint8Array;
-		__sherpaWasm?: Promise<ArrayBuffer>;
-		__sherpaWasmBuffer?: ArrayBuffer | Uint8Array;
+		__scramjetWasm?: Promise<ArrayBuffer>;
+		__scramjetWasmBuffer?: ArrayBuffer | Uint8Array;
 
 		/**
 		 * The sherpa client belonging to a window.

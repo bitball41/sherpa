@@ -45,7 +45,11 @@ import {
 	isSniffableHtmlContentType,
 	normalizeHtmlContentType,
 } from "@/worker/response";
-import { appendUrlParamEntries } from "@/shared/urlCodec";
+import {
+	appendUrlParamEntries,
+	appendUrlParams,
+	extractUrlParams,
+} from "@/shared/urlCodec";
 import { INTERNAL_PARAMS, takeInternalParams } from "@/shared/internalParams";
 import {
 	engineBootPathname,
@@ -110,10 +114,13 @@ function decodeTrustedDocumentUrl(
 function bootDocumentUrl(
 	requestUrl: URL,
 	referrer: string,
-	clientHref?: string
+	clientHref?: string,
+	markedDocumentUrl?: string
 ): URL | null {
 	return pickBootDocumentUrl(
-		parseHttpUrl(requestUrl.searchParams.get(INTERNAL_PARAMS.url)),
+		parseHttpUrl(
+			markedDocumentUrl ?? requestUrl.searchParams.get(INTERNAL_PARAMS.url)
+		),
 		decodeTrustedDocumentUrl(referrer),
 		decodeTrustedDocumentUrl(clientHref)
 	);
@@ -191,7 +198,8 @@ export async function handleFetch(
 	client: Client | null
 ) {
 	try {
-		const requestUrl = new URL(request.url);
+		const extractedRequest = extractUrlParams(request.url);
+		const requestUrl = new URL(extractedRequest.url);
 
 		if (requestUrl.pathname === this.config.files.wasm) {
 			// Serve the rewriter as `application/wasm` from the copy the worker
@@ -232,7 +240,8 @@ export async function handleFetch(
 			const documentUrl = bootDocumentUrl(
 				requestUrl,
 				request.referrer,
-				client?.url
+				client?.url,
+				extractedRequest.params?.[INTERNAL_PARAMS.url]
 			);
 			const dump = documentUrl
 				? this.cookieStore.dumpForDocument(documentUrl)
@@ -256,9 +265,11 @@ export async function handleFetch(
 			parentFrameName,
 			fromServiceWorkerRuntime,
 			siteParams,
-		} = takeInternalParams(requestUrl);
+		} = takeInternalParams(requestUrl, extractedRequest.params);
 
-		const url = new URL(unrewriteUrl(requestUrl));
+		const url = new URL(
+			unrewriteUrl(requestUrl, extractedRequest.params === null)
+		);
 		// Now that we're past unrewriting it's safe to put the site's own
 		// parameters back.
 		//
@@ -448,7 +459,8 @@ export async function handleFetch(
 			);
 		}
 
-		const cookies = shouldSendCookies(requestContext)
+		const acceptsCookies = shouldSendCookies(requestContext);
+		const cookies = acceptsCookies
 			? this.cookieStore.getCookies(url, false, {
 					// A "none" directive (address bar / bookmark / stripped referrer)
 					// is a first-party context for the target, so Strict cookies must
@@ -565,6 +577,7 @@ export async function handleFetch(
 			this,
 			requestContext.referrerUrl?.href || "",
 			requestContext.clientUrl,
+			acceptsCookies,
 			cacheKey,
 			now
 		);
@@ -637,6 +650,7 @@ async function handleResponse(
 	swtarget: SherpaServiceWorker,
 	referrer: string,
 	clientUrl: URL | null = null,
+	acceptsCookies: boolean = true,
 	cacheKey: string | null = null,
 	now: number = Date.now()
 ): Promise<Response> {
@@ -703,9 +717,10 @@ async function handleResponse(
 
 			// ensure the module hint is not lost in a redirect
 			if (scriptType) {
-				const loc = new URL(responseHeaders["location"]);
-				loc.searchParams.set(INTERNAL_PARAMS.type, scriptType);
-				responseHeaders["location"] = loc.href;
+				responseHeaders["location"] = appendUrlParams(
+					responseHeaders["location"],
+					{ [INTERNAL_PARAMS.type]: scriptType }
+				);
 			}
 		} catch (error) {
 			// A malformed Location must not turn the redirect into an error page;
@@ -722,13 +737,14 @@ async function handleResponse(
 	// site's cookies where they did not belong and made every one of those
 	// responses wait on a round trip to the page for a jar it can never read.
 	const syncCookiesToClient =
+		acceptsCookies &&
 		client?.type === "window" &&
 		(!clientUrl || couldShareCookies(clientUrl.hostname, url.hostname));
 
 	if (syncCookiesToClient) {
 		for (const cookie of setCookies) {
 			const promise = swtarget.dispatch(client, {
-				sherpa$type: "cookie",
+				scramjet$type: "cookie",
 				cookie,
 				url: url.href,
 			});
@@ -757,12 +773,16 @@ async function handleResponse(
 		}
 	}
 
-	await cookieStore.setCookies(setCookies, url);
-	// Not awaited: the in-memory jar is already current, and every later read
-	// goes through it. Blocking the response on a storage round trip only
-	// bought durability against a service-worker restart in the next few
-	// milliseconds.
-	if (setCookies.length) void persistCookieStore(cookieStore);
+	// Fetch credentials gate both directions: an omitted-credentials request
+	// must not send cookies and must not let the response plant new ones.
+	if (acceptsCookies) {
+		await cookieStore.setCookies(setCookies, url);
+		// Not awaited: the in-memory jar is already current, and every later read
+		// goes through it. Blocking the response on a storage round trip only
+		// bought durability against a service-worker restart in the next few
+		// milliseconds.
+		if (setCookies.length) void persistCookieStore(cookieStore);
+	}
 
 	if (isDownload(responseHeaders, destination) && !isRedirectResponse) {
 		if (flagEnabled("interceptDownloads", url)) {
@@ -799,7 +819,7 @@ async function handleResponse(
 			};
 			clis[0].postMessage(
 				{
-					sherpa$type: "download",
+					scramjet$type: "download",
 					download,
 				} as MessageW2C,
 				response.body ? [response.body] : []

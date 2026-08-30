@@ -30,25 +30,25 @@ export type TransferrableRequest = {
     url: string;
 };
 type FetchResponseMessage = {
-    sherpa$type: "fetch";
-    sherpa$response: TransferrableResponse | TransferrableResponseError | false;
+    scramjet$type: "fetch";
+    scramjet$response: TransferrableResponse | TransferrableResponseError | false;
 };
 type FetchRequestMessage = {
-    sherpa$type: "fetch";
-    sherpa$request: TransferrableRequest;
+    scramjet$type: "fetch";
+    scramjet$request: TransferrableRequest;
 };
 type RuntimeMessage = {
-    sherpa$type: "message";
-    sherpa$data: unknown;
+    scramjet$type: "message";
+    scramjet$data: unknown;
 };
 type MessageTypeR2W = FetchResponseMessage;
 type MessageTypeW2R = FetchRequestMessage;
 type MessageCommon = {
-    sherpa$type: string;
-    sherpa$token: number;
+    scramjet$type: string;
+    scramjet$token: number;
 };
 export type MessageR2W = MessageCommon & MessageTypeR2W;
 export type MessageW2R = (MessageCommon & MessageTypeW2R & {
-    sherpa$port?: MessagePort;
+    scramjet$port?: MessagePort;
 }) | RuntimeMessage;
 export {};

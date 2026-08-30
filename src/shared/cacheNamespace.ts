@@ -22,3 +22,19 @@ export async function matchNamespacedCaches<T>(
 
 	return undefined;
 }
+
+/** Map Cache.addAll's Web-IDL sequence without mutating the caller's input. */
+export function mapCacheRequestSequence<T>(
+	requests: Iterable<T>,
+	map: (request: T) => T
+): T[] {
+	if (
+		requests === null ||
+		requests === undefined ||
+		typeof requests[Symbol.iterator] !== "function"
+	) {
+		throw new TypeError("Cache.addAll requests must be iterable");
+	}
+
+	return Array.from(requests, map);
+}

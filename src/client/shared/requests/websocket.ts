@@ -1,6 +1,7 @@
 import { type BareWebSocket } from "@mercuryworkshop/bare-mux";
 import type { SherpaClient } from "@client/index";
 import {
+	closeWebSocketOnAbort,
 	normalizeWebSocketCloseArguments,
 	normalizeWebSocketProtocols,
 	resolveWebSocketUrl,
@@ -269,7 +270,7 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				"User-Agent": self.navigator.userAgent,
 				Origin: client.url.origin,
 			});
-			options.signal?.addEventListener("abort", () => {
+			const cleanupAbort = closeWebSocketOnAbort(options.signal, () => {
 				barews.close(1000, "");
 			});
 			let openResolver, closeResolver;
@@ -327,10 +328,12 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 				});
 			});
 			barews.addEventListener("close", (ev: CloseEvent) => {
+				cleanupAbort?.();
 				closeResolver({ code: ev.code, reason: ev.reason });
 			});
 
 			barews.addEventListener("error", (ev: Event) => {
+				cleanupAbort?.();
 				openRejector(ev);
 			});
 
@@ -366,16 +369,15 @@ export default function (client: SherpaClient, self: typeof globalThis) {
 	client.Proxy("WebSocketStream.prototype.close", {
 		apply(ctx) {
 			const ws = socketstreammap.get(ctx.this);
-			if (ctx.args[0]) {
-				if (ctx.args[0].closeCode === undefined) ctx.args[0].closeCode = 1000;
-				if (ctx.args[0].reason === undefined) ctx.args[0].reason = "";
+			const options = ctx.args[0];
+			const { code, reason } = normalizeWebSocketCloseArguments(
+				options?.closeCode,
+				options?.reason,
+				options?.closeCode !== undefined,
+				options?.reason !== undefined
+			);
 
-				return ctx.return(
-					ws.barews.close(ctx.args[0].closeCode, ctx.args[0].reason)
-				);
-			}
-
-			return ctx.return(ws.barews.close(1000, ""));
+			return ctx.return(ws.barews.close(code ?? 1000, reason ?? ""));
 		},
 	});
 }

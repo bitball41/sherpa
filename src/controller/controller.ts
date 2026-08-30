@@ -13,6 +13,7 @@ import { MessageW2C } from "@/worker";
 import type { IDBPDatabase } from "idb";
 import { SherpaGlobalDownloadEvent, SherpaGlobalEvents } from "@client/events";
 import { getDB } from "@/shared/security/db";
+import { PAGE_GLOBALS } from "@/shared/pageSurface";
 
 export class SherpaController extends EventTarget {
 	private db: IDBPDatabase<SherpaDB>;
@@ -21,11 +22,11 @@ export class SherpaController extends EventTarget {
 		if (
 			typeof e.data !== "object" ||
 			e.data === null ||
-			!("sherpa$type" in e.data)
+			!("scramjet$type" in e.data)
 		)
 			return;
 
-		if (e.data.sherpa$type === "download") {
+		if (e.data.scramjet$type === "download") {
 			this.dispatchEvent(new SherpaGlobalDownloadEvent(e.data.download));
 		}
 	};
@@ -36,23 +37,10 @@ export class SherpaController extends EventTarget {
 		const defaultConfig: SherpaConfig = {
 			// wisp: "/wisp/",
 			prefix: "/sherpa/",
-			globals: {
-				wrapfn: "$sherpa$wrap",
-				wrappropertybase: "$sherpa__",
-				wrappropertyfn: "$sherpa$prop",
-				cleanrestfn: "$sherpa$clean",
-				importfn: "$sherpa$import",
-				rewritefn: "$sherpa$rewrite",
-				metafn: "$sherpa$meta",
-				setrealmfn: "$sherpa$setrealm",
-				pushsourcemapfn: "$sherpa$pushsourcemap",
-				trysetfn: "$sherpa$tryset",
-				templocid: "$sherpa$temploc",
-				tempunusedid: "$sherpa$tempunused",
-			},
+			globals: { ...PAGE_GLOBALS },
 			files: {
 				wasm: "/sherpa.wasm.wasm",
-				all: "/sherpa.all.js",
+				all: "/sherpa.client.js",
 				sync: "/sherpa.sync.js",
 			},
 			flags: {
@@ -108,7 +96,7 @@ export class SherpaController extends EventTarget {
 	 * is the same trust boundary either way.
 	 */
 	private async notifyWorker(): Promise<void> {
-		const message = { sherpa$type: "loadConfig", config } as const;
+		const message = { scramjet$type: "loadConfig", config } as const;
 
 		const controller = navigator.serviceWorker.controller;
 		if (controller) {

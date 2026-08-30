@@ -1,4 +1,4 @@
-import { SherpaFrame } from "../controller/frame";
+import type { SherpaFrame } from "../controller/frame";
 import { type URLMeta } from "../shared/rewriters/url";
 import { CookieStore } from "../shared/cookie";
 import { SingletonBox } from "./singletonbox";

@@ -15,6 +15,7 @@ import { CookieStore } from "@/shared/cookie";
 import { getDB } from "@/shared/security/db";
 import { persistCookieStore } from "@/worker/cookiePersistence";
 import { codecDecode, setConfig } from "@/shared";
+import { matchesSherpaRoute } from "@/shared/urlCodec";
 import { SherpaDownload } from "@client/events";
 import {
 	getClientIdentity,
@@ -48,7 +49,7 @@ export class SherpaServiceWorker extends EventTarget {
 		number,
 		{
 			clientId: string;
-			type: MessageW2C["sherpa$type"];
+			type: MessageW2C["scramjet$type"];
 			resolve: (value: MessageC2W) => void;
 			reject: (reason: Error) => void;
 			timeout: ReturnType<typeof setTimeout>;
@@ -100,21 +101,21 @@ export class SherpaServiceWorker extends EventTarget {
 
 	private async handleMessage(event: ExtendableMessageEvent) {
 		const data = event.data as MessageC2W;
-		if (typeof data !== "object" || data === null || !("sherpa$type" in data))
+		if (typeof data !== "object" || data === null || !("scramjet$type" in data))
 			return;
 
 		const sender = getClientIdentity(event.source);
 		if (!sender) return;
 
-		if ("sherpa$token" in data && data.sherpa$token !== undefined) {
-			if (!Number.isSafeInteger(data.sherpa$token)) return;
-			const pending = this.syncPool[data.sherpa$token];
+		if ("scramjet$token" in data && data.scramjet$token !== undefined) {
+			if (!Number.isSafeInteger(data.scramjet$token)) return;
+			const pending = this.syncPool[data.scramjet$token];
 			if (
 				pending &&
 				pending.clientId === sender.id &&
-				pending.type === data.sherpa$type
+				pending.type === data.scramjet$type
 			) {
-				delete this.syncPool[data.sherpa$token];
+				delete this.syncPool[data.scramjet$token];
 				clearTimeout(pending.timeout);
 				pending.resolve(data);
 			}
@@ -122,7 +123,7 @@ export class SherpaServiceWorker extends EventTarget {
 			return;
 		}
 
-		if (data.sherpa$type === "loadConfig") {
+		if (data.scramjet$type === "loadConfig") {
 			const db = await getDB();
 			const storedConfig = await db.get("config", "config");
 			if (
@@ -154,7 +155,7 @@ export class SherpaServiceWorker extends EventTarget {
 		);
 		if (!virtualUrl) return;
 
-		if (data.sherpa$type === "registerServiceWorker") {
+		if (data.scramjet$type === "registerServiceWorker") {
 			if (data.origin !== virtualUrl.origin) return;
 
 			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
@@ -168,7 +169,7 @@ export class SherpaServiceWorker extends EventTarget {
 			return;
 		}
 
-		if (data.sherpa$type === "unregisterServiceWorker") {
+		if (data.scramjet$type === "unregisterServiceWorker") {
 			if (data.origin !== virtualUrl.origin) return;
 
 			const scope = normalizeVirtualScope(data.scope, virtualUrl.origin);
@@ -179,7 +180,7 @@ export class SherpaServiceWorker extends EventTarget {
 			return;
 		}
 
-		if (data.sherpa$type === "postServiceWorkerMessage") {
+		if (data.scramjet$type === "postServiceWorkerMessage") {
 			if (data.origin !== virtualUrl.origin || !Array.isArray(data.transfer))
 				return;
 
@@ -195,7 +196,7 @@ export class SherpaServiceWorker extends EventTarget {
 			return;
 		}
 
-		if (data.sherpa$type === "cookie") {
+		if (data.scramjet$type === "cookie") {
 			await this.cookieStoreReady;
 			this.cookieStore.setCookies([data.cookie], virtualUrl, data.fromJs);
 			// Awaited here (the caller wraps this in `event.waitUntil`) but
@@ -229,16 +230,16 @@ export class SherpaServiceWorker extends EventTarget {
 		);
 		const timeout = setTimeout(() => {
 			delete this.syncPool[token];
-			reject(new Error(`client ${data.sherpa$type} acknowledgement timed out`));
+			reject(new Error(`client ${data.scramjet$type} acknowledgement timed out`));
 		}, CLIENT_RPC_TIMEOUT_MS);
 		this.syncPool[token] = {
 			clientId: client.id,
-			type: data.sherpa$type,
+			type: data.scramjet$type,
 			resolve: cb,
 			reject,
 			timeout,
 		};
-		data.sherpa$token = token;
+		data.scramjet$token = token;
 
 		try {
 			client.postMessage(data);
@@ -286,11 +287,12 @@ export class SherpaServiceWorker extends EventTarget {
 	route({ request }: FetchEvent) {
 		if (!this.config) return false;
 
-		if (request.url.startsWith(location.origin + this.config.prefix))
-			return true;
-		else if (request.url.startsWith(location.origin + this.config.files.wasm))
-			return true;
-		else return false;
+		return matchesSherpaRoute(
+			request.url,
+			location.origin,
+			this.config.prefix,
+			this.config.files.wasm
+		);
 	}
 
 	/**
@@ -310,7 +312,7 @@ export class SherpaServiceWorker extends EventTarget {
 		if (!this.config) await this.loadConfig();
 		await this.cookieStoreReady;
 
-		const client = await self.clients.get(clientId);
+		const client = clientId ? await self.clients.get(clientId) : undefined;
 
 		return handleFetch.call(this, request, client);
 	}
@@ -318,23 +320,23 @@ export class SherpaServiceWorker extends EventTarget {
 
 /**
  * Sherpa fake Service Worker event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type RegisterServiceWorkerMessage = {
-	sherpa$type: "registerServiceWorker";
+	scramjet$type: "registerServiceWorker";
 	port: MessagePort;
 	origin: string;
 	scope: string;
 };
 
 type UnregisterServiceWorkerMessage = {
-	sherpa$type: "unregisterServiceWorker";
+	scramjet$type: "unregisterServiceWorker";
 	origin: string;
 	scope: string;
 };
 
 type PostServiceWorkerMessage = {
-	sherpa$type: "postServiceWorkerMessage";
+	scramjet$type: "postServiceWorkerMessage";
 	origin: string;
 	scope: string;
 	message: unknown;
@@ -343,10 +345,10 @@ type PostServiceWorkerMessage = {
 
 /**
  * Sherpa cookie jar event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type CookieMessage = {
-	sherpa$type: "cookie";
+	scramjet$type: "cookie";
 	cookie: string;
 	url: string;
 	fromJs?: boolean;
@@ -354,32 +356,32 @@ type CookieMessage = {
 
 /**
  * Sherpa config event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type ConfigMessage = {
-	sherpa$type: "loadConfig";
+	scramjet$type: "loadConfig";
 	config: SherpaConfig;
 };
 
 /**
  * Sherpa proxified download event message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type DownloadMessage = {
-	sherpa$type: "download";
+	scramjet$type: "download";
 	download: SherpaDownload;
 };
 /**
  * Default Sherpa message.
- * Contains a `sherpa$type` for identifying the message.
+ * Contains a `scramjet$type` for identifying the message.
  */
 type MessageCommon = {
-	sherpa$token?: number;
+	scramjet$token?: number;
 };
 
 /**
  * Message types sent from the client to the Service Worker.
- * These are routed by their `sherpa$type` to identify the messages apart from each other.
+ * These are routed by their `scramjet$type` to identify the messages apart from each other.
  */
 type MessageTypeC2W =
 	| RegisterServiceWorkerMessage

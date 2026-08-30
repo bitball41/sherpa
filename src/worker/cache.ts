@@ -30,11 +30,11 @@ export { cacheKeyUrl } from "../shared/httpCache";
  * can never contain `$`, so nothing a page opens or enumerates can collide with
  * or observe this bucket.
  */
-const CACHE_NAME_PREFIX = "sherpa$response$v1$";
+const CACHE_NAME_PREFIX = "scramjet$response$v1$";
 
 /** Freshness bookkeeping, written onto the stored copy only. */
-const EXPIRES_HEADER = "sherpa-cache-expires";
-const STORED_HEADER = "sherpa-cache-stored";
+const EXPIRES_HEADER = "scramjet-cache-expires";
+const STORED_HEADER = "scramjet-cache-stored";
 
 /**
  * Bodies above this never go in. The Cache API shares the origin's storage

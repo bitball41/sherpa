@@ -208,7 +208,7 @@ window.benchReady = (async () => {
 		prefix: "/proxied/",
 		files: {
 			wasm: "/engine/sherpa.wasm.wasm",
-			all: "/engine/sherpa.all.js",
+			all: "/engine/sherpa.client.js",
 			sync: "/engine/sherpa.sync.js",
 		},
 		flags: ${flagsJson},

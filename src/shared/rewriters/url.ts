@@ -138,7 +138,7 @@ export function rewriteUrl(url: string | URL, meta: URLMeta) {
 	return encodeProxyUrl(realUrl, prefixed, codecEncode, href);
 }
 
-export function unrewriteUrl(url: string | URL) {
+export function unrewriteUrl(url: string | URL, stripHints = true) {
 	if (url instanceof URL) url = url.toString();
 	// remove query string
 	// if (url.includes("?")) {
@@ -155,5 +155,5 @@ export function unrewriteUrl(url: string | URL) {
 	// js rewrite isn't losslessly reversible.)
 	if (!url.startsWith(prefixed)) return url;
 
-	return decodeProxyUrl(url, prefixed, codecDecode);
+	return decodeProxyUrl(url, prefixed, codecDecode, stripHints);
 }

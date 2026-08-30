@@ -58,6 +58,10 @@ test("incomplete leading whitespace is not sniffed as binary yet", () => {
 test("normalizes plain and quoted HTML charsets to UTF-8", () => {
 	assert.equal(normalizeHtmlContentType(), "text/html; charset=utf-8");
 	assert.equal(
+		normalizeHtmlContentType("application/octet-stream"),
+		"text/html; charset=utf-8"
+	);
+	assert.equal(
 		normalizeHtmlContentType('Text/HTML; charset="windows-1252"; foo=bar'),
 		"Text/HTML; charset=utf-8; foo=bar"
 	);

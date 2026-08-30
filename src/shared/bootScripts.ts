@@ -25,6 +25,11 @@ import { config } from "./state";
 import { appendUrlParams } from "./urlCodec";
 import { INTERNAL_PARAMS } from "./internalParams";
 import { bytesToBase64 } from "./base64";
+import {
+	PAGE_LOAD_CLIENT,
+	WASM_BUFFER_KEY,
+	WASM_PROMISE_KEY,
+} from "./pageSurface";
 
 export const ENGINE_BOOT_PATH = "$boot";
 export const ENGINE_ERROR_PATH = "$error";
@@ -103,9 +108,13 @@ function wasmPrefetchSrc(wasmUrl: string): string {
 	// `loadAndHook` also starts the same fetch in case this script was skipped
 	// (a worker bootstrap, a srcdoc that inherited a different inject path).
 	const source =
-		"self.__sherpaWasm=fetch(" +
+		"self." +
+		WASM_PROMISE_KEY +
+		"=fetch(" +
 		JSON.stringify(wasmUrl) +
-		").then(function(r){return r.arrayBuffer()}).then(function(b){self.__sherpaWasmBuffer=b;return b});" +
+		").then(function(r){return r.arrayBuffer()}).then(function(b){self." +
+		WASM_BUFFER_KEY +
+		"=b;return b});" +
 		"if('document' in self && document.currentScript)document.currentScript.remove();";
 	if (source !== lastPrefetchSource) {
 		lastPrefetchSource = source;
@@ -136,7 +145,9 @@ export function renderBootScript(cookieDump: string): string {
 	return (
 		"self.COOKIE=" +
 		JSON.stringify(cookieDump) +
-		";$sherpaLoadClient().loadAndHook(" +
+		";" +
+		PAGE_LOAD_CLIENT +
+		"().loadAndHook(" +
 		configLiteral() +
 		');if("document" in self && document.currentScript)document.currentScript.remove();'
 	);
@@ -156,11 +167,15 @@ export function wasmSyncLoaderSource(wasmUrl: string): string {
 		"(function(){var x=new XMLHttpRequest();x.open('GET'," +
 		href +
 		",false);try{x.responseType='arraybuffer'}catch(e){}" +
-		"x.send(null);if(x.response instanceof ArrayBuffer)self.__sherpaWasmBuffer=x.response;" +
+		"x.send(null);if(x.response instanceof ArrayBuffer)self." +
+		WASM_BUFFER_KEY +
+		"=x.response;" +
 		"else{x=new XMLHttpRequest();x.open('GET'," +
 		href +
 		",false);x.overrideMimeType('text/plain; charset=x-user-defined');x.send(null);" +
 		"var t=x.responseText,b=new Uint8Array(t.length);for(var i=0;i<t.length;i++)b[i]=t.charCodeAt(i)&255;" +
-		"self.__sherpaWasmBuffer=b.buffer}})();\n"
+		"self." +
+		WASM_BUFFER_KEY +
+		"=b.buffer}})();\n"
 	);
 }

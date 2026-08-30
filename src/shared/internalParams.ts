@@ -18,7 +18,9 @@
  * rather than `$` or `_` so `URLSearchParams` serialization leaves it
  * readable instead of percent-encoding it.
  */
-export const INTERNAL_PARAM_PREFIX = "sherpa.";
+import { INTERNAL_PARAM_PREFIX } from "./pageSurface";
+
+export { INTERNAL_PARAM_PREFIX };
 
 export const INTERNAL_PARAMS = {
 	/** `"module"` for module scripts/workers, so the rewriter picks the right parse goal. */
@@ -41,6 +43,18 @@ export function isInternalParam(name: string): boolean {
 	return name.startsWith(INTERNAL_PARAM_PREFIX);
 }
 
+/**
+ * True for a query pair the worker/client should consume rather than forward.
+ *
+ * The committed WASM rewriter still appends the pre-namespace `type=module`
+ * token (`rewriter/wasm/src/jsr.rs`); that exact pair is ours. Any other
+ * `type=` value is the site's.
+ */
+export function isInternalQueryParam(name: string, value = ""): boolean {
+	if (name.startsWith(INTERNAL_PARAM_PREFIX)) return true;
+	return name === "type" && value === "module";
+}
+
 export type SherpaRequestHints = {
 	/** `"module"` when the request is for a module script/worker. */
 	scriptType: string;
@@ -61,12 +75,24 @@ export type SherpaRequestHints = {
  * leftover query would corrupt decoding. Parameters that aren't Sherpa's are
  * handed back so they can be re-attached to the decoded URL.
  */
-export function takeInternalParams(url: URL): SherpaRequestHints {
+export function takeInternalParams(
+	url: URL,
+	markedParams: Record<string, string> | null = null
+): SherpaRequestHints {
 	const hints: SherpaRequestHints = {
 		scriptType: "",
 		fromServiceWorkerRuntime: false,
 		siteParams: [],
 	};
+	if (markedParams) {
+		hints.scriptType = markedParams[INTERNAL_PARAMS.type] ?? "";
+		hints.fromServiceWorkerRuntime =
+			markedParams[INTERNAL_PARAMS.from] === "swruntime";
+		hints.topFrameName = markedParams[INTERNAL_PARAMS.topFrame];
+		hints.parentFrameName = markedParams[INTERNAL_PARAMS.parentFrame];
+
+		return hints;
+	}
 
 	// Most proxied requests carry no query at all - the target is encoded into
 	// the path - and this runs on every one of them. Reading `searchParams`
@@ -79,6 +105,10 @@ export function takeInternalParams(url: URL): SherpaRequestHints {
 		switch (param) {
 			case INTERNAL_PARAMS.type:
 				hints.scriptType = value;
+				break;
+			case "type":
+				if (value === "module") hints.scriptType = value;
+				else hints.siteParams.push([param, value]);
 				break;
 			case INTERNAL_PARAMS.dest:
 			case INTERNAL_PARAMS.scope:

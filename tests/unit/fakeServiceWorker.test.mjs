@@ -99,7 +99,7 @@ test("page messages and transferables reach the nested worker runtime", async ()
 	const { channel, worker } = createWorker();
 	const received = new Promise((resolve) => {
 		channel.port2.addEventListener("message", (event) => {
-			if (event.data?.sherpa$type === "message") resolve(event.data);
+			if (event.data?.scramjet$type === "message") resolve(event.data);
 		});
 		channel.port2.start();
 	});
@@ -111,9 +111,9 @@ test("page messages and transferables reach the nested worker runtime", async ()
 	);
 	assert.equal(buffer.byteLength, 0);
 	const message = await received;
-	assert.equal(message.sherpa$data.greeting, "hello");
+	assert.equal(message.scramjet$data.greeting, "hello");
 	assert.deepEqual(
-		Array.from(new Uint8Array(message.sherpa$data.buffer)),
+		Array.from(new Uint8Array(message.scramjet$data.buffer)),
 		[1, 2, 3]
 	);
 

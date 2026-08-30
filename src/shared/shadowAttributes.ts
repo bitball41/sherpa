@@ -1,18 +1,16 @@
 /**
  * Sherpa rewrites a page's URL-bearing attributes in place and keeps the value
- * the page actually authored in a parallel `sherpa-attr-*` attribute, so the
+ * the page actually authored in a parallel shadow attribute, so the
  * attribute APIs (and now selectors) can hand the original back.
  *
- * This module is deliberately dependency-free: the selector rewriter needs to
- * know which attribute names are shadowed, and `htmlRules` - the table those
- * names come from - transitively pulls in the WASM JS rewriter.
+ * The prefix itself lives in `pageSurface.ts` so every page-facing identifier
+ * is defined in one place. This module still has no WASM/htmlRules imports:
+ * the selector rewriter needs to know which attribute names are shadowed, and
+ * `htmlRules` transitively pulls in the WASM JS rewriter.
  */
+import { SHADOW_ATTRIBUTE_PREFIX } from "./pageSurface";
 
-/**
- * Prefix of the shadow attributes that keep a page's *original* attribute
- * values readable after Sherpa rewrites them.
- */
-export const SHADOW_ATTRIBUTE_PREFIX = "sherpa-attr-";
+export { SHADOW_ATTRIBUTE_PREFIX };
 
 /** Shadow attribute holding the base64 source of a rewritten inline script. */
 export const SCRIPT_SOURCE_ATTRIBUTE = `${SHADOW_ATTRIBUTE_PREFIX}script-source-src`;

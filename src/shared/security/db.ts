@@ -1,5 +1,6 @@
 import type { SherpaDB } from "@/types";
 import { openDB, type IDBPDatabase } from "idb";
+import { PAGE_DB_NAME } from "../pageSurface";
 
 // Opening an IndexedDB connection costs a browser-process round trip, and the
 // security emulation used to do it several times for every proxied request.
@@ -30,7 +31,7 @@ function createStores(db: IDBPDatabase<SherpaDB>): void {
  */
 export function getDB(): Promise<IDBPDatabase<SherpaDB>> {
 	if (!dbPromise) {
-		dbPromise = openDB<SherpaDB>("$sherpa", DB_VERSION, {
+		dbPromise = openDB<SherpaDB>(PAGE_DB_NAME, DB_VERSION, {
 			upgrade(db) {
 				createStores(db);
 			},

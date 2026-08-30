@@ -94,6 +94,38 @@ const iifeConfig = defineConfig({
 		new rspack.DefinePlugin({
 			COMMITHASH: commitHash,
 		}),
+		{
+			apply(compiler) {
+				compiler.hooks.thisCompilation.tap("QuietPageBundle", (compilation) => {
+					compilation.hooks.processAssets.tap(
+						{
+							name: "QuietPageBundle",
+							stage:
+								compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_DEV_TOOLING +
+								1,
+						},
+						() => {
+							const name = "sherpa.client.js";
+							const asset = compilation.getAsset(name);
+							if (!asset) return;
+							// Host class names (SherpaClient, …) survive export
+							// maps; the page must not advertise this fork.
+							const source = asset.source
+								.source()
+								.toString()
+								.replace(/\n\/\/# sourceMappingURL=.*\s*$/, "\n")
+								.replaceAll("Sherpa", "Scramjet")
+								.replaceAll("$sherpa", "$scramjet")
+								.replaceAll("sherpa", "scramjet");
+							compilation.updateAsset(
+								name,
+								new compiler.webpack.sources.RawSource(source)
+							);
+						}
+					);
+				});
+			},
+		},
 		process.env.DEBUG
 			? new RsdoctorRspackPlugin({
 					supports: {
@@ -111,6 +143,18 @@ const iifeConfig = defineConfig({
 				/Critical dependency: the request of a dependency is an expression/,
 		},
 	],
+});
+
+const clientConfig = defineConfig({
+	...iifeConfig,
+	devtool: false,
+	entry: {
+		client: join(__dirname, "src/client/pageEntry.ts"),
+	},
+	optimization: {
+		mangleExports: true,
+		usedExports: true,
+	},
 });
 
 // Configuration for ES module build
@@ -212,4 +256,4 @@ const moduleConfig = defineConfig({
 });
 
 // Export multiple configurations
-export default [iifeConfig, moduleConfig];
+export default [iifeConfig, clientConfig, moduleConfig];

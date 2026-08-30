@@ -97,7 +97,7 @@ check("element.attributes hides sherpa's shadow attributes", () => {
 	const a = document.getElementById("intro");
 	const names = [];
 	for (let i = 0; i < a.attributes.length; i++) names.push(a.attributes[i].name);
-	if (names.some((n) => n.startsWith("sherpa-attr-")))
+	if (names.some((n) => n.startsWith("scramjet-attr-")))
 		throw new Error("shadow attribute visible: " + names.join(","));
 	if (names.indexOf("href") === -1) throw new Error("href missing: " + names.join(","));
 	if (names.indexOf("id") === -1) throw new Error("id missing: " + names.join(","));
@@ -109,7 +109,7 @@ check("element.attributes hides sherpa's shadow attributes", () => {
 check("spreading element.attributes agrees with its length", () => {
 	const a = document.getElementById("intro");
 	const spread = Array.from(a.attributes);
-	if (spread.some((attr) => !attr || attr.name.startsWith("sherpa-attr-")))
+	if (spread.some((attr) => !attr || attr.name.startsWith("scramjet-attr-")))
 		throw new Error("shadow attribute leaked into iteration");
 	return eq(spread.length, a.attributes.length, "spread length");
 });
@@ -277,7 +277,7 @@ check("shadowRoot.setHTMLUnsafe rewrites a subresource url", () => {
 
 check("shadowRoot.innerHTML reads back the authored markup", () => {
 	const root = shadowHost('<img id="sr" src="/img/pixel-a.png">');
-	if (root.innerHTML.indexOf("sherpa-attr-") !== -1)
+	if (root.innerHTML.indexOf("scramjet-attr-") !== -1)
 		throw new Error("shadow attribute leaked: " + root.innerHTML);
 	return eq(root.innerHTML.indexOf('src="/img/pixel-a.png"') !== -1, true, "authored src");
 });
@@ -483,7 +483,7 @@ check("<a ping> is rewritten and reads back as authored", () => {
 	eq(a.getAttribute("ping"), "/beacon/one /beacon/two", "authored value");
 	eq(a.ping, "/beacon/one /beacon/two", "reflected value");
 	const rewritten = a.outerHTML;
-	if (rewritten.indexOf("sherpa-attr-ping") !== -1)
+	if (rewritten.indexOf("scramjet-attr-ping") !== -1)
 		throw new Error("shadow attribute leaked into markup: " + rewritten);
 	return "ok";
 });
@@ -809,7 +809,7 @@ const ASYNC_CHECKS = String.raw`
 		});
 
 		const inner = frame.contentWindow;
-		const jar = inner[Symbol.for("sherpa client global")].cookieStore.dump();
+		const jar = inner[Symbol.for("scramjet client global")].cookieStore.dump();
 		const cookie = inner.document.cookie;
 		frame.remove();
 
